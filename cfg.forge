@@ -1,0 +1,88 @@
+
+cfg AST_CFG from AST {
+
+    layout(Branch(cond, then, else)) {
+        layout cond
+        branch "on_true", "on_false"
+
+        label "on_true"
+        layout then
+        goto "if_end"
+
+        label "on_false"
+        layout else
+        goto "if_end"
+
+        label "if_end"
+    }
+
+    layout(While(label, cond, body)) {
+
+        label match label {
+            None -> "continue"
+            Some(l) -> "continue_" + l
+        }
+        layout cond
+        branch "on_true", match label {
+            None -> "break"
+            Some(l) -> "break_" + l
+        }
+
+        label "on_true"
+        layout body
+        goto match label {
+             None -> "continue"
+             Some(l) -> "continue_" + l
+        }
+
+        label match label {
+            None -> "break"
+            Some(l) -> "break_" + l
+        }
+    }
+
+    layout(Break(label)) {
+        goto match label {
+            None -> "break"
+            Some(l) -> "break_" + l
+        }
+    }
+
+    layout(Continue(label)) {
+        goto match label {
+            None -> "continue"
+            Some(l) -> "continue_" + l
+        }
+    }
+
+    layout(TryCatch(tryBody, catches, finallyBody)) {
+        goto "try"
+        label "try"
+        layout tryBody
+        goto "next"
+
+        label "finally"
+        layout finallyBody
+        goto "end"
+
+        label "catches"
+        for catch in catches.size:
+            label i + "_catch"
+            layout catches[i]
+            goto "finally"
+            label "end"
+            goto "next"
+
+        label "next"
+    }
+
+    layout(Return(v)) {
+        layout v
+        exit
+    }
+
+    layout(Throw(ex)) {
+        layout ex
+        exit
+    }
+}

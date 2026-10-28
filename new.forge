@@ -1,0 +1,102 @@
+
+external fun str.int(): int
+
+node Root(decls: List<TopLevelDecl>)
+node TopLevelDecl
+node Function(receiver: Type?, name: str, params: List<Parameter>, returnType: Type, body: Expr): TopLevelDecl
+node Parameter(name: str, type: Type)
+node Expr
+node Int(value: int): Expr
+node String(value: str): Expr
+node Plus(lhs: Expr, rhs: Expr): Expr
+node This(): Expr
+
+enum Type {
+    INT,
+    STR,
+    ERROR(msg: str),
+    ALREADY_REPORTED_ERROR
+}
+
+fun Type.repr(): str = match this {
+    Type.INT -> "int"
+    Type.STR -> "str"
+    Type.ERROR(_) -> "ERROR"
+}
+
+parser SampleLang
+rule SampleLang.program: Root -> decls:function* { Root(decls) }
+rule SampleLang.function: Function -> 'fun' (recv:type? '.') name:'...' '(' params:parameters ')' ':' ret:type '=' body:expr { Function(recv, name, params, ret, body) }
+rule SampleLang.parameters: List<Parameter> -> head:parameter rest:(',' parameter)* { [head] ++ rest }
+rule SampleLang.parameter: Parameter -> name:'...' ':' ty:type { Parameter(name, ty) }
+rule SampleLang.type: Type -> ty:('int' | 'str')? {
+                                                    match ty {
+                                                        "int" -> Type.INT
+                                                        "str" -> Type.STR
+                                                    }
+                                                }
+rule SampleLang.expr: Expr
+rule SampleLang.expr: Plus -> l:expr '\+' r:expr { Plus(l, r) }
+rule SampleLang.expr: Int -> v:'\d+' { Int(v.int()) }
+rule SampleLang.expr: String -> v:'...' { String(v) }
+rule SampleLang.expr: This -> 'this' { This() }
+
+inh env: Type? = null
+inh Function.env {
+    body <- this.receiver ?: this.env
+}
+
+syn Expr.type: Type
+syn Int.type: Type = Type.INT
+syn String.type: Type = Type.STR
+syn This.type: Type = this.env ?: Type.ERROR("can not use 'this' in this context")
+syn Plus.type: Type = match [this.lhs.type, this.rhs.type] {
+    [Type.ERROR(_), _] -> Type.ALREADY_REPORTED_ERROR
+    [_, Type.ERROR(_)] -> Type.ALREADY_REPORTED_ERROR
+    [Type.ALREADY_REPORTED_ERROR, _] -> Type.ALREADY_REPORTED_ERROR
+    [_, Type.ALREADY_REPORTED_ERROR] -> Type.ALREADY_REPORTED_ERROR
+    [Type.INT, Type.INT] -> Type.INT
+    [Type.STR, Type.STR] -> Type.STR
+    _ -> Type.ERROR("can not add " + this.lhs.type.repr() + " and " + this.rhs.type.repr())
+}
+
+record Diagnostic {
+    msg: str
+}
+
+record CompilationResult {
+    compiled: List<int>?,
+    diags: List<Diagnostic>
+}
+
+inh root: Root? = null
+inh Root.root {
+    decls[i] <- this
+}
+
+syn Root.lower: List<int> = []
+
+coll Root.diags: List<Diagnostic> = []
+contrib Function -> this.root!!.diags = diags ++ match this.returnType {
+    Type.ERROR(msg) -> [Diagnostic(msg)]
+    _ -> []
+}
+contrib Function -> this.root!!.diags = diags ++ match this.receiver {
+    Type.ERROR(msg) -> [Diagnostic(msg)]
+    _ -> []
+}
+contrib Plus -> this.root!!.diags = diags ++ match this.type {
+    Type.ERROR(msg) -> [Diagnostic(msg)]
+    _ -> []
+}
+contrib This -> this.root!!.diags = diags ++ match this.type {
+    Type.ERROR(msg) -> [Diagnostic(msg)]
+    _ -> []
+}
+
+fun compile(program: str): CompilationResult = SampleLang.program(program).compile()
+fun Root.compile(): CompilationResult =
+    CompilationResult(
+        if this.diags.size == 0 then this.lower else null,
+        this.diags
+    )
