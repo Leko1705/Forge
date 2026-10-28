@@ -49,6 +49,11 @@ fun listSymbol(listType: ListType) = primitive("List", listType) {
     add(VarSymbol("size", IntType, null, VarSymbol.VarKind.RECORD_FIELD))
 }
 
+/** members every node has: the source position (1-based, 0 for nodes not created by a parser) */
+val nodeBuiltins: Map<String, VarSymbol> = listOf("line", "column").associateWith {
+    VarSymbol(it, IntType, null, VarSymbol.VarKind.NODE_BUILTIN)
+}
+
 fun mapSymbol(mapType: MapType) = primitive("Map", mapType) {
     add(VarSymbol("size", IntType, null, VarSymbol.VarKind.RECORD_FIELD))
 }
@@ -66,6 +71,8 @@ class VarSymbol(
         PARAMETER,
         NODE_FIELD,
         RECORD_FIELD,
+        /** builtin members of every node: `line` and `column` of its source position */
+        NODE_BUILTIN,
 
         PARENT_INH,
     }

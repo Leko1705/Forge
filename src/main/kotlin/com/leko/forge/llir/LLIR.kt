@@ -410,6 +410,7 @@ class LLIR private constructor(context: Context) {
                         if (recordSym.span == null) AccessBuiltinField(ctx.receiver.transform(), ctx.name.text, sym.type)
                         else AccessRecordField(record(recordSym), ctx.receiver.transform(), ctx.name.text, sym.type)
                     }
+                    VarSymbol.VarKind.NODE_BUILTIN -> AccessBuiltinField(ctx.receiver.transform(), if (sym.name == "line") "forgeLine" else "forgeColumn", IntType)
                     VarSymbol.VarKind.NODE_FIELD -> AccessNodeField(node(resolve.resolve(recvTy) as NodeSymbol), ctx.receiver.transform(), ctx.name.text, sym.type)
                     else -> throw AssertionError("got ${sym.varKind} (${sym})")
                 }

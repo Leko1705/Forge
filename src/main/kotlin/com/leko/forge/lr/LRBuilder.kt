@@ -15,10 +15,10 @@ class Conflict(
     val productions: List<Production>,
 ) {
     override fun toString(): String = buildString {
-        append("conflict on ").append(terminal)
-        append(" after '").append(prefix.joinToString(" ")).append("': ")
-        append(items.joinToString("  |  "))
-        append(" -- ").append(resolution)
+        append(resolution.substringBefore(',')).append(" on ").append(terminal)
+        append(" after reading `").append(prefix.joinToString(" ")).append("`:")
+        for (item in items) append("\n        ").append(item)
+        append("\n    ").append(resolution.substringAfter(", "))
     }
 }
 

@@ -15,6 +15,7 @@ import com.leko.forge.model.floatSymbol
 import com.leko.forge.model.intSymbol
 import com.leko.forge.model.listSymbol
 import com.leko.forge.model.mapSymbol
+import com.leko.forge.model.nodeBuiltins
 import com.leko.forge.model.nullSymbol
 import com.leko.forge.model.strSymbol
 import com.leko.forge.types.BoolType
@@ -98,6 +99,7 @@ class Resolve private constructor(context: Context) {
                     } else {
                         lineage.firstNotNullOfOrNull { n -> typeMap.nodeAttributes[n]?.find { it.name == member } }
                             ?: symTab.inheritedAttributes[member]
+                            ?: nodeBuiltins[member]
                     }
                 }
                 Kind.MTH -> lineage.firstNotNullOfOrNull { n -> typeMap.methods[n]?.firstOrNull { it.name == member } }

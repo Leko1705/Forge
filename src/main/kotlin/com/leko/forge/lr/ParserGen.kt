@@ -250,6 +250,7 @@ class ParserGen private constructor(context: Context) {
             val valueIndices = elems.indices.filter { elems[it].parseInfo.kind == ParseInfo.Kind.VALUE }
             return partial.map { (path, values) ->
                 val value = when {
+                    elems.isEmpty() -> Sem.Null
                     elems.size == 1 -> values[0]
                     valueIndices.size == 1 -> values[valueIndices[0]]
                     valueIndices.isEmpty() -> Sem.Concat(values)

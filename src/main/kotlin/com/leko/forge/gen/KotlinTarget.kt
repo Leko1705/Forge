@@ -86,7 +86,7 @@ object KotlinTarget : Target {
             module.nodes.forEach { generateNode(it) }
             module.functions.forEach { generateFunction(it) }
             module.parsers.forEach { generateParser(it) }
-            return out.toString()
+            return reindent(out.toString())
         }
 
         // ------------------------------------------------------------------

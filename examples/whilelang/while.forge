@@ -1,0 +1,123 @@
+// A small imperative language compiled to code for a stack machine.
+// ext.forge extends it with new statements, operators and a new parser.
+
+node Program(body: List<Stmt>)
+node Stmt
+node Assign(name: str, value: Expr): Stmt
+node Print(value: Expr): Stmt
+node If(cond: Expr, yes: List<Stmt>, no: List<Stmt>): Stmt
+node While(cond: Expr, body: List<Stmt>): Stmt
+node Expr
+node Num(n: int): Expr
+node Var(name: str): Expr
+node Bin(op: str, lhs: Expr, rhs: Expr): Expr
+node Not(operand: Expr): Expr
+
+external fun str.int(): int
+external fun int.str(): str
+
+// ---------------------------------------------------------------- syntax
+
+parser WhileLang @skip('\s+', '//[^\n]*')
+
+rule WhileLang.program: Program -> body:stmt* { Program(body) }
+
+rule WhileLang.stmt: Stmt
+rule WhileLang.stmt: Assign -> name:ident ":=" value:expr ";" { Assign(name, value) }
+rule WhileLang.stmt: Print -> "print" value:expr ";" { Print(value) }
+rule WhileLang.stmt: If -> "if" c:expr "then" yes:stmt* no:("else" stmt*)? "end" { If(c, yes, no ?: []) }
+rule WhileLang.stmt: While -> "while" c:expr "do" body:stmt* "end" { While(c, body) }
+
+rule WhileLang.ident: str -> '[a-z][a-zA-Z0-9_]*'
+
+rule WhileLang.expr: Expr
+rule WhileLang.expr: Bin -> l:expr op:"||" r:expr { Bin(op, l, r) } @left(1)
+                          | l:expr op:"&&" r:expr { Bin(op, l, r) } @left(2)
+                          | l:expr op:("==" | "!=" | "<" | "<=" | ">" | ">=") r:expr { Bin(op, l, r) } @nonassoc(3)
+                          | l:expr op:("+" | "-") r:expr { Bin(op, l, r) } @left(4)
+                          | l:expr op:("*" | "/") r:expr { Bin(op, l, r) } @left(5)
+rule WhileLang.expr: Not -> "!" e:expr { Not(e) } @prec(6)
+rule WhileLang.expr: Num -> v:'[0-9]+' { Num(v.int()) }
+rule WhileLang.expr: Var -> n:ident { Var(n) }
+rule WhileLang.expr: Expr -> "(" expr ")"
+
+// ---------------------------------------------------------------- labels
+// every statement uses `labelCount` labels, numbered from its inherited `labelBase`
+
+inh labelBase: int = 0
+
+syn Stmt.labelCount: int = 0
+syn If.labelCount: int = 2 + labels(this.yes) + labels(this.no)
+syn While.labelCount: int = 2 + labels(this.body)
+
+fun labels(stmts: List<Stmt>): int = acc + s.labelCount for s in stmts with acc = 0
+fun labelsBefore(stmts: List<Stmt>, n: int): int = if n == 0 then 0 else labelsBefore(stmts, n - 1) + stmts[n - 1].labelCount
+
+inh Program.labelBase {
+    body[i] <- labelsBefore(this.body, i)
+}
+inh If.labelBase {
+    yes[i] <- this.labelBase + 2 + labelsBefore(this.yes, i)
+    no[i] <- this.labelBase + 2 + labels(this.yes) + labelsBefore(this.no, i)
+}
+inh While.labelBase {
+    body[i] <- this.labelBase + 2 + labelsBefore(this.body, i)
+}
+
+// ---------------------------------------------------------------- code generation
+
+fun block(stmts: List<Stmt>): List<str> = acc ++ s.code for s in stmts with acc = []
+
+syn Program.code: List<str> = block(this.body)
+
+syn Stmt.code: List<str>
+syn Assign.code: List<str> = this.value.code ++ ["store " + this.name]
+syn Print.code: List<str> = this.value.code ++ ["print"]
+syn If.code: List<str> =
+    this.cond.code ++ ["jz " + label(0)] ++ block(this.yes) ++ ["jmp " + label(1), "label " + label(0)]
+        ++ block(this.no) ++ ["label " + label(1)]
+    where fun label(k: int): str = "L" + (this.labelBase + k).str()
+syn While.code: List<str> =
+    ["label " + label(0)] ++ this.cond.code ++ ["jz " + label(1)] ++ block(this.body)
+        ++ ["jmp " + label(0), "label " + label(1)]
+    where fun label(k: int): str = "L" + (this.labelBase + k).str()
+
+syn Expr.code: List<str>
+syn Num.code: List<str> = ["push " + this.n.str()]
+syn Var.code: List<str> = ["load " + this.name]
+syn Not.code: List<str> = this.operand.code ++ ["not"]
+syn Bin.code: List<str> = this.lhs.code ++ this.rhs.code ++ [match this.op {
+    "+" -> "add"
+    "-" -> "sub"
+    "*" -> "mul"
+    "/" -> "div"
+    "<" -> "lt"
+    "<=" -> "le"
+    ">" -> "gt"
+    ">=" -> "ge"
+    "==" -> "eq"
+    "!=" -> "ne"
+    "&&" -> "and"
+    "||" -> "or"
+}]
+
+// ---------------------------------------------------------------- checks
+
+inh program: Program? = null
+inh Program.program {
+    body[i] <- this
+}
+
+coll Program.assigned: List<str> = []
+contrib Assign -> this.program!!.assigned = assigned ++ [this.name]
+
+coll Program.errors: List<str> = []
+contrib Var -> this.program!!.errors = errors ++
+    (if this.name in this.program!!.assigned then [] else [this.line.str() + ":" + this.column.str() + ": variable '" + this.name + "' is never assigned"])
+
+record Compiled {
+    code: List<str>,
+    errors: List<str>
+}
+
+fun Program.compile(): Compiled = Compiled(if this.errors.size == 0 then this.code else [], this.errors)

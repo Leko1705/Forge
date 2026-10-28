@@ -40,12 +40,27 @@ class ForgeMatchException(value: Any?) : RuntimeException("no match case applies
 interface ForgeNode {
     val forgeParent: ForgeNode?
     fun forgeSetParent(parent: ForgeNode?)
+    /** 1-based line of the node's first token, 0 if the node was not created by a parser */
+    val forgeLine: Int
+    /** 1-based column of the node's first token, 0 if the node was not created by a parser */
+    val forgeColumn: Int
+    fun forgeSetPosition(line: Int, column: Int)
     /** The direct children of the node in declaration order. */
     fun forgeChildren(): List<ForgeNode>
 }
 
 abstract class ForgeNodeBase : ForgeNode {
     private var parentNode: ForgeNode? = null
+    private var line = 0
+    private var column = 0
+
+    override val forgeLine: Int get() = line
+    override val forgeColumn: Int get() = column
+
+    override fun forgeSetPosition(line: Int, column: Int) {
+        this.line = line
+        this.column = column
+    }
 
     override val forgeParent: ForgeNode? get() = parentNode
 
@@ -416,17 +431,24 @@ class ForgeLRParser(
             return "'" + source.substring(pos, end) + (if (end < source.length && source[end] != '\n') "..." else "") + "'"
         }
 
+        private val lineStarts: IntArray by lazy {
+            val starts = ArrayList<Int>()
+            starts.add(0)
+            for (i in source.indices) if (source[i] == '\n') starts.add(i + 1)
+            starts.toIntArray()
+        }
+
+        /** 1-based `(line, column)` of [offset] */
+        fun position(offset: Int): IntArray {
+            var index = java.util.Arrays.binarySearch(lineStarts, offset)
+            if (index < 0) index = -index - 2
+            return intArrayOf(index + 1, offset - lineStarts[index] + 1)
+        }
+
         fun error(state: Int, pos: Int, reason: String): ForgeParseException {
-            var line = 1
-            var lineStart = 0
-            for (i in 0 until minOf(pos, source.length)) {
-                if (source[i] == '\n') {
-                    line++
-                    lineStart = i + 1
-                }
-            }
+            val (line, column) = position(pos).let { it[0] to it[1] }
             val expected = tables.validTerminals[state].map { terminals[it].name }.sorted().joinToString(", ")
-            return ForgeParseException(line, pos - lineStart + 1, pos, "$reason, expected one of: $expected")
+            return ForgeParseException(line, column, pos, "$reason, expected one of: $expected")
         }
     }
 
@@ -486,6 +508,7 @@ class ForgeLRParser(
         var states = IntArray(64)
         var top = 0
         val values = ArrayList<Any?>()
+        var starts = IntArray(64) // start offset of every stack entry
         states[0] = tables.entryStates[entry]
         values.add(null)
         var pos = 0
@@ -498,6 +521,8 @@ class ForgeLRParser(
                 1 -> {
                     if (++top == states.size) states = states.copyOf(states.size * 2)
                     states[top] = action ushr 2
+                    if (top == starts.size) starts = starts.copyOf(starts.size * 2)
+                    starts[top] = tok[1]
                     values.add(source.substring(tok[1], tok[2]))
                     pos = tok[2]
                     token = null
@@ -508,11 +533,15 @@ class ForgeLRParser(
                     val args = arrayOfNulls<Any?>(length)
                     for (k in 0 until length) args[k] = values[values.size - length + k]
                     for (k in 0 until length) values.removeAt(values.size - 1)
+                    val start = if (length > 0) starts[top - length + 1] else (token?.get(1) ?: pos)
                     top -= length
                     val value = reduce(production, args)
+                    if (value is ForgeNode && value.forgeLine == 0) scanner.position(start).let { value.forgeSetPosition(it[0], it[1]) }
                     val target = tables.goto(states[top], tables.productionLhs[production])
                     if (++top == states.size) states = states.copyOf(states.size * 2)
                     states[top] = target
+                    if (top == starts.size) starts = starts.copyOf(starts.size * 2)
+                    starts[top] = start
                     values.add(value)
                 }
                 3 -> return values[values.size - 1]

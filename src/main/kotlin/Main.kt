@@ -5,6 +5,7 @@ import kotlin.system.exitProcess
 
 
 fun main(args: Array<String>) {
+    System.setOut(java.io.PrintStream(java.io.FileOutputStream(java.io.FileDescriptor.out), true, Charsets.UTF_8))
     val context = Context()
     Options.instance(context).set(args)
     val compiler = ForgeCompiler.instance(context)

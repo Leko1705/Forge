@@ -11,7 +11,6 @@ import com.leko.forge.util.Log
 import org.antlr.v4.runtime.ParserRuleContext
 import org.antlr.v4.runtime.tree.ErrorNode
 import java.util.regex.Pattern
-import java.util.regex.PatternSyntaxException
 
 class Attr private constructor(context: Context) {
     companion object {
@@ -299,8 +298,10 @@ class Attr private constructor(context: Context) {
                     if (ctx.EXTERNAL() != null) {
                         log.diag(externalFunctionMustHaveNoBody(ctx.expression().span))
                     }
+                    // local functions (`.. where fun f() = ..`) see the `this` of their context
+                    val receiver = sym.receiver?.type ?: if (ctx.parent is ForgeParser.ContextualizedContext) env.value.receiver else null
                     withExpected(sym.returnType) {
-                        withReceiver(sym.receiver?.type) {
+                        withReceiver(receiver) {
                             val inferred = expr.attribType()
                             chk.checkAssignable(sym.returnType, inferred, expr.span)
                         }
@@ -394,6 +395,7 @@ class Attr private constructor(context: Context) {
                     labels[name] = type
                 }
             }
+            if (elems.isEmpty()) return ctx.setParseInfo(ParseInfo(ParseInfo.Kind.VALUE, NullType, labels))
             if (elems.size == 1) return ctx.setParseInfo(ParseInfo(elems[0].second.kind, elems[0].second.type, labels, elems[0].second.reason))
             val values = elems.filter { it.second.kind == ParseInfo.Kind.VALUE }
             val info = when (values.size) {
@@ -442,14 +444,11 @@ class Attr private constructor(context: Context) {
                 ctx.terminalRule() != null -> {
                     val terminal = ctx.terminalRule()
                     val syntax = terminal.terminalSyntax()
-                    if (!syntax.literal) {
-                        try {
-                            if (Pattern.compile(syntax.pattern).matcher("").lookingAt()) {
-                                log.diag(terminalMatchesEmpty(terminal.span, syntax.pattern))
-                            }
-                        } catch (e: PatternSyntaxException) {
-                            log.diag(invalidTerminalRegex(terminal.span, syntax.pattern, e.description))
-                        }
+                    if (syntax.fallback != null) {
+                        log.diag(regexTakenLiterally(terminal.span, terminal.text, syntax.fallback, syntax.pattern))
+                    }
+                    if (!syntax.literal && Pattern.compile(syntax.pattern).matcher("").lookingAt()) {
+                        log.diag(terminalMatchesEmpty(terminal.span, syntax.pattern))
                     }
                     else if (syntax.pattern.isEmpty()) {
                         log.diag(terminalMatchesEmpty(terminal.span, syntax.pattern))
@@ -652,7 +651,7 @@ class Attr private constructor(context: Context) {
 
         override fun visitElvis(ctx: ForgeParser.ElvisContext): Type {
             val exprTy = withExpected(env.value.expected?.let { optional(it) }) { ctx.expr.attribType() }
-            val alt = ctx.alt.attribType()
+            val alt = withExpected(env.value.expected ?: (exprTy as? OptionalType)?.elem ?: exprTy) { ctx.alt.attribType() }
             val expr = if (exprTy is OptionalType) exprTy.elem else exprTy
             val shared = chk.checkShareCommonSuperType(expr, alt, env.value.expected)
             return ctx.setType(shared)

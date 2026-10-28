@@ -28,3 +28,11 @@ fun terminalMatchesEmpty(span: SourceSpan?, regex: String): Diagnostic =
         "W102",
         "terminal '$regex' can match the empty text; empty matches are ignored by the scanner"
     )
+
+fun regexTakenLiterally(span: SourceSpan?, terminal: String, reason: String, text: String): Diagnostic =
+    Diagnostic(
+        Severity.WARNING,
+        span,
+        "W103",
+        "$terminal is not a valid regular expression ($reason), it matches the text '$text' literally; write ${com.leko.forge.utils.kotlinStringLiteral(text)} for literal text"
+    )

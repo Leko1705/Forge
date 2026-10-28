@@ -1,0 +1,36 @@
+// An extension of while.forge, defined without touching it:
+// a new parser inheriting all rules of WhileLang, new statements and a new operator,
+// each with its own syntax, attribute equations and contributions.
+
+parser WhileExt : WhileLang
+
+node Repeat(body: List<Stmt>, cond: Expr): Stmt
+node For(var: str, from: Expr, to: Expr, body: List<Stmt>): Stmt
+node Mod(lhs: Expr, rhs: Expr): Expr
+
+rule WhileExt.stmt: Repeat -> "repeat" body:stmt* "until" c:expr ";" { Repeat(body, c) }
+rule WhileExt.stmt: For -> "for" v:ident ":=" a:expr "to" b:expr "do" body:stmt* "end" { For(v, a, b, body) }
+rule WhileExt.expr: Mod -> l:expr "%" r:expr { Mod(l, r) } @left(5)
+
+syn Repeat.labelCount: int = 1 + labels(this.body)
+syn For.labelCount: int = 2 + labels(this.body)
+
+inh Repeat.labelBase {
+    body[i] <- this.labelBase + 1 + labelsBefore(this.body, i)
+}
+inh For.labelBase {
+    body[i] <- this.labelBase + 2 + labelsBefore(this.body, i)
+}
+
+syn Repeat.code: List<str> =
+    ["label L" + this.labelBase.str()] ++ block(this.body) ++ this.cond.code ++ ["jz L" + this.labelBase.str()]
+
+syn For.code: List<str> =
+    this.from.code ++ ["store " + this.var, "label " + label(0), "load " + this.var] ++ this.to.code ++ ["le", "jz " + label(1)]
+        ++ block(this.body)
+        ++ ["load " + this.var, "push 1", "add", "store " + this.var, "jmp " + label(0), "label " + label(1)]
+    where fun label(k: int): str = "L" + (this.labelBase + k).str()
+
+syn Mod.code: List<str> = this.lhs.code ++ this.rhs.code ++ ["mod"]
+
+contrib For -> this.program!!.assigned = assigned ++ [this.var]

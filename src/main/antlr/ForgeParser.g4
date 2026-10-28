@@ -63,8 +63,9 @@ parserAlternative
     : parserSequence (IOR parserSequence)*
     ;
 
+// may be empty: `-> { [] }` or `(a | )` match the empty input
 parserSequence
-    : parserLabeled+
+    : parserLabeled*
     ;
 
 parserLabeled
@@ -108,10 +109,12 @@ expression
     | receiver=expression DOT name=IDENT LPAREN (expression (COMMA expression)*)? RPAREN  # methodCall
     | receiver=expression DOT name=IDENT                                     # fieldAccess
     | container=expression LBRACKET key=expression RBRACKET                  # containerAccess
+    | value=expression NOTNULL                                               # nullCheck
 
     // prefix unary: binds tighter than binary ops, looser than postfix
     | MINUS expression                                                       # negation
     | EXCLAMATIONMARK expression                                             # inversion
+    | value=expression AS ty=type                                            # cast
 
     | left=expression op=(STAR | SLASH | PERCENT) right=expression           # mulDivMod
     | left=expression op=(PLUS | MINUS) right=expression                     # addSub
@@ -126,8 +129,6 @@ expression
     | left=expression OR right=expression                                    # logicalOr
     | expr=expression ELVIS alt=expression                                   # elvis
 
-    | value=expression NOTNULL                                               # nullCheck
-    | value=expression AS ty=type                                            # cast
     | expr=expression WHERE fun=function                                     # contextualized
     | put=expression FOR name=IDENT IN iterable=expression
         (WITH acc=IDENT ASSIGN accInit=expression)?                          # listComprehension
