@@ -97,13 +97,20 @@ data class ConcreteNodeSymbol(
 ) : NodeSymbol, CallableSymbol {
     override val params: List<VarSymbol> get() = fields
     override val returnType: Type get() = ComplexType(name)
+
+    // symbols are unique and used as map keys while `parents` is still being filled: identity semantics
+    override fun equals(other: Any?): Boolean = this === other
+    override fun hashCode(): Int = System.identityHashCode(this)
 }
 
 data class InterfaceNodeSymbol(
     override val name: String,
     override val parents: MutableList<InterfaceNodeSymbol>,
     override val span: SourceSpan
-) : NodeSymbol
+) : NodeSymbol {
+    override fun equals(other: Any?): Boolean = this === other
+    override fun hashCode(): Int = System.identityHashCode(this)
+}
 
 data class EnumSymbol(
     override val name: String,

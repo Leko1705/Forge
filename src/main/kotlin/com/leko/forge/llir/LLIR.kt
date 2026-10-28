@@ -115,7 +115,7 @@ class LLIR private constructor(context: Context) {
         for (synDef in ctx.synDef()) {
             val sym = synDef.symbol ?: continue
             if (synDef.syn == null) continue
-            node(sym.owner).synthetics.getValue(sym.name).body = synDef.syn.transform()
+            node(sym.owner).synthetics.getValue(sym.name).body = coerce(synDef.syn.transform(), sym.type)
         }
         for (inhDef in ctx.inhDef()) {
             val sym = inhDef.symbol ?: continue
@@ -526,7 +526,7 @@ class LLIR private constructor(context: Context) {
         }
 
         override fun visitSplitPattern(ctx: ForgeParser.SplitPatternContext): MatchPattern {
-            return SplitPattern(ctx.element.transform(), ctx.rest.transform())
+            return SplitPattern(ctx.element.getChild(0).accept(this), ctx.rest.transform())
         }
 
         override fun visitSplitPatternArg(ctx: ForgeParser.SplitPatternArgContext): MatchPattern {

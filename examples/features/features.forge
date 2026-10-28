@@ -1,0 +1,86 @@
+// Exercises language features end to end (see FeaturesTest).
+
+node Doc(items: List<Item>, footer: Item?)
+node Item
+node Word(text: str): Item
+node Number(value: float): Item
+node Group(name: str, members: List<Item>): Item
+
+enum Shape {
+    CIRCLE(r: float),
+    RECT(w: float, h: float),
+    NONE
+}
+
+record Stats {
+    words: int,
+    total: float,
+    names: Map<str, int>
+}
+
+parser Docs @skip('[ \t\r\n]+')
+rule Docs.doc: Doc -> items:item* footer:("--" item)? { Doc(items, footer) }
+rule Docs.item: Item
+rule Docs.item: Word -> t:'[a-zA-Z]+' { Word(t) }
+rule Docs.item: Number -> v:'[0-9]+(\.[0-9]+)?' { Number(v.float()) }
+rule Docs.item: Group -> n:'[a-zA-Z]+' "{" ms:(item ("," item)*)? "}" { Group(n, ms ?: []) }
+
+external fun str.float(): float
+external fun float.str(): str
+external fun int.str(): str
+external fun List<str>.joinToString(separator: str): str
+
+// default equation on the interface, overridden by some nodes
+syn Item.weight: float = 1.0
+syn Number.weight: float = this.value
+syn Group.weight: float = acc + m.weight for m in this.members with acc = 0.0
+
+syn Item.describe: str
+syn Word.describe: str = this.text
+syn Number.describe: str = this.value.str()
+syn Group.describe: str = this.name + "{" + (m.describe for m in this.members).joinToString(",") + "}"
+
+// depth via inherited attribute, contributions from an interface type
+inh depth: int = 0
+inh Group.depth { members[i] <- this.depth + 1 }
+
+coll Doc.deepest: int = 0
+contrib Item -> this.doc!!.deepest = if this.depth > deepest then this.depth else deepest
+
+inh doc: Doc? = null
+inh Doc.doc {
+    items[i] <- this
+    footer <- this
+}
+
+coll Doc.wordCounts: Map<str, int> = {}
+contrib Word -> this.doc!!.wordCounts as counts =
+    counts ++ { this.text: (if this.text in counts then counts[this.text] else 0) + 1 }
+
+syn Doc.stats: Stats = Stats(
+    count(this.items),
+    acc + i.weight for i in this.items with acc = 0.0,
+    this.wordCounts
+) where fun count(items: List<Item>): int = match items {
+    [] -> 0
+    x :: rest -> 1 + count(rest)
+}
+
+fun area(s: Shape): float = match s {
+    Shape.CIRCLE(r) if r > 0.0 -> 3 * r * r
+    Shape.RECT(w, h) -> w * h
+    _ -> 0
+}
+
+fun shapes(): List<float> = area(s) for s in [Shape.CIRCLE(1.0), Shape.RECT(2, 3.5), Shape.NONE, Shape.CIRCLE(-1.0)]
+
+fun classify(xs: List<int>): str = match xs {
+    [] -> "empty"
+    [x] -> "one:" + x.str()
+    [a, b] if a == b -> "pair"
+    a :: b :: rest -> "many:" + (a + b).str()
+}
+
+fun footerText(d: Doc): str = if d.footer == null then "-" else d.footer!!.describe
+
+fun mixed(i: int, f: float): float = i * f + i / 2 + (f as int)

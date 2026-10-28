@@ -50,14 +50,14 @@ class Log private constructor() {
         val pending = diagnostics.drop(reported)
         reported = diagnostics.size
         for (d in pending.sortedWith(compareBy({ it.span?.startLine ?: 0 }, { it.span?.startCol ?: 0 }))) {
-            val loc = d.span?.toString() ?: "?"
+            val loc = d.span?.let { "[$it] " } ?: ""
             val label = when (d.severity) {
                 Severity.ERROR -> "error"
                 Severity.WARNING -> "warning"
                 Severity.INFO -> "info"
             }
             val color = if (d.severity == Severity.ERROR) ANSI_RED else if (d.severity == Severity.WARNING) ANSI_YELLOW else ANSI_WHITE
-            println("$color[$loc] $label ${d.code}: ${d.message}$ANSI_RESET")
+            println("$color$loc$label ${d.code}: ${d.message}$ANSI_RESET")
         }
     }
 

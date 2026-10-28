@@ -401,12 +401,19 @@ class Attr private constructor(context: Context) {
             val info = when (values.size) {
                 0 -> ParseInfo(ParseInfo.Kind.TEXT, StrType, labels)
                 1 -> ParseInfo(ParseInfo.Kind.VALUE, values[0].second.type, labels, values[0].second.reason)
-                else -> ParseInfo(
+                else -> flattened(values.map { it.second.type }, labels) ?: ParseInfo(
                     ParseInfo.Kind.VALUE, null, labels,
                     "'${ctx.text}' contains several elements that produce values (${values.joinToString(", ") { it.first.text }})"
                 )
             }
             return ctx.setParseInfo(info)
+        }
+
+        /** `x ("," x)*`: values of type T or List<T> concatenate to a List<T> */
+        private fun flattened(types: List<Type?>, labels: LinkedHashMap<String, Type>): ParseInfo? {
+            if (types.any { it == null || it == ErrorType } || types.none { it is ListType }) return null
+            val elem = join(types.map { if (it is ListType) it.elem else it!! }) ?: return null
+            return ParseInfo(ParseInfo.Kind.VALUE, ListType(elem), labels, flatten = true)
         }
 
         private fun parseInfoOf(ctx: ForgeParser.ParserLabeledContext): ParseInfo {
@@ -861,6 +868,18 @@ class Attr private constructor(context: Context) {
         override fun visitListPatternArg(ctx: ForgeParser.ListPatternArgContext): Type =
             ctx.setType(ctx.listPattern().attribType())
 
+        override fun visitSplitHead(ctx: ForgeParser.SplitHeadContext): Type {
+            val expected = env.value.expected!!
+            val exprPattern = ctx.exprPattern()
+            if (exprPattern != null) {
+                val exprTy = withExpected(expected) { exprPattern.expression().attribType() }
+                exprPattern.setType(exprTy)
+                chk.checkShareCommonSuperType(expected, exprTy, null)
+                return ctx.setType(expected)
+            }
+            return ctx.setType(ctx.getChild(0).let { (it as ParserRuleContext).attribType() })
+        }
+
         override fun visitWildcardPattern(ctx: ForgeParser.WildcardPatternContext): Type {
             return ctx.setType(env.value.expected!!)
         }
@@ -937,7 +956,7 @@ class Attr private constructor(context: Context) {
         }
 
         private fun handleSplitPattern(
-            elem: ForgeParser.PatternArgContext,
+            elem: ParserRuleContext,
             rest: ForgeParser.PatternArgContext
         ) {
             if (chk.checkSplit(env.value.expected!!) == ErrorType) {

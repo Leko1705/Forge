@@ -38,6 +38,8 @@ sealed interface Sem {
     data class Frame(val fields: List<Sem>) : Sem
     data class RepStart(val frame: Frame) : Sem
     data class RepAppend(val index: Int, val frame: Frame) : Sem
+    /** concatenation of values and lists of values (`isList`) into one list */
+    data class Flatten(val parts: List<Sem>, val isList: List<Boolean>) : Sem
 
     fun shift(offset: Int): Sem = if (offset == 0) this else when (this) {
         is Rhs -> Rhs(index + offset)
@@ -48,6 +50,7 @@ sealed interface Sem {
         is Frame -> Frame(fields.map { it.shift(offset) })
         is RepStart -> RepStart(frame.shift(offset) as Frame)
         is RepAppend -> RepAppend(index + offset, frame.shift(offset) as Frame)
+        is Flatten -> Flatten(parts.map { it.shift(offset) }, isList)
     }
 }
 
@@ -254,6 +257,10 @@ class ParserGen private constructor(context: Context) {
                     elems.size == 1 -> values[0]
                     valueIndices.size == 1 -> values[valueIndices[0]]
                     valueIndices.isEmpty() -> Sem.Concat(values)
+                    ctx.parseInfo.flatten -> Sem.Flatten(
+                        valueIndices.map { values[it] },
+                        valueIndices.map { elems[it].parseInfo.type is com.leko.forge.types.ListType },
+                    )
                     else -> Sem.Null
                 }
                 path.copy(value = value)

@@ -351,6 +351,7 @@ object KotlinTarget : Target {
             is Sem.Frame -> "kotlin.arrayOf<kotlin.Any?>(${sem.fields.joinToString(", ") { sem(it) }})"
             is Sem.RepStart -> "$RT.forgeRepStart(${sem(sem.frame)})"
             is Sem.RepAppend -> "$RT.forgeRepAppend(forgeRhs[${sem.index}], ${sem(sem.frame)})"
+            is Sem.Flatten -> "$RT.forgeFlatten(kotlin.booleanArrayOf(${sem.isList.joinToString(", ")}), ${sem.parts.joinToString(", ") { sem(it) }})"
         }
 
         // ------------------------------------------------------------------

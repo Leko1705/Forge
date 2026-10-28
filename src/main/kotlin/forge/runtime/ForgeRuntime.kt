@@ -204,6 +204,15 @@ fun forgeRepField(list: Any?, index: Int): List<Any?> {
     return result
 }
 
+/** Concatenates [parts] into one list; the parts flagged in [isList] are lists themselves. */
+fun forgeFlatten(isList: BooleanArray, vararg parts: Any?): List<Any?> {
+    val result = ArrayList<Any?>()
+    for (i in parts.indices) {
+        if (isList[i]) result.addAll(parts[i] as List<*>) else result.add(parts[i])
+    }
+    return result
+}
+
 /** Field [index] of a single frame (value of a group helper nonterminal). */
 fun forgeFrameField(frame: Any?, index: Int): Any? {
     @Suppress("UNCHECKED_CAST")

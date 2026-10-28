@@ -139,7 +139,7 @@ expression
 
 matchCase: pattern (IF cond=expression)? ARROW value=expression;
 
-pattern: typePattern | splitPattern | exprPattern | listPattern;
+pattern: typePattern | splitPattern | listPattern | exprPattern;
 patternArg
     : typePattern                                              # typePatternArg
     | wildcardPattern                                          # wildcardPatternArg
@@ -152,6 +152,8 @@ patternArg
 typePattern: receiver=IDENT DOT name=IDENT (LPAREN (patternArg (COMMA patternArg)*)? RPAREN)?;
 patternVariable: name=IDENT;
 wildcardPattern: UNDERSCORE;
-splitPattern: element=patternArg SPLIT rest=patternArg;
+// `head :: rest`; `::` is right associative: `a :: b :: rest`
+splitPattern: element=splitHead SPLIT rest=patternArg;
+splitHead: typePattern | wildcardPattern | patternVariable | listPattern | exprPattern;
 listPattern: LBRACKET (patternArg (COMMA patternArg)*)? RBRACKET;
 exprPattern: expression;

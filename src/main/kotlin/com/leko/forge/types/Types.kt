@@ -53,6 +53,7 @@ class Types private constructor(context: Context) {
         if (got is ArbitraryType) return false
         if (expected is ArbitraryType) return true
         if (expected == got) return true
+        if (expected == FloatType && got == IntType) return true  // implicit int to float conversion
         if (expected is OptionalType && got is NullType) return true
         if (expected is OptionalType && isAssignable(expected.elem, got)) return true
         if (expected is OptionalType && got is OptionalType) return isAssignable(expected.elem, got.elem)
@@ -62,14 +63,18 @@ class Types private constructor(context: Context) {
             return isAssignable(expSym, gotSym)
         }
         if (expected is ListType && got is ListType) {
-            return isAssignable(expected.elem, got.elem)
+            return isAssignableNested(expected.elem, got.elem)
         }
         if (expected is MapType && got is MapType) {
-            return isAssignable(expected.key, got.key)
-                    && isAssignable(expected.value, got.value)
+            return isAssignableNested(expected.key, got.key)
+                    && isAssignableNested(expected.value, got.value)
         }
         return false
     }
+
+    /** inside containers, ints are no floats (a list of ints is not converted element-wise) */
+    private fun isAssignableNested(expected: Type, got: Type): Boolean =
+        !(expected == FloatType && got == IntType) && isAssignable(expected, got)
 
     fun sharedSuperType(t1: Type, t2: Type): Type? {
         if (t1 == ErrorType || t2 == ErrorType) return ErrorType
