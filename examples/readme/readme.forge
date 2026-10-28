@@ -1,0 +1,24 @@
+// The example of README.md
+
+node Expr
+node Num(n: int): Expr
+node Bin(op: str, lhs: Expr, rhs: Expr): Expr
+
+parser Calc
+rule Calc.expr: Expr
+rule Calc.expr: Bin -> l:expr op:("+" | "-") r:expr { Bin(op, l, r) } @left(10)
+                     | l:expr op:("*" | "/") r:expr { Bin(op, l, r) } @left(20)
+rule Calc.expr: Num -> v:'[0-9]+' { Num(v.int()) }
+rule Calc.expr: Expr -> "(" expr ")"
+
+syn Expr.value: int
+syn Num.value: int = this.n
+syn Bin.value: int = match this.op {
+    "+" -> this.lhs.value + this.rhs.value
+    "-" -> this.lhs.value - this.rhs.value
+    "*" -> this.lhs.value * this.rhs.value
+    _ -> this.lhs.value / this.rhs.value
+}
+
+external fun str.int(): int
+fun eval(source: str): int = Calc.expr(source).value
