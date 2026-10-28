@@ -88,6 +88,8 @@ OCT: [0][o][0-7]+;
 HEX: [0][x][0-9a-fA-F]+;
 
 IDENT: [a-zA-Z_][a-zA-Z_0-9]* ;
-FLOAT : [0-9]+[.][0-9];
+FLOAT : [0-9]+[.][0-9]+;
 INT : [0-9]+ ;
 WS  : [ \t\r\n]+ -> skip ;
+LINE_COMMENT : '//' ~[\r\n]* -> skip ;
+BLOCK_COMMENT : '/*' .*? '*/' -> skip ;

@@ -1,0 +1,87 @@
+// A small calculator language: `let x = 1 + 2; print x * 3;`
+
+node Program(stmts: List<Stmt>)
+node Stmt
+node Let(name: str, expr: Expr): Stmt
+node Print(expr: Expr): Stmt
+node Expr
+node Num(n: int): Expr
+node Var(name: str): Expr
+node Bin(op: str, lhs: Expr, rhs: Expr): Expr
+node Neg(operand: Expr): Expr
+
+// ---------------------------------------------------------------- syntax
+
+parser Calc @skip('\s+', '#[^\n]*')
+
+rule Calc.program: Program -> stmts:stmt* { Program(stmts) }
+
+rule Calc.stmt: Stmt
+rule Calc.stmt: Let -> "let" name:ident "=" e:expr ";" { Let(name, e) }
+rule Calc.stmt: Print -> "print" e:expr ";" { Print(e) }
+
+rule Calc.ident: str -> '[a-zA-Z_][a-zA-Z_0-9]*'
+
+rule Calc.expr: Expr
+rule Calc.expr: Bin -> l:expr op:("+" | "-") r:expr { Bin(op, l, r) } @left(10)
+                     | l:expr op:("*" | "/" | "%") r:expr { Bin(op, l, r) } @left(20)
+                     | l:expr op:"^" r:expr { Bin(op, l, r) } @right(30)
+rule Calc.expr: Neg -> "-" e:expr { Neg(e) } @prec(25)
+rule Calc.expr: Num -> v:'[0-9]+' { Num(v.int()) }
+rule Calc.expr: Var -> n:ident { Var(n) }
+rule Calc.expr: Expr -> "(" expr ")"
+
+external fun str.int(): int
+
+// ---------------------------------------------------------------- semantics
+
+// variables visible in a statement: those defined by the statements before it
+inh env: Map<str, int> = {}
+inh Program.env {
+    stmts[i] <- this.envAt(i)
+}
+fun Program.envAt(i: int): Map<str, int> =
+    if i == 0 then {} else this.envAt(i - 1) ++ this.stmts[i - 1].defines
+
+syn Stmt.defines: Map<str, int>
+syn Let.defines: Map<str, int> = { this.name: this.expr.value }
+syn Print.defines: Map<str, int> = {}
+
+syn Stmt.out: List<int>
+syn Let.out: List<int> = []
+syn Print.out: List<int> = [this.expr.value]
+
+syn Expr.value: int
+syn Num.value: int = this.n
+syn Var.value: int = if this.name in this.env then this.env[this.name] else 0
+syn Neg.value: int = -this.operand.value
+syn Bin.value: int = match this.op {
+    "+" -> this.lhs.value + this.rhs.value
+    "-" -> this.lhs.value - this.rhs.value
+    "*" -> this.lhs.value * this.rhs.value
+    "/" -> if this.rhs.value == 0 then 0 else this.lhs.value / this.rhs.value
+    "%" -> this.lhs.value % this.rhs.value
+    "^" -> pow(this.lhs.value, this.rhs.value)
+}
+
+fun pow(base: int, exp: int): int = if exp <= 0 then 1 else base * pow(base, exp - 1)
+
+syn Program.output: List<int> = acc ++ s.out for s in this.stmts with acc = []
+
+// ---------------------------------------------------------------- diagnostics
+
+inh program: Program? = null
+inh Program.program {
+    stmts[i] <- this
+}
+
+coll Program.errors: List<str> = []
+contrib Var -> this.program!!.errors = errors ++ (if this.name in this.env then [] else ["undefined variable '" + this.name + "'"])
+contrib Bin -> this.program!!.errors = errors ++ (if this.op == "/" && this.rhs.value == 0 then ["division by zero"] else [])
+
+record Result {
+    output: List<int>,
+    errors: List<str>
+}
+
+fun run(source: str): Result = Result(Calc.program(source).output, Calc.program(source).errors)

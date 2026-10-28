@@ -14,6 +14,7 @@ import com.leko.forge.model.RecordSymbol
 import com.leko.forge.model.Symbol
 import com.leko.forge.model.SynSymbol
 import com.leko.forge.model.VarSymbol
+import com.leko.forge.model.ParseInfo
 import com.leko.forge.types.Type
 import org.antlr.v4.runtime.ParserRuleContext
 import kotlin.reflect.KClass
@@ -125,3 +126,25 @@ val ForgeParser.TypePatternContext.symbol: Symbol? get() {
     val attrs = attributes[this]
     return attrs?.get("symbol") as? Symbol
 }
+
+val ParserRuleContext.parseInfo: ParseInfo get() = attributes[this]?.get("pinfo") as ParseInfo
+
+fun ParserRuleContext.setParseInfo(info: ParseInfo): ParseInfo {
+    attach("pinfo", info)
+    return info
+}
+
+/** for list delegations `child[i] <- ..`: the index variable `i` (if the key introduces one) */
+val ForgeParser.InhDelegateContext.binder: VarSymbol? get() = attributes[this]?.get("binder") as? VarSymbol
+
+val ForgeParser.ContextualizedContext.symbol: FunctionSymbol? get() = attributes[this]?.get("symbol") as? FunctionSymbol
+
+val ForgeParser.NonterminalRuleContext.symbol: ParserRuleSymbol? get() = attributes[this]?.get("symbol") as? ParserRuleSymbol
+
+val ForgeParser.PatternVariableContext.symbol: VarSymbol? get() = attributes[this]?.get("symbol") as? VarSymbol
+
+val ForgeParser.InhImplContext.symbol: InhSymbol? get() = attributes[this]?.get("symbol") as? InhSymbol
+
+/** the variable symbols of the labels of a parser rule option */
+@Suppress("UNCHECKED_CAST")
+val ForgeParser.ParserRuleOptionContext.labelSymbols: List<VarSymbol> get() = attributes[this]?.get("labels") as? List<VarSymbol> ?: emptyList()

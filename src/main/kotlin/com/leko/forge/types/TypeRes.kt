@@ -12,7 +12,7 @@ fun ForgeParser.TypeContext.toType(): Type {
             when (val name = this.name.text) {
                 "int" -> IntType
                 "float" -> FloatType
-                "boolean" -> BoolType
+                "bool", "boolean" -> BoolType
                 "str" -> StrType
                 else -> ComplexType(name)
             }

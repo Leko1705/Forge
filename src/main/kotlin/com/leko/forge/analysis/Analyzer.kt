@@ -35,6 +35,5 @@ class Analyzer private constructor(context: Context) {
         member.enter(root)
         attr.attr(root)
         dep.check(root)
-        log.report()
     }
 }

@@ -96,7 +96,7 @@ class Enter private constructor(context: Context) {
                 func.ty.toType(),
                 func.name.span,
             )
-            symTab[sym.type] = sym
+            symTab.functions[sym.name] = sym
             func.setSym(sym)
         }
         for (inhDef in root.inhDef()) {

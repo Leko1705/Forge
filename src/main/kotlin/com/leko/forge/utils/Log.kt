@@ -43,8 +43,13 @@ class Log private constructor() {
 
     fun clear() = diagnostics.clear()
 
+    private var reported = 0
+
+    /** Prints the diagnostics reported since the last call. */
     fun report() {
-        for (d in diagnostics.sortedWith(compareBy({ it.span?.startLine ?: 0 }, { it.span?.startCol ?: 0 }))) {
+        val pending = diagnostics.drop(reported)
+        reported = diagnostics.size
+        for (d in pending.sortedWith(compareBy({ it.span?.startLine ?: 0 }, { it.span?.startCol ?: 0 }))) {
             val loc = d.span?.toString() ?: "?"
             val label = when (d.severity) {
                 Severity.ERROR -> "error"
@@ -54,16 +59,17 @@ class Log private constructor() {
             val color = if (d.severity == Severity.ERROR) ANSI_RED else if (d.severity == Severity.WARNING) ANSI_YELLOW else ANSI_WHITE
             println("$color[$loc] $label ${d.code}: ${d.message}$ANSI_RESET")
         }
-        val hasError = hasErrors()
-        val hasWarning = hasWarning()
-        if (hasError || hasWarning) {
+    }
+
+    fun summary() {
+        if (hasErrors() || hasWarning()) {
             println()
         }
         if (hasErrors()) {
             println("$ANSI_RED${diagnostics.count { it.severity == Severity.ERROR }} error(s).$ANSI_RESET")
         }
         if (hasWarning()) {
-            println("$ANSI_YELLOW${diagnostics.count { it.severity == Severity.ERROR }} error(s).$ANSI_RESET")
+            println("$ANSI_YELLOW${diagnostics.count { it.severity == Severity.WARNING }} warning(s).$ANSI_RESET")
         }
     }
 }

@@ -1,5 +1,7 @@
 package com.leko.forge.llir
 
+import com.leko.forge.lr.ParserDefinition
+import com.leko.forge.lr.Sem
 import com.leko.forge.types.*
 
 // ============================================================
@@ -14,7 +16,25 @@ class LLIRModule(
     val functions: List<Function>,
     /** global `inh` declarations (name -> declaration incl. init value) */
     val inherited: Map<String, InhAttribute>,
+    val parsers: List<LLIRParser>,
 )
+
+// ============================================================
+// Parsers
+// ============================================================
+
+class LLIRParser(
+    val name: String,
+    val definition: ParserDefinition,
+    /** per production of [definition] */
+    val productions: List<LLIRProduction>,
+)
+
+sealed interface LLIRProduction {
+    /** reduction of a rule option: bind the labels, then produce the value */
+    class User(val labels: List<Pair<Local, Sem>>, val producer: Value?, val value: Sem, val type: Type) : LLIRProduction
+    class Helper(val value: Sem) : LLIRProduction
+}
 
 // ============================================================
 // Structures. Plain classes ON PURPOSE: declarations are referenced from
@@ -44,6 +64,8 @@ class EnumItem(val enumName: String, val itemName: String) : Container {
 
 class Node(override val name: String) : Struct, Container {
     override val fields: MutableMap<String, Type> = linkedMapOf()
+    /** contributions to collection attributes made by this node (or its subtypes, if it is an interface) */
+    val contributions: MutableList<Contribution> = mutableListOf()
     val parents: MutableList<Node> = mutableListOf()
     var isInterface: Boolean = false
 
@@ -69,6 +91,7 @@ class Function(
     val name: String,
     val parameters: List<Parameter>,
     val returnType: Type,
+    val isExternal: Boolean = false,
 ) {
     var body: Value? = null
 }
@@ -100,13 +123,12 @@ class CollAttribute(val owner: Node, override val name: String, override val typ
 
 /** `contrib Source -> target.coll as alias = value` */
 class Contribution(
-    val id: Int,
     val source: Node,
     val coll: CollAttribute,
     /** evaluated with `this` == the contributing node; must resolve to the collecting node */
     val target: Value,
     /** the fold-so-far, bound to the user's alias name */
-    val alias: Parameter,
+    val alias: Local,
     val value: Value,
 )
 
@@ -120,7 +142,7 @@ class InhEquation(val attrName: String, val delegates: List<InhDelegate>)
 class InhDelegate(
     val field: String,
     val key: Value?,
-    val binder: DelegateIndex?,
+    val binder: Local?,
     val value: Value,
 )
 
@@ -132,19 +154,15 @@ sealed interface Value { val type: Type }
 
 // ---- literals & references ----
 data class IntValue(val value: Int) : Value { override val type: Type get() = IntType }
-data class FloatValue(val value: Float) : Value { override val type: Type get() = FloatType }
+data class FloatValue(val value: Double) : Value { override val type: Type get() = FloatType }
 data class BoolValue(val value: Boolean) : Value { override val type: Type get() = BoolType }
 data class StringValue(val value: String) : Value { override val type: Type get() = StrType }
 data object NullValue : Value { override val type: Type get() = NullType }
 
 data class Parameter(val name: String, override val type: Type) : Value
 data class This(override val type: Type) : Value
-/** variable bound by a match pattern */
-data class MatchVar(val name: String, override val type: Type) : Value
-/** index variable of an inh delegate (`i` in `children[i+1] <- ...`) */
-data class DelegateIndex(val name: String) : Value { override val type: Type get() = IntType }
-/** the value an `inh` equation receives from the parent (bare name inside inh bodies) */
-data class AccessParentInhAttr(val name: String, override val type: Type) : Value
+/** a local variable: bound by a match pattern, comprehension, label, delegation index, ... */
+data class Local(val name: String, override val type: Type) : Value
 
 data class ListLiteral(val list: List<Value>, override val type: Type) : Value
 data class MapLiteral(val entries: List<Pair<Value, Value>>, override val type: Type) : Value
@@ -172,11 +190,13 @@ data class AccessNodeAttr(val receiver: Value, val attr: Attribute) : Value {
 }
 data class AccessListContainer(val container: Value, val key: Value, override val type: Type) : Value
 data class AccessMapContainer(val container: Value, val key: Value, override val type: Type) : Value
+/** builtin members of primitive types, e.g. `List.size` */
+data class AccessBuiltinField(val receiver: Value, val name: String, override val type: Type) : Value
 
 // ---- conversions ----
 data class Int2Float(val value: Value) : Value { override val type: Type get() = FloatType }
 data class Float2Int(val value: Value) : Value { override val type: Type get() = IntType }
-data class Cast(val value: Value, val target: Struct) : Value { override val type: Type get() = ComplexType(target.name) }
+data class Cast(val value: Value, override val type: Type) : Value
 data class IsInstanceOf(val value: Value, val target: Struct) : Value { override val type: Type get() = BoolType }
 
 // ---- unary ----
@@ -236,6 +256,8 @@ data class ListEquals(override val lhs: Value, override val rhs: Value) : BoolBi
 data class MapEquals(override val lhs: Value, override val rhs: Value) : BoolBinary()
 data class EnumEquals(override val lhs: Value, override val rhs: Value) : BoolBinary()
 data class RecordEquals(override val lhs: Value, override val rhs: Value) : BoolBinary()
+/** structural equality of any two values that are not nodes (optionals, enums, records, lists, ...) */
+data class ValueEquals(override val lhs: Value, override val rhs: Value) : BoolBinary()
 data class NodeEquals(
     override val lhs: Value, val lhsIsConcrete: Boolean,
     override val rhs: Value, val rhsIsConcrete: Boolean,
@@ -256,22 +278,23 @@ data class PutAllMapItems(val map: Value, val elements: Value) : Value { overrid
 // ---- control ----
 data class IfElse(val cond: Value, val then: Value, val alt: Value, override val type: Type) : Value
 data class Panic(val message: String) : Value { override val type: Type get() = ArbitraryType }
+/** `body where fun f(..) = ..` */
+data class WithLocalFunction(val function: Function, val body: Value) : Value { override val type: Type get() = body.type }
+/** `Parser.rule(source)` */
+data class ParseCall(val parser: String, val rule: String, val source: Value, override val type: Type) : Value
 
-// ---- comprehensions: tag-based binders (no names resolved by position, no self-reference) ----
-data class MapRef(val name: String, override val type: Type) : Value
-data class MapOp(val iterable: Value, val ref: MapRef, val body: Value) : Value {
-    override val type: Type get() = ListType(body.type)
-}
-data class FoldItem(val name: String, override val type: Type) : Value
-data class FoldAcc(val name: String, override val type: Type) : Value
-data class FoldOp(val iterable: Value, val initAcc: Value, val item: FoldItem, val acc: FoldAcc, val body: Value) : Value {
+// ---- comprehensions ----
+/** `body for item in iterable` */
+data class MapOp(val iterable: Value, val item: Local, val body: Value, override val type: Type) : Value
+/** `body for item in iterable with acc = init` */
+data class FoldOp(val iterable: Value, val initAcc: Value, val item: Local, val acc: Local, val body: Value) : Value {
     override val type: Type get() = acc.type
 }
 
 // ---- match ----
 sealed interface MatchPattern
 data object WildcardPattern : MatchPattern
-data class BindPattern(val variable: MatchVar) : MatchPattern
+data class BindPattern(val variable: Local) : MatchPattern
 data class ValuePattern(val value: Value) : MatchPattern
 data class EnumVariant(val item: EnumItem)
 data class ConstructorPattern(val variant: EnumVariant, val args: List<MatchPattern>) : MatchPattern

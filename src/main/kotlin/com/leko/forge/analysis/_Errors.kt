@@ -369,3 +369,50 @@ fun parseError(span: SourceSpan?, message: String): Diagnostic =
         "E008",
         message
     )
+fun labelAlreadyDefined(span: SourceSpan?, label: String): Diagnostic =
+    Diagnostic(
+        Severity.ERROR,
+        span,
+        "E101",
+        "label '$label' is already defined in this rule option"
+    )
+
+fun invalidTerminalRegex(span: SourceSpan?, regex: String, reason: String): Diagnostic =
+    Diagnostic(
+        Severity.ERROR,
+        span,
+        "E102",
+        "invalid regular expression '$regex': $reason"
+    )
+
+fun invalidAnnotation(span: SourceSpan?, message: String): Diagnostic =
+    Diagnostic(
+        Severity.ERROR,
+        span,
+        "E103",
+        message
+    )
+
+fun ruleWithoutProductions(span: SourceSpan?, ruleName: String): Diagnostic =
+    Diagnostic(
+        Severity.ERROR,
+        span,
+        "E104",
+        "rule '$ruleName' is used but has no definition with productions ('rule $ruleName: T -> ...')"
+    )
+
+fun canNotInferParseValue(span: SourceSpan?, reason: String): Diagnostic =
+    Diagnostic(
+        Severity.ERROR,
+        span,
+        "E105",
+        "can not infer the parsed value: $reason; add a producer '{ ... }'"
+    )
+
+fun invalidDelegationKey(span: SourceSpan?): Diagnostic =
+    Diagnostic(
+        Severity.ERROR,
+        span,
+        "E106",
+        "the key of a list delegation must be a new index variable (child[i] <- ..) or an int expression"
+    )

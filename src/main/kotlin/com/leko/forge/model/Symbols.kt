@@ -1,7 +1,6 @@
 package com.leko.forge.model
 
 import com.leko.forge.types.*
-import com.sun.org.apache.xalan.internal.xsltc.compiler.util.StringType
 
 enum class Kind {
     VAL,
@@ -160,7 +159,9 @@ data class SynSymbol(
     override val owner: NodeSymbol,
     override val name: String,
     override val type: Type,
-    override val span: SourceSpan
+    override val span: SourceSpan,
+    /** whether the declaration comes with an equation (on interfaces: a default equation) */
+    val hasEquation: Boolean = owner is ConcreteNodeSymbol,
 ) : NodeBoundAttributeSymbol {
     val isDefinition: Boolean get() = owner is InterfaceNodeSymbol
     val isImplementation: Boolean get() = !isDefinition
@@ -183,6 +184,11 @@ data class ParserSymbol(
     override val name: String,
     override val span: SourceSpan
 ) : Symbol {
+    /** the parser this parser extends (`parser Ext : Base`), it inherits all rules of its parent */
+    var parent: ParserSymbol? = null
+
+    val lineage: List<ParserSymbol> get() = generateSequence(this) { it.parent }.take(64).toList()
+
     override val type: Type get() = ParserType(name)
     override val kind: Kind get() = Kind.TYP
 }

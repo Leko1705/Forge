@@ -4,13 +4,14 @@ import ForgeParser
 import ForgeParserBaseVisitor
 import com.leko.forge.analysis.*
 import com.leko.forge.context.Context
+import com.leko.forge.lr.terminalSyntax
 import com.leko.forge.model.*
 import com.leko.forge.types.*
-import com.leko.forge.util.Diagnostic
 import com.leko.forge.util.Log
-import com.leko.forge.util.Severity
 import org.antlr.v4.runtime.ParserRuleContext
 import org.antlr.v4.runtime.tree.ErrorNode
+import java.util.regex.Pattern
+import java.util.regex.PatternSyntaxException
 
 class Attr private constructor(context: Context) {
     companion object {
@@ -24,7 +25,8 @@ class Attr private constructor(context: Context) {
         val receiver: Type? = null,
         val expected: Type? = null,
         val matched: Type? = null,
-        var delegateIndexVarEnabled: Boolean = false,
+        /** the parser whose rules are attributed */
+        val parser: ParserSymbol? = null,
     )
 
 
@@ -33,6 +35,8 @@ class Attr private constructor(context: Context) {
     val resolve = Resolve.instance(context)
 
     val symTab = SymTab.instance(context)
+
+    val types = Types.instance(context)
 
     val log = Log.instance(context)
 
@@ -46,19 +50,23 @@ class Attr private constructor(context: Context) {
         private var env: Env<AttributeContext> = Env(AttributeContext(Scope()))
 
         private fun ParserRuleContext.attribType(): Type {
-            return accept(this@TypeAttrib)!!
+            return accept(this@TypeAttrib) ?: ErrorType
+        }
+
+        /** Looks [name] up in the local scopes, innermost first. */
+        private fun lookup(name: String): Symbol? {
+            var e: Env<AttributeContext>? = env
+            while (e != null) {
+                e.value.scope.entries[name]?.let { return it }
+                e = e.next
+            }
+            return null
         }
 
         private fun attribIdent(ctx: ForgeParser.IdentifierContext, accepted: Set<Kind>): Type {
             val name = ctx.IDENT().text
 
-            var sym = env.value.scope.entries[name]
-            if (sym == null) sym = resolve.resolve(name)
-            if (sym == null && env.value.delegateIndexVarEnabled) {
-                sym = VarSymbol(name, IntType, ctx.IDENT().span)
-                env.value.scope.enter(sym)
-                env.value.delegateIndexVarEnabled = false
-            }
+            val sym = lookup(name) ?: resolve.resolve(name)
 
             if (sym == null) {
                 log.diag(canNotFindIdentifier(ctx.IDENT().span, name))
@@ -78,7 +86,11 @@ class Attr private constructor(context: Context) {
             else -> attribType()
         }
 
-        private inline fun <T> withExpected(expected: Type, block: () -> T): T {
+        /** How a receiver expression is used: as a type (`Enum.ITEM`, `Parser.rule(..)`) or as a value. */
+        private fun receiverKind(recv: ForgeParser.ExpressionContext): Kind =
+            if (recv is ForgeParser.IdentifierContext && recv.symbol?.kind == Kind.TYP) Kind.TYP else Kind.VAL
+
+        private inline fun <T> withExpected(expected: Type?, block: () -> T): T {
             val env = this.env
             this.env = env.copy(value = env.value.copy(expected = expected))
             val res = block()
@@ -101,22 +113,17 @@ class Attr private constructor(context: Context) {
             this.env = prev
         }
 
-        private inline fun withDelegateIndexVarEnabled(block: () -> Unit) {
-            this.env.value.delegateIndexVarEnabled = true
-            block()
-            this.env.value.delegateIndexVarEnabled = false
-        }
-
-        private inline fun withChildScope(block: () -> Unit) {
+        private inline fun <T> withChildScope(block: () -> T): T {
             val env = this.env
             this.env = env.child(env.value.copy(scope = Scope()))
-            block()
+            val res = block()
             this.env = env
+            return res
         }
 
-        private fun resolveMember(owner: Type, member: String, receiverKind: Kind, memberKind: Kind): Symbol? {
+        private fun resolveMember(owner: Type, member: String, receiverKind: Kind, memberKind: Kind, span: SourceSpan? = null): Symbol? {
             val owner = if (owner is OptionalType) {
-                chk.checkAssignable(owner.elem, owner)  // trigger type error
+                chk.checkAssignable(owner.elem, owner, span)  // trigger type error
                 owner.elem
             }
             else {
@@ -125,22 +132,38 @@ class Attr private constructor(context: Context) {
             return resolve.resolve(owner, member, receiverKind, memberKind)
         }
 
+        /** Attributes call arguments against the parameter types, so that e.g. `[]` gets its element type. */
+        private fun attribArguments(args: List<ForgeParser.ExpressionContext>, params: List<Type>, span: SourceSpan?) {
+            for ((i, arg) in args.withIndex()) {
+                val expected = params.getOrNull(i)
+                val got = withExpected(expected) { arg.attribType() }
+                if (expected != null) chk.checkAssignable(expected, got, arg.span)
+            }
+            if (args.size < params.size) {
+                log.diag(tooFewArguments(span))
+            }
+            if (args.size > params.size) {
+                log.diag(tooManyArguments(span))
+            }
+        }
+
         override fun visitSynDef(ctx: ForgeParser.SynDefContext): Type? {
             val attrSym = ctx.symbol ?: return null
 
-            if (attrSym.owner is ConcreteNodeSymbol) {
+            if (ctx.syn != null) {
                 withExpected(attrSym.type) {
                     withReceiver(attrSym.owner.type) {
                         val synTy = ctx.syn.attribType()
-                        chk.checkAssignable(attrSym.type, synTy)
+                        chk.checkAssignable(attrSym.type, synTy, ctx.syn.span)
                     }
                 }
             }
             return null
         }
 
-        override fun visitInhDef(ctx: ForgeParser.InhDefContext): Type {
-            return chk.checkAssignable(ctx.symbol!!.type, ctx.init.attribType())
+        override fun visitInhDef(ctx: ForgeParser.InhDefContext): Type? {
+            val sym = ctx.symbol ?: return null
+            return withExpected(sym.type) { chk.checkAssignable(sym.type, ctx.init.attribType(), ctx.init.span) }
         }
 
         override fun visitInhImpl(ctx: ForgeParser.InhImplContext): Type? {
@@ -171,7 +194,7 @@ class Attr private constructor(context: Context) {
             withExpected(attrSym.type) {
                 withReceiver(attrSym.owner.type) {
                     val synTy = ctx.init.attribType()
-                    chk.checkAssignable(attrSym.type, synTy)
+                    chk.checkAssignable(attrSym.type, synTy, ctx.init.span)
                 }
             }
 
@@ -181,28 +204,32 @@ class Attr private constructor(context: Context) {
         override fun visitContrib(ctx: ForgeParser.ContribContext): Type? {
             val nodeName = ctx.node.text
             val attrName = ctx.collName.text
-            val nodeSym = symTab.concreteNodes.values.find { it.name == nodeName } ?: return null
+            val nodeSym = symTab.concreteNodes.values.find { it.name == nodeName }
+                ?: symTab.interfaceNodes.values.find { it.name == nodeName }
+            if (nodeSym == null) {
+                log.diag(nodeNotFound(ctx.node.span, nodeName))
+                return null
+            }
             val alias = ctx.alias?.text ?: attrName
 
             withReceiver(nodeSym.type) {
                 val recvType = ctx.receiver.attribType()
-                var collSym = resolveMember(recvType, attrName, Kind.VAL, Kind.VAL)
+                var collSym = if (recvType == ErrorType) null else resolveMember(recvType, attrName, Kind.VAL, Kind.VAL, ctx.receiver.span)
 
                 if (collSym == null) {
-                    log.diag(collectionAttributeNotFound(ctx.collName.span, nodeName, attrName))
+                    if (recvType != ErrorType) log.diag(collectionAttributeNotFound(ctx.collName.span, recvType.toString(), attrName))
                 }
                 else if (collSym !is CollSymbol) {
                     log.diag(collectionAttributeExpected(ctx.collName.span))
                     collSym = null
                 }
 
-
                 if (collSym != null) {
                     withExpected(collSym.type) {
                         withChildScope {
-                            env.value.scope.enter(VarSymbol(alias, collSym.type, ctx.alias?.span))
+                            env.value.scope.enter(VarSymbol(alias, collSym.type, ctx.alias?.span ?: ctx.collName.span))
                             val valueType = ctx.value.attribType()
-                            chk.checkAssignable(collSym.type, valueType)
+                            chk.checkAssignable(collSym.type, valueType, ctx.value.span)
                         }
                     }
                     ctx.setSym(collSym)
@@ -224,7 +251,7 @@ class Attr private constructor(context: Context) {
             val value = ctx.value
 
             val childSym = resolveMember(env.value.receiver!!, childName, Kind.VAL, Kind.VAL)
-            if (childSym == null) {
+            if (childSym == null || !(childSym is VarSymbol && childSym.varKind == VarSymbol.VarKind.NODE_FIELD)) {
                 log.diag(canNotFindIdentifier(ctx.child.span, childName))
                 return null
             }
@@ -233,17 +260,26 @@ class Attr private constructor(context: Context) {
                 if (childSym.type is ListType) {
                     log.diag(invalidToListDelegation(ctx.span, childName))
                 }
-                chk.checkAssignable(env.value.expected!!, value.attribType())
+                chk.checkAssignable(env.value.expected!!, value.attribType(), value.span)
             }
             else {
                 withChildScope {
                     if (childSym.type !is ListType) {
                         log.diag(invalidListAccessDelegation(ctx.span, childName))
                     }
-                    withDelegateIndexVarEnabled {
-                        chk.checkAssignable(IntType, key.attribType())
+                    // `child[i] <- ..` introduces the index variable `i`, any other key is an int expression
+                    val name = (key as? ForgeParser.IdentifierContext)?.IDENT()?.text
+                    if (name != null && lookup(name) == null && resolve.resolve(name) == null) {
+                        val binder = VarSymbol(name, IntType, key.span)
+                        env.value.scope.enter(binder)
+                        key.setSym(binder)
+                        key.setType(IntType)
+                        ctx.attach("binder", binder)
                     }
-                    chk.checkAssignable(env.value.expected!!, value.attribType())
+                    else {
+                        chk.checkAssignable(IntType, key.attribType(), key.span)
+                    }
+                    chk.checkAssignable(env.value.expected!!, value.attribType(), value.span)
                 }
             }
 
@@ -263,18 +299,10 @@ class Attr private constructor(context: Context) {
                     if (ctx.EXTERNAL() != null) {
                         log.diag(externalFunctionMustHaveNoBody(ctx.expression().span))
                     }
-                    if (ctx.receiver == null) {
-                        withExpected(sym.returnType) {
+                    withExpected(sym.returnType) {
+                        withReceiver(sym.receiver?.type) {
                             val inferred = expr.attribType()
-                            chk.checkAssignable(env.value.expected!!, inferred)
-                        }
-
-                    } else {
-                        withExpected(sym.returnType) {
-                            withReceiver(sym.receiver!!.type) {
-                                val inferred = expr.attribType()
-                                chk.checkAssignable(env.value.expected!!, inferred)
-                            }
+                            chk.checkAssignable(sym.returnType, inferred, expr.span)
                         }
                     }
                 }
@@ -288,21 +316,169 @@ class Attr private constructor(context: Context) {
             return null
         }
 
+        // ------------------------------------------------------------------
+        // parser rules
+        // ------------------------------------------------------------------
+
         override fun visitParseRuleDef(ctx: ForgeParser.ParseRuleDefContext): Type? {
             if (ctx.ARROW() == null) return null
             val sym = ctx.symbol ?: return null
-            withReceiver(sym.parser.type) {
-                val optionTypes = ctx.parserRuleOption().map { it.accept(this) }
-                if (optionTypes.all { it != null }) {
-                    val sharedType = chk.checkAllAssignable(optionTypes, sym.type)
-                    chk.checkAssignable(sym.returnType, sharedType)
-                }
-                else {
-                    log.diag(canNotInferParseValue(ctx.ruleName.span))
+            val outer = env
+            env = Env(AttributeContext(Scope(), parser = sym.parser))
+            for (option in ctx.parserRuleOption()) {
+                withChildScope {
+                    val info = parseInfoOf(option.parseRule())
+                    val labels = info.labels.map { (name, type) -> VarSymbol(name, type, option.span) }
+                    labels.forEach { env.value.scope.enter(it) }
+                    option.attach("labels", labels)
+                    val type = if (option.producer != null) {
+                        withExpected(sym.returnType) { option.producer.attribType() }
+                    } else {
+                        info.type ?: run {
+                            log.diag(canNotInferParseValue(option.span, info.reason ?: "unknown"))
+                            ErrorType
+                        }
+                    }
+                    chk.checkAssignable(sym.returnType, type, option.span)
+                    option.setType(type)
                 }
             }
-            return ctx.setType(sym.type)
+            env = outer
+            return null
         }
+
+        private fun join(types: List<Type>): Type? {
+            if (types.any { it == ErrorType }) return ErrorType
+            var res = types.firstOrNull() ?: return null
+            for (t in types.drop(1)) res = this@Attr.types.sharedSuperType(res, t) ?: return null
+            return res
+        }
+
+        private fun optional(type: Type): Type = if (type == ErrorType || type == NullType) type else OptionalType(type)
+
+        private fun list(type: Type): Type = if (type == ErrorType) type else ListType(type)
+
+        private fun parseInfoOf(ctx: ForgeParser.ParseRuleContext): ParseInfo =
+            ctx.setParseInfo(parseInfoOf(ctx.parserAlternative()))
+
+        private fun parseInfoOf(ctx: ForgeParser.ParserAlternativeContext): ParseInfo {
+            val alts = ctx.parserSequence().map { parseInfoOf(it) }
+            if (alts.size == 1) return ctx.setParseInfo(alts[0])
+            val labels = LinkedHashMap<String, Type>()
+            for (name in alts.flatMap { it.labels.keys }.distinct()) {
+                val present = alts.mapNotNull { it.labels[name] }
+                var type = join(present) ?: run {
+                    log.diag(typeMismatch(ctx.span, present, present))
+                    ErrorType
+                }
+                if (present.size < alts.size) type = optional(type)
+                labels[name] = type
+            }
+            val kind = if (alts.all { it.kind == ParseInfo.Kind.TEXT }) ParseInfo.Kind.TEXT else ParseInfo.Kind.VALUE
+            val missing = alts.firstOrNull { it.type == null }
+            val info = if (missing != null) {
+                ParseInfo(kind, null, labels, missing.reason)
+            } else {
+                val type = join(alts.map { it.type!! })
+                ParseInfo(kind, type, labels, if (type == null) "the alternatives produce the incompatible types ${alts.joinToString(", ") { it.type.toString() }}" else null)
+            }
+            return ctx.setParseInfo(info)
+        }
+
+        private fun parseInfoOf(ctx: ForgeParser.ParserSequenceContext): ParseInfo {
+            val elems = ctx.parserLabeled().map { it to parseInfoOf(it) }
+            val labels = LinkedHashMap<String, Type>()
+            for ((elemCtx, elem) in elems) {
+                for ((name, type) in elem.labels) {
+                    if (name in labels) log.diag(labelAlreadyDefined(elemCtx.span, name))
+                    labels[name] = type
+                }
+            }
+            if (elems.size == 1) return ctx.setParseInfo(ParseInfo(elems[0].second.kind, elems[0].second.type, labels, elems[0].second.reason))
+            val values = elems.filter { it.second.kind == ParseInfo.Kind.VALUE }
+            val info = when (values.size) {
+                0 -> ParseInfo(ParseInfo.Kind.TEXT, StrType, labels)
+                1 -> ParseInfo(ParseInfo.Kind.VALUE, values[0].second.type, labels, values[0].second.reason)
+                else -> ParseInfo(
+                    ParseInfo.Kind.VALUE, null, labels,
+                    "'${ctx.text}' contains several elements that produce values (${values.joinToString(", ") { it.first.text }})"
+                )
+            }
+            return ctx.setParseInfo(info)
+        }
+
+        private fun parseInfoOf(ctx: ForgeParser.ParserLabeledContext): ParseInfo {
+            val inner = parseInfoOf(ctx.parserPostfix())
+            if (ctx.label == null) return ctx.setParseInfo(inner)
+            val label = ctx.label.text
+            val type = inner.type ?: run {
+                log.diag(canNotInferParseValue(ctx.label.span, inner.reason ?: "unknown"))
+                ErrorType
+            }
+            val labels = LinkedHashMap(inner.labels)
+            if (label in labels) log.diag(labelAlreadyDefined(ctx.label.span, label))
+            labels[label] = type
+            return ctx.setParseInfo(ParseInfo(ParseInfo.Kind.VALUE, type, labels))
+        }
+
+        private fun parseInfoOf(ctx: ForgeParser.ParserPostfixContext): ParseInfo {
+            val atom = parseInfoOf(ctx.atom)
+            val info = when {
+                ctx.QUESTIONMARK() != null -> ParseInfo(
+                    ParseInfo.Kind.VALUE, atom.type?.let { optional(it) },
+                    LinkedHashMap(atom.labels.mapValues { optional(it.value) }), atom.reason,
+                )
+                ctx.STAR() != null || ctx.PLUS() != null -> ParseInfo(
+                    ParseInfo.Kind.VALUE, atom.type?.let { list(it) },
+                    LinkedHashMap(atom.labels.mapValues { list(it.value) }), atom.reason,
+                )
+                else -> atom
+            }
+            return ctx.setParseInfo(info)
+        }
+
+        private fun parseInfoOf(ctx: ForgeParser.ParserAtomContext): ParseInfo {
+            val info = when {
+                ctx.terminalRule() != null -> {
+                    val terminal = ctx.terminalRule()
+                    val syntax = terminal.terminalSyntax()
+                    if (!syntax.literal) {
+                        try {
+                            if (Pattern.compile(syntax.pattern).matcher("").lookingAt()) {
+                                log.diag(terminalMatchesEmpty(terminal.span, syntax.pattern))
+                            }
+                        } catch (e: PatternSyntaxException) {
+                            log.diag(invalidTerminalRegex(terminal.span, syntax.pattern, e.description))
+                        }
+                    }
+                    else if (syntax.pattern.isEmpty()) {
+                        log.diag(terminalMatchesEmpty(terminal.span, syntax.pattern))
+                    }
+                    terminal.setType(StrType)
+                    ParseInfo(ParseInfo.Kind.TEXT, StrType, LinkedHashMap())
+                }
+                ctx.nonterminalRule() != null -> {
+                    val nonterminal = ctx.nonterminalRule()
+                    val parser = env.value.parser!!
+                    val name = nonterminal.name.text
+                    val ruleSym = resolve.resolveParserRule(parser, name) as? ParserRuleSymbol
+                    if (ruleSym == null) {
+                        log.diag(parserRuleNotFound(nonterminal.name.span, parser.name, name))
+                        ParseInfo(ParseInfo.Kind.VALUE, ErrorType, LinkedHashMap())
+                    } else {
+                        nonterminal.setSym(ruleSym)
+                        nonterminal.setType(ruleSym.returnType)
+                        ParseInfo(ParseInfo.Kind.VALUE, ruleSym.returnType, LinkedHashMap())
+                    }
+                }
+                else -> parseInfoOf(ctx.parseRule())
+            }
+            return ctx.setParseInfo(info)
+        }
+
+        // ------------------------------------------------------------------
+        // expressions
+        // ------------------------------------------------------------------
 
         override fun visitIntValue(ctx: ForgeParser.IntValueContext): Type {
             return ctx.setType(IntType)
@@ -324,58 +500,63 @@ class Attr private constructor(context: Context) {
             return ctx.setType(NullType)
         }
 
+        override fun visitEnclosed(ctx: ForgeParser.EnclosedContext): Type {
+            return ctx.setType(ctx.expression().attribType())
+        }
+
         override fun visitCast(ctx: ForgeParser.CastContext): Type {
             val type = chk.checkExists(ctx.ty.toType())
-            withExpected(type) {
-                chk.checkAssignable(type, ctx.value.attribType())
-            }
+            val valueType = ctx.value.attribType()
+            val ok = valueType == ErrorType || type == ErrorType ||
+                    types.isAssignable(type, valueType) || types.isAssignable(valueType, type) ||
+                    (valueType in listOf(IntType, FloatType) && type in listOf(IntType, FloatType))
+            if (!ok) log.diag(typeMismatch(ctx.span, type, valueType))
             return ctx.setType(type)
         }
 
         override fun visitNullCheck(ctx: ForgeParser.NullCheckContext): Type {
             val type = ctx.value.attribType()
-            return if (type is OptionalType) type.elem else type
+            return ctx.setType(if (type is OptionalType) type.elem else type)
         }
 
         override fun visitListLiteral(ctx: ForgeParser.ListLiteralContext): Type {
-            val elemTypes = ctx.expression().map { it.attribType() }
-            val res = chk.checkAllAssignable(elemTypes, (env.value.expected as? ListType)?.elem)
+            val expectedElem = (env.value.expected as? ListType)?.elem
+            val elemTypes = ctx.expression().map { withExpected(expectedElem) { it.attribType() } }
+            val res = chk.checkAllAssignable(elemTypes, expectedElem)
             return ctx.setType(ListType(res))
         }
 
         override fun visitListComprehension(ctx: ForgeParser.ListComprehensionContext): Type {
-            val iterable = ctx.iterable.attribType()
-            chk.checkAssignable(ListType(ArbitraryType), iterable)
+            val iterable = withExpected(null) { ctx.iterable.attribType() }
+            chk.checkAssignable(ListType(ArbitraryType), iterable, ctx.iterable.span)
             val iterType = if (iterable is ListType) iterable.elem else ErrorType
 
             if (ctx.acc == null) {
-                withChildScope {
+                return withChildScope {
                     val iterSym = VarSymbol(ctx.name.text, iterType, ctx.name.span)
                     ctx.setSym(iterSym)
                     env.value.scope.enter(iterSym)
-                    return ctx.setType(ListType(ctx.put.attribType()))
+                    val expectedElem = (env.value.expected as? ListType)?.elem
+                    ctx.setType(ListType(withExpected(expectedElem) { ctx.put.attribType() }))
                 }
             } else {
-                val accInitType = ctx.accInit.attribType()
-                var put: Type = ErrorType
-                withChildScope {
+                val expected = env.value.expected
+                val accInitType = withExpected(expected) { ctx.accInit.attribType() }
+                val accType = if (expected != null && types.isAssignable(expected, accInitType)) expected else accInitType
+                return withChildScope {
                     val iterSym = VarSymbol(ctx.name.text, iterType, ctx.name.span)
-                    val accSym = VarSymbol(ctx.acc.text, accInitType, ctx.acc.span)
+                    val accSym = VarSymbol(ctx.acc.text, accType, ctx.acc.span)
                     ctx.attach("symbols", iterSym to accSym)
                     env.value.scope.enter(iterSym)
                     env.value.scope.enter(accSym)
-                    put = ctx.put.attribType()
+                    val put = withExpected(accType) { ctx.put.attribType() }
+                    chk.checkAssignable(accType, put, ctx.put.span)
+                    ctx.setType(accType)
                 }
-                val superType = chk.checkShareCommonSuperType(accInitType, put, env.value.expected)
-                return ctx.setType(superType)
             }
-
-            throw AssertionError("Should not reach here")
         }
 
         override fun visitMapLiteral(ctx: ForgeParser.MapLiteralContext): Type {
-            val keyTypes = ctx.expression().filterIndexed { i, _ -> i % 2 == 0 }.map { it.attribType() }
-            val valueTypes = ctx.expression().filterIndexed { i, _ -> i % 2 == 1 }.map { it.attribType() }
             val expected = env.value.expected
             var expectedKey: Type? = null
             var expectedValue: Type? = null
@@ -383,14 +564,16 @@ class Attr private constructor(context: Context) {
                 expectedKey = expected.key
                 expectedValue = expected.value
             }
+            val keyTypes = ctx.expression().filterIndexed { i, _ -> i % 2 == 0 }.map { withExpected(expectedKey) { it.attribType() } }
+            val valueTypes = ctx.expression().filterIndexed { i, _ -> i % 2 == 1 }.map { withExpected(expectedValue) { it.attribType() } }
             val keyRes = chk.checkAllAssignable(keyTypes, expectedKey)
             val valueRes = chk.checkAllAssignable(valueTypes, expectedValue)
             return ctx.setType(MapType(keyRes, valueRes))
         }
 
         override fun visitAddSub(ctx: ForgeParser.AddSubContext): Type {
-            val lhsTy = ctx.left.attribType()
-            val rhsTy = ctx.right.attribType()
+            val lhsTy = withExpected(null) { ctx.left.attribType() }
+            val rhsTy = withExpected(null) { ctx.right.attribType() }
             val isAdd = ctx.PLUS() != null
             return ctx.setType(if (isAdd) {
                 chk.checkAdditive(lhsTy, rhsTy)
@@ -400,16 +583,37 @@ class Attr private constructor(context: Context) {
         }
 
         override fun visitMulDivMod(ctx: ForgeParser.MulDivModContext): Type {
-            val lhsTy = ctx.left.attribType()
-            val rhsTy = ctx.right.attribType()
+            val lhsTy = withExpected(null) { ctx.left.attribType() }
+            val rhsTy = withExpected(null) { ctx.right.attribType() }
             val isMod = ctx.PERCENT() != null
             return ctx.setType(if (isMod) {
-                chk.checkAssignable(IntType, lhsTy)
-                chk.checkAssignable(IntType, rhsTy)
+                chk.checkAssignable(IntType, lhsTy, ctx.left.span)
+                chk.checkAssignable(IntType, rhsTy, ctx.right.span)
                 IntType
             } else {
-                chk.checkNumericOp(lhsTy, lhsTy, ctx.STAR()?.let { "*" } ?: "/")
+                chk.checkNumericOp(lhsTy, rhsTy, ctx.STAR()?.let { "*" } ?: "/")
             })
+        }
+
+        override fun visitRelational(ctx: ForgeParser.RelationalContext): Type {
+            val lhsTy = withExpected(null) { ctx.left.attribType() }
+            val rhsTy = withExpected(null) { ctx.right.attribType() }
+            if (!(lhsTy == StrType && rhsTy == StrType)) {
+                chk.checkNumericOp(lhsTy, rhsTy, ctx.op.text)
+            }
+            return ctx.setType(BoolType)
+        }
+
+        override fun visitInOp(ctx: ForgeParser.InOpContext): Type {
+            val elemTy = withExpected(null) { ctx.left.attribType() }
+            val containerTy = withExpected(null) { ctx.right.attribType() }
+            when (containerTy) {
+                is ListType -> chk.checkAssignable(containerTy.elem, elemTy, ctx.left.span)
+                is MapType -> chk.checkAssignable(containerTy.key, elemTy, ctx.left.span)
+                ErrorType -> {}
+                else -> log.diag(typeMismatch(ctx.right.span, listOf(ListType(ArbitraryType), MapType(ArbitraryType, ArbitraryType)), containerTy))
+            }
+            return ctx.setType(BoolType)
         }
 
         override fun visitConcat(ctx: ForgeParser.ConcatContext): Type {
@@ -419,22 +623,37 @@ class Attr private constructor(context: Context) {
         }
 
         override fun visitContainerAccess(ctx: ForgeParser.ContainerAccessContext): Type {
-            val lhsTy = ctx.container.attribType()
-            val prevEnv = env
-            if (lhsTy is MapType) env = env.copy(value = env.value.copy(expected = lhsTy.key))
-            val rhsTy = ctx.key.attribType()
-            this.env = prevEnv
+            val lhsTy = withExpected(null) { ctx.container.attribType() }
+            val rhsTy = withExpected((lhsTy as? MapType)?.key) { ctx.key.attribType() }
             return ctx.setType(chk.checkContainerAccess(lhsTy, rhsTy))
         }
 
         override fun visitContextualized(ctx: ForgeParser.ContextualizedContext): Type {
-            throw UnsupportedOperationException("should be transformed away")
+            // `expr where fun f(..): T = ..` defines a local (possibly recursive) helper function for `expr`
+            val func = ctx.`fun`
+            return withChildScope {
+                if (func.receiver != null) {
+                    log.diag(invalidAnnotation(func.receiver.span, "local functions can not have a receiver"))
+                }
+                val sym = FunctionSymbol(
+                    null,
+                    func.name.text,
+                    func.parameter().map { VarSymbol(it.name.text, chk.checkExists(it.ty.toType()), it.name.span, VarSymbol.VarKind.PARAMETER) },
+                    chk.checkExists(func.ty.toType()),
+                    func.name.span,
+                )
+                func.setSym(sym)
+                ctx.setSym(sym)
+                env.value.scope.enter(sym)
+                func.accept(this)
+                ctx.setType(ctx.expr.attribType())
+            }
         }
 
         override fun visitElvis(ctx: ForgeParser.ElvisContext): Type {
-            var expr = ctx.expr.attribType()
+            val exprTy = withExpected(env.value.expected?.let { optional(it) }) { ctx.expr.attribType() }
             val alt = ctx.alt.attribType()
-            if (expr is OptionalType) expr = expr.elem
+            val expr = if (exprTy is OptionalType) exprTy.elem else exprTy
             val shared = chk.checkShareCommonSuperType(expr, alt, env.value.expected)
             return ctx.setType(shared)
         }
@@ -450,52 +669,43 @@ class Attr private constructor(context: Context) {
         }
 
         override fun visitEquality(ctx: ForgeParser.EqualityContext): Type {
-            val expLhs = ctx.left.attribType()
-            val expRhs = ctx.right.attribType()
+            val expLhs = withExpected(null) { ctx.left.attribType() }
+            val expRhs = withExpected(expLhs) { ctx.right.attribType() }
             chk.checkShareCommonSuperType(expLhs, expRhs, null)
             return ctx.setType(BoolType)
         }
 
-        override fun visitLogicalAnd(ctx: ForgeParser.LogicalAndContext): Type {
-            val lhsTy = ctx.left.attribType()
-            val rhsTy = ctx.right.attribType()
+        private fun attribBoolOrIntOp(left: ForgeParser.ExpressionContext, right: ForgeParser.ExpressionContext): Type {
+            val lhsTy = withExpected(null) { left.attribType() }
+            val rhsTy = withExpected(null) { right.attribType() }
             chk.checkBoolOrInt(lhsTy)
-            if (lhsTy is ErrorType) return ctx.setType(chk.checkBoolOrInt(rhsTy))
-            chk.checkAssignable(lhsTy, rhsTy)
-            return ctx.setType(lhsTy)
+            if (lhsTy is ErrorType) return chk.checkBoolOrInt(rhsTy)
+            chk.checkAssignable(lhsTy, rhsTy, right.span)
+            return lhsTy
         }
 
-        override fun visitLogicalOr(ctx: ForgeParser.LogicalOrContext): Type {
-            val lhsTy = ctx.left.attribType()
-            val rhsTy = ctx.right.attribType()
-            chk.checkBoolOrInt(lhsTy)
-            if (lhsTy is ErrorType) return ctx.setType(chk.checkBoolOrInt(rhsTy))
-            chk.checkAssignable(lhsTy, rhsTy)
-            return ctx.setType(lhsTy)
-        }
+        override fun visitLogicalAnd(ctx: ForgeParser.LogicalAndContext): Type =
+            ctx.setType(attribBoolOrIntOp(ctx.left, ctx.right))
 
-        override fun visitLogicalXor(ctx: ForgeParser.LogicalXorContext): Type {
-            val lhsTy = ctx.left.attribType()
-            val rhsTy = ctx.right.attribType()
-            chk.checkBoolOrInt(lhsTy)
-            if (lhsTy is ErrorType) return ctx.setType(chk.checkBoolOrInt(rhsTy))
-            chk.checkAssignable(lhsTy, rhsTy)
-            return ctx.setType(lhsTy)
-        }
+        override fun visitLogicalOr(ctx: ForgeParser.LogicalOrContext): Type =
+            ctx.setType(attribBoolOrIntOp(ctx.left, ctx.right))
+
+        override fun visitLogicalXor(ctx: ForgeParser.LogicalXorContext): Type =
+            ctx.setType(attribBoolOrIntOp(ctx.left, ctx.right))
 
         override fun visitIand(ctx: ForgeParser.IandContext): Type {
-            val lhsTy = ctx.left.attribType()
-            val rhsTy = ctx.right.attribType()
-            chk.checkAssignable(IntType, lhsTy)
-            chk.checkAssignable(IntType, rhsTy)
-           return ctx.setType(IntType)
+            val lhsTy = withExpected(null) { ctx.left.attribType() }
+            val rhsTy = withExpected(null) { ctx.right.attribType() }
+            chk.checkAssignable(IntType, lhsTy, ctx.left.span)
+            chk.checkAssignable(IntType, rhsTy, ctx.right.span)
+            return ctx.setType(IntType)
         }
 
         override fun visitIor(ctx: ForgeParser.IorContext): Type {
-            val lhsTy = ctx.left.attribType()
-            val rhsTy = ctx.right.attribType()
-            chk.checkAssignable(IntType, lhsTy)
-            chk.checkAssignable(IntType, rhsTy)
+            val lhsTy = withExpected(null) { ctx.left.attribType() }
+            val rhsTy = withExpected(null) { ctx.right.attribType() }
+            chk.checkAssignable(IntType, lhsTy, ctx.left.span)
+            chk.checkAssignable(IntType, rhsTy, ctx.right.span)
             return ctx.setType(IntType)
         }
 
@@ -504,13 +714,12 @@ class Attr private constructor(context: Context) {
 
         override fun visitFieldAccess(ctx: ForgeParser.FieldAccessContext): Type {
             val recv = ctx.receiver
-            val recvTy = recv.attribOwner(setOf(Kind.VAL, Kind.TYP))
+            val recvTy = withExpected(null) { recv.attribOwner(setOf(Kind.VAL, Kind.TYP)) }
             if (recvTy == ErrorType) return ctx.setType(ErrorType)
 
-            val recvSym = recv.symbol
             val fieldName = ctx.name.text
 
-            val sym = resolveMember(recvTy, fieldName, recvSym?.kind ?: Kind.VAL, Kind.VAL)
+            val sym = resolveMember(recvTy, fieldName, receiverKind(recv), Kind.VAL, recv.span)
 
             if (sym is InhSymbol && recv !is ForgeParser.ThisExprContext) {
                 log.diag(invalidExternalInhAttribAccess(ctx.span))
@@ -525,77 +734,65 @@ class Attr private constructor(context: Context) {
         }
 
         override fun visitFunctionCall(ctx: ForgeParser.FunctionCallContext): Type {
-            val sym = chk.resolveFunction(ctx.name.text) ?: return ErrorType
+            val name = ctx.name.text
+            val sym = lookup(name) as? CallableSymbol ?: chk.resolveFunction(name, ctx.name.span)
+            if (sym == null) {
+                ctx.expression().forEach { withExpected(null) { it.attribType() } }
+                return ctx.setType(ErrorType)
+            }
             ctx.setSym(sym)
-            val paramTypes = sym.params.map { it.type }
-            val argTypes = ctx.expression().map { it.attribType() }
-            if (argTypes.size < paramTypes.size) {
-                log.diag(tooFewArguments(null))
-            }
-            if (argTypes.size > paramTypes.size) {
-                log.diag(tooManyArguments(null))
-            }
-            for ((got, expected) in argTypes.zip(paramTypes)) {
-                withExpected(expected) {
-                    chk.checkAssignable(expected, got)
-                }
-            }
+            attribArguments(ctx.expression(), sym.params.map { it.type }, ctx.span)
             return ctx.setType(sym.returnType)
         }
 
         override fun visitMethodCall(ctx: ForgeParser.MethodCallContext): Type {
             val recv = ctx.receiver
-            val recvTy = recv.attribOwner(setOf(Kind.VAL, Kind.TYP))
-            val argTypes = ctx.expression().drop(1).map { it.attribType() }   // whatever the grammar actually names these
+            val args = ctx.expression().drop(1)
+            val recvTy = withExpected(null) { recv.attribOwner(setOf(Kind.VAL, Kind.TYP)) }
 
-            if (recvTy == ErrorType) return ctx.setType(ErrorType)
+            if (recvTy == ErrorType) {
+                args.forEach { withExpected(null) { it.attribType() } }
+                return ctx.setType(ErrorType)
+            }
 
-            val recvSym = recv.symbol
             val methodName = ctx.name.text
-            val sym = resolveMember(recvTy, methodName, if (recvSym?.kind != Kind.MTH) recvSym!!.kind else Kind.VAL, Kind.MTH)
+            val sym = resolveMember(recvTy, methodName, receiverKind(recv), Kind.MTH, recv.span)
 
             if (sym == null) {
                 log.diag(methodNotFound(ctx.name.span, recvTy.toString(), methodName))
+                args.forEach { withExpected(null) { it.attribType() } }
                 return ctx.setType(ErrorType)
             }
             ctx.setSym(sym)
 
             val symType = sym.type
             if (symType !is CallableType) {
-                log.diag(typeMismatch(ctx.name.span, FunctionType(argTypes, ArbitraryType), symType))
+                log.diag(typeMismatch(ctx.name.span, FunctionType(args.map { ArbitraryType }, ArbitraryType), symType))
                 return ctx.setType(ErrorType)
             }
 
-            if (argTypes.size < symType.parameters.size) {
-                log.diag(tooFewArguments(null))
-            }
-            if (argTypes.size > symType.parameters.size) {
-                log.diag(tooManyArguments(null))
-            }
-            for ((got, expected) in argTypes.zip(symType.parameters)) {
-                withExpected(expected) {
-                    chk.checkAssignable(expected, got)
-                }
-            }
+            attribArguments(args, symType.parameters, ctx.span)
             return ctx.setType(symType.returnType)
         }
 
         override fun visitIfElse(ctx: ForgeParser.IfElseContext): Type {
-            val cond = ctx.cond.attribType()
-            chk.checkAssignable(BoolType, cond)
+            val cond = withExpected(BoolType) { ctx.cond.attribType() }
+            chk.checkAssignable(BoolType, cond, ctx.cond.span)
             val then = ctx.then.attribType()
             val alt = ctx.alt.attribType()
             return ctx.setType(chk.checkShareCommonSuperType(then, alt, env.value.expected))
         }
 
         override fun visitThisExpr(ctx: ForgeParser.ThisExprContext): Type {
-            return ctx.setType(env.value.receiver ?: ErrorType)
+            val receiver = env.value.receiver
+            if (receiver == null) log.diag(canNotFindIdentifier(ctx.span, "this"))
+            return ctx.setType(receiver ?: ErrorType)
         }
 
         override fun visitMatch(ctx: ForgeParser.MatchContext): Type {
-            val matched = ctx.switch_.attribType()
+            val matched = withExpected(null) { ctx.switch_.attribType() }
             val matchCaseReturnTypes = mutableListOf<Type>()
-            if (ctx.matchCase().isEmpty()) {
+            if (ctx.matchCase().isEmpty() && ctx.alt == null) {
                 log.diag(noMatchCaseSpecified(ctx.MATCH().span))
             }
             withMatched(matched) {
@@ -610,36 +807,60 @@ class Attr private constructor(context: Context) {
         }
 
         override fun visitMatchCase(ctx: ForgeParser.MatchCaseContext): Type {
-            withChildScope {
-                val patternTy = withExpected(env.value.matched!!) { ctx.pattern().attribType() }
+            return withChildScope {
+                val matched = env.value.matched!!
+                val patternTy = withExpected(matched) { ctx.pattern().attribType() }
                 chk.checkAssignable(
-                    env.value.matched!!,
-                    patternTy
+                    matched,
+                    patternTy,
+                    ctx.pattern().span
                 )
                 if (ctx.cond != null) {
-                    val cond = ctx.cond.attribType()
-                    chk.checkAssignable(BoolType, cond)
+                    val cond = withExpected(BoolType) { ctx.cond.attribType() }
+                    chk.checkAssignable(BoolType, cond, ctx.cond.span)
                 }
                 val valueTy = ctx.value.attribType()
-                return ctx.setType(valueTy)
+                ctx.setType(valueTy)
             }
-            throw AssertionError("Should not reach here")
         }
 
         override fun visitPattern(ctx: ForgeParser.PatternContext): Type {
             val expected = env.value.expected!!
             return ctx.setType(if (ctx.exprPattern() != null) {
-                chk.checkAssignable(expected, ctx.exprPattern().attribType())
+                val exprTy = ctx.exprPattern().expression().attribType()
+                ctx.exprPattern().setType(exprTy)
+                chk.checkShareCommonSuperType(expected, exprTy, null)
+                expected
             } else if (ctx.typePattern() != null) {
-                chk.checkAssignable(expected, ctx.typePattern().attribType())
+                chk.checkAssignable(expected, ctx.typePattern().attribType(), ctx.span)
             } else if (ctx.splitPattern() != null) {
-                chk.checkAssignable(expected, ctx.splitPattern().attribType())
+                chk.checkAssignable(expected, ctx.splitPattern().attribType(), ctx.span)
             } else if (ctx.listPattern() != null) {
-                chk.checkAssignable(expected, ctx.listPattern().attribType())
+                chk.checkAssignable(expected, ctx.listPattern().attribType(), ctx.span)
             } else {
                 throw AssertionError("Should not reach here")
             })
         }
+
+        override fun visitExpressionArg(ctx: ForgeParser.ExpressionArgContext): Type {
+            val expected = env.value.expected!!
+            val exprTy = withExpected(expected) { ctx.exprPattern().expression().attribType() }
+            ctx.exprPattern().setType(exprTy)
+            chk.checkShareCommonSuperType(expected, exprTy, null)
+            return ctx.setType(expected)
+        }
+
+        override fun visitTypePatternArg(ctx: ForgeParser.TypePatternArgContext): Type =
+            ctx.setType(ctx.typePattern().attribType())
+
+        override fun visitWildcardPatternArg(ctx: ForgeParser.WildcardPatternArgContext): Type =
+            ctx.setType(ctx.wildcardPattern().attribType())
+
+        override fun visitPatternVariableArg(ctx: ForgeParser.PatternVariableArgContext): Type =
+            ctx.setType(ctx.patternVariable().attribType())
+
+        override fun visitListPatternArg(ctx: ForgeParser.ListPatternArgContext): Type =
+            ctx.setType(ctx.listPattern().attribType())
 
         override fun visitWildcardPattern(ctx: ForgeParser.WildcardPatternContext): Type {
             return ctx.setType(env.value.expected!!)
@@ -660,58 +881,50 @@ class Attr private constructor(context: Context) {
 
             val recv = symTab.enums.values.find { it.name == recvName }
             if (recv == null) {
-                log.diag(canNotFindIdentifier(ctx.name.span, recvName))
-                return ErrorType
+                log.diag(canNotFindIdentifier(ctx.receiver.span, recvName))
+                return ctx.setType(ErrorType)
             }
             val receiver = recv.type
 
-
-            val sym = resolveMember(receiver, name, Kind.TYP, if (paramPatterns.isEmpty()) Kind.VAL else Kind.MTH)
+            val sym = resolveMember(receiver, name, Kind.TYP, if (ctx.LPAREN() == null) Kind.VAL else Kind.MTH)
             if (sym !is EnumItemSymbol) {
                 log.diag(attributeNotFound(ctx.name.span, receiver.toString(), name))
+                paramPatterns.forEach { withExpected(ErrorType) { it.attribType() } }
                 return ctx.setType(ErrorType)
             }
             val paramTypes = sym.parameters.map { it.second }
-            val argTypes = paramPatterns.zip(paramTypes).map { withExpected(it.second) { it.first.attribType() } }
             val argSpan = if (ctx.LPAREN() == null) ctx.name.span else ctx.LPAREN().span + ctx.RPAREN().span
-            if (argTypes.size < paramTypes.size) {
+            if (paramPatterns.size < paramTypes.size) {
                 log.diag(tooFewArguments(argSpan))
             }
-            if (argTypes.size > paramTypes.size) {
+            if (paramPatterns.size > paramTypes.size) {
                 log.diag(tooManyArguments(argSpan))
             }
-            var i = 0
-            for ((got, expected) in argTypes.zip(paramTypes)) {
-                if (paramPatterns[i++] is ForgeParser.WildcardPatternArgContext) continue
-                withExpected(expected) {
-                    chk.checkAssignable(expected, got)
-                }
+            for ((i, pattern) in paramPatterns.withIndex()) {
+                val expected = paramTypes.getOrNull(i) ?: ErrorType
+                val got = withExpected(expected) { pattern.attribType() }
+                chk.checkAssignable(expected, got, pattern.span)
             }
             ctx.setSym(sym)
             return ctx.setType(receiver)
         }
 
         override fun visitListPattern(ctx: ForgeParser.ListPatternContext): Type {
-            val expected = (env.value.expected!! as? ListType)?.elem ?: ArbitraryType
-            val patternTypes = ctx.patternArg().map {
-                withExpected(expected) {
-                    val ty = it.attribType()
-                    if (expected != ArbitraryType) {
-                        chk.checkAssignable(expected, ty)
-                    }
-                    ty
-                }
-            }.filter { it !is ArbitraryType }
-
-            val res = if (patternTypes.isNotEmpty()) {
-                chk.checkAllAssignable(patternTypes, (env.value.expected as? ListType)?.elem)
-            } else {
-                for (pattern in ctx.patternArg()) {
-                    log.diag(canNotInferType(pattern.span))
-                }
-                ArbitraryType
+            val expected = env.value.expected!!
+            if (expected == ErrorType) {
+                ctx.patternArg().forEach { withExpected(ErrorType) { it.attribType() } }
+                return ctx.setType(ErrorType)
             }
-            return ctx.setType(ListType(res))
+            if (expected !is ListType) {
+                log.diag(typeMismatch(ctx.span, ListType(ArbitraryType), expected))
+                ctx.patternArg().forEach { withExpected(ErrorType) { it.attribType() } }
+                return ctx.setType(ErrorType)
+            }
+            for (arg in ctx.patternArg()) {
+                val ty = withExpected(expected.elem) { arg.attribType() }
+                chk.checkAssignable(expected.elem, ty, arg.span)
+            }
+            return ctx.setType(expected)
         }
 
         override fun visitSplitPattern(ctx: ForgeParser.SplitPatternContext): Type {
@@ -732,101 +945,19 @@ class Attr private constructor(context: Context) {
                 withExpected(ErrorType) {
                     elem.attribType()
                 }
-                withExpected(ListType(ErrorType)) {
+                withExpected(ErrorType) {
                     rest.attribType()
                 }
             }
             else {
                 val expected = (env.value.expected!! as ListType).elem
                 withExpected(expected) {
-                    chk.checkAssignable(expected, elem.attribType())
+                    chk.checkAssignable(expected, elem.attribType(), elem.span)
                 }
                 withExpected(ListType(expected)) {
-                    chk.checkAssignable(ListType(expected), rest.attribType())
+                    chk.checkAssignable(ListType(expected), rest.attribType(), rest.span)
                 }
             }
-        }
-
-        override fun visitParserRuleOption(ctx: ForgeParser.ParserRuleOptionContext): Type? {
-            withChildScope {
-                val ty = ctx.parseRule().accept(this)
-                return if (ctx.producer != null) {
-                    ctx.setType(ctx.producer.attribType())
-                } else {
-                    ctx.setNullableType(ty)
-                }
-            }
-            throw AssertionError("Should not reach here")
-        }
-
-        override fun visitParseRule(ctx: ForgeParser.ParseRuleContext): Type? {
-            return ctx.setNullableType(ctx.parserAlternative().accept(this))
-        }
-
-        override fun visitParserAlternative(ctx: ForgeParser.ParserAlternativeContext): Type? {
-            val types = ctx.parserSequence().map { it.accept(this) }.map { if (it is TerminalRuleProduction) it.actual else it }
-            if (types.any { it is ErrorType }) return ErrorType
-            return if (types.all { it == types.first() }) types.first() else null
-        }
-
-        override fun visitParserSequence(ctx: ForgeParser.ParserSequenceContext): Type? {
-            val types = ctx.parserLabeled().map { it.accept(this) }
-            if (types.any { it is ErrorType }) return ErrorType
-            if (types.all { it is TerminalRuleProduction }) {
-                return if (types.size == 1) ctx.setType((types.first() as TerminalRuleProduction).actual)
-                else ctx.setType(ListType((types.first() as TerminalRuleProduction).actual))
-            }
-            val nonTerminals = types.filter { it !is TerminalRuleProduction }
-            val res = if (nonTerminals.all { it == nonTerminals.first() }) nonTerminals.first() else null
-            return ctx.setNullableType(res)
-        }
-
-        override fun visitParserPostfix(ctx: ForgeParser.ParserPostfixContext): Type? {
-            val atomType = ctx.atom.accept(this)
-            if (atomType is ErrorType) return ErrorType
-            return when {
-                ctx.QUESTIONMARK() != null -> OptionalType(atomType)
-                ctx.PLUS() != null || ctx.STAR() != null -> ListType(atomType)
-                else -> atomType
-            }
-        }
-
-        override fun visitParserAtom(ctx: ForgeParser.ParserAtomContext): Type? {
-            if (ctx.terminalRule() != null) return ctx.terminalRule().accept(this)
-            if (ctx.nonterminalRule() != null) return ctx.nonterminalRule().accept(this)
-            return ctx.parseRule().accept(this)
-        }
-
-        override fun visitTerminalRule(ctx: ForgeParser.TerminalRuleContext): Type {
-            ctx.setType(StrType)
-            return TerminalRuleProduction(StrType)
-        }
-
-        override fun visitNonterminalRule(ctx: ForgeParser.NonterminalRuleContext): Type {
-            val name = ctx.name.text
-            val parserType = env.value.receiver as ParserType
-            val ruleSym = resolveMember(parserType, name, Kind.TYP, Kind.MTH) as? ParserRuleSymbol
-            if (ruleSym == null) {
-                log.diag(parserRuleNotFound(ctx.name.span, parserType.name, name))
-                return ctx.setType(ErrorType)
-            }
-            ctx.setSym(ruleSym)
-            return ctx.setType(ruleSym.returnType)
-        }
-
-        override fun visitParserLabeled(ctx: ForgeParser.ParserLabeledContext): Type? {
-            var type = ctx.parserPostfix().accept(this)
-            if (ctx.label == null) return type
-            val label = ctx.label.text
-            if (type is TerminalRuleProduction) type = type.actual
-            if (type != null) {
-                env.value.scope.enter(VarSymbol(label, type, ctx.label.span))
-            }
-            else {
-                log.diag(ruleLabelingNotAllowedHere(ctx.label.span))
-                env.value.scope.enter(VarSymbol(label, ErrorType, ctx.label.span))
-            }
-            return null
         }
 
         override fun visitErrorNode(node: ErrorNode): Type {

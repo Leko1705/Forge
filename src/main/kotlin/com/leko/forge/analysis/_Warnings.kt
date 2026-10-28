@@ -7,8 +7,24 @@ import com.leko.forge.model.SourceSpan
 
 fun targetWrittenSuccessfully(span: SourceSpan?, targetName: String, outputFile: String): Diagnostic =
     Diagnostic(
+        Severity.INFO,
+        span,
+        "I001",
+        "wrote $targetName to $outputFile"
+    )
+
+fun parserConflict(span: SourceSpan?, parserName: String, description: String): Diagnostic =
+    Diagnostic(
         Severity.WARNING,
         span,
-        "W001",
-        "wrote $targetName to $outputFile"
+        "W101",
+        "parser $parserName: $description"
+    )
+
+fun terminalMatchesEmpty(span: SourceSpan?, regex: String): Diagnostic =
+    Diagnostic(
+        Severity.WARNING,
+        span,
+        "W102",
+        "terminal '$regex' can match the empty text; empty matches are ignored by the scanner"
     )

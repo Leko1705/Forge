@@ -1,6 +1,5 @@
 package com.leko.forge.types
 
-import com.ibm.icu.impl.EraRules
 import com.leko.forge.attr.TypeMap
 import com.leko.forge.attr.Resolve
 import com.leko.forge.attr.SymTab
@@ -93,6 +92,34 @@ class Types private constructor(context: Context) {
             val st = sharedSuperType(t1, t2.elem) ?: return null
             return st as? OptionalType ?: OptionalType(st)
         }
+        if (t1 is ArbitraryType) return t2
+        if (t2 is ArbitraryType) return t1
+        if (t1 is ListType && t2 is ListType) {
+            return ListType(sharedSuperType(t1.elem, t2.elem) ?: return null)
+        }
+        if (t1 is MapType && t2 is MapType) {
+            return MapType(sharedSuperType(t1.key, t2.key) ?: return null, sharedSuperType(t1.value, t2.value) ?: return null)
+        }
+        if (t1 is ComplexType && t2 is ComplexType) {
+            return commonNodeSuperType(t1, t2)
+        }
         return null
+    }
+
+    /** The most specific node type both node types are assignable to, if it is unique. */
+    private fun commonNodeSuperType(t1: ComplexType, t2: ComplexType): Type? {
+        val s1 = resolve.resolve(t1) as? NodeSymbol ?: return null
+        val s2 = resolve.resolve(t2) as? NodeSymbol ?: return null
+        if (isAssignable(t1, t2)) return t1
+        if (isAssignable(t2, t1)) return t2
+        fun ancestors(sym: NodeSymbol): Set<NodeSymbol> {
+            val seen = linkedSetOf<NodeSymbol>()
+            fun walk(s: NodeSymbol) { for (p in s.parents) if (seen.add(p)) walk(p) }
+            walk(sym)
+            return seen
+        }
+        val common = ancestors(s1).intersect(ancestors(s2))
+        val minimal = common.filter { c -> common.none { o -> o != c && areNodesAssignable(c, o) } }
+        return minimal.singleOrNull()?.type
     }
 }

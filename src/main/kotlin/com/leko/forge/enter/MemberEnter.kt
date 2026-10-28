@@ -10,6 +10,9 @@ import com.leko.forge.analysis.methodAlreadyExist
 import com.leko.forge.analysis.nodeNotFound
 import com.leko.forge.analysis.parseRuleAlreadyExist
 import com.leko.forge.analysis.parserNotFound
+import com.leko.forge.analysis.cyclicDependencyDetected
+import com.leko.forge.analysis.missingSynAttributeImplementationFor
+import com.leko.forge.model.ParserRuleSymbol
 import com.leko.forge.attr.Resolve
 import com.leko.forge.attr.SymTab
 import com.leko.forge.attr.TypeMap
@@ -47,6 +50,7 @@ class MemberEnter private constructor(context: Context) {
 
 
     fun enter(root: ForgeParser.RootContext) {
+        enterParserInheritance(root)
         enterInterfaceInheritance(root)
         enterConcreteInheritance(root)
         enterSyntheticAttributes(root)
@@ -54,6 +58,23 @@ class MemberEnter private constructor(context: Context) {
         enterCollectionAttributes(root)
         enterMethods(root)
         enterParserRules(root)
+    }
+
+    private fun enterParserInheritance(root: ForgeParser.RootContext) {
+        for (parser in root.parserDef()) {
+            val sym = symTab.parsers.values.find { it.name == parser.name.text } ?: continue
+            val parentName = parser.parent?.text ?: continue
+            val parentSym = symTab.parsers.values.find { it.name == parentName }
+            if (parentSym == null) {
+                log.diag(parserNotFound(parser.parent.span, parentName))
+                continue
+            }
+            sym.parent = parentSym
+            if (parentSym.lineage.size >= 64 || parentSym.lineage.contains(sym)) {
+                log.diag(cyclicDependencyDetected(parser.parent.span, sym.name))
+                sym.parent = null
+            }
+        }
     }
 
     private fun enterInterfaceInheritance(root: ForgeParser.RootContext) {
@@ -68,7 +89,7 @@ class MemberEnter private constructor(context: Context) {
                 sym.parents.addAll(ifaces)
             }
             else {
-                log.diag(interfaceNodeNotFound(null, parentName))
+                log.diag(interfaceNodeNotFound(node.parent.span, parentName))
             }
         }
     }
@@ -85,7 +106,7 @@ class MemberEnter private constructor(context: Context) {
                 sym.parents.addAll(ifaces)
             }
             else {
-                log.diag(interfaceNodeNotFound(null, parentName))
+                log.diag(interfaceNodeNotFound(node.parent.span, parentName))
             }
         }
     }
@@ -96,24 +117,24 @@ class MemberEnter private constructor(context: Context) {
             val attrName = synIfaceDef.attrName.text
             val type = chk.checkExists(synIfaceDef.attrType.toType())
 
-            val nodeSym = if (synIfaceDef.syn == null) {
-                symTab.interfaceNodes.values.find { it.name == nodeName }
-            }
-            else {
-                symTab.concreteNodes.values.find { it.name == nodeName }
-            }
+            val nodeSym = symTab.interfaceNodes.values.find { it.name == nodeName }
+                ?: symTab.concreteNodes.values.find { it.name == nodeName }
 
             if (nodeSym == null) {
-                log.diag(nodeNotFound(null, nodeName))
-                return
+                log.diag(nodeNotFound(synIfaceDef.node.span, nodeName))
+                continue
+            }
+            if (nodeSym is ConcreteNodeSymbol && synIfaceDef.syn == null) {
+                log.diag(missingSynAttributeImplementationFor(synIfaceDef.attrName.span, nodeName, "$nodeName.$attrName"))
+                continue
             }
 
             val synAttrsPerNode = typeMap.nodeAttributes.getOrPut(nodeSym) { mutableListOf() } as MutableList
             if (synAttrsPerNode.any { it.name == attrName }) {
-                log.diag(attributeAlreadyDefined(null, nodeName, attrName))
+                log.diag(attributeAlreadyDefined(synIfaceDef.attrName.span, nodeName, attrName))
                 continue
             }
-            val sym = SynSymbol(nodeSym, attrName, type, synIfaceDef.attrName.span)
+            val sym = SynSymbol(nodeSym, attrName, type, synIfaceDef.attrName.span, synIfaceDef.syn != null)
             synAttrsPerNode += sym
             synIfaceDef.setSym(sym)
         }
@@ -126,13 +147,13 @@ class MemberEnter private constructor(context: Context) {
             val nodeSym = symTab.concreteNodes.values.find { it.name == nodeName }
 
             if (nodeSym == null) {
-                log.diag(nodeNotFound(null, nodeName))
-                return
+                log.diag(nodeNotFound(inhImpl.node.span, nodeName))
+                continue
             }
 
             val synAttrsPerNode = typeMap.nodeAttributes.getOrPut(nodeSym) { mutableListOf() }
             if (synAttrsPerNode.any { it.name == attrName }) {
-                log.diag(attributeAlreadyDefined(null, nodeName, attrName))
+                log.diag(attributeAlreadyDefined(inhImpl.attrName.span, nodeName, attrName))
                 continue
             }
         }
@@ -146,8 +167,8 @@ class MemberEnter private constructor(context: Context) {
             val nodeSym = symTab.concreteNodes.values.find { it.name == nodeName }
 
             if (nodeSym == null) {
-                log.diag(nodeNotFound(null, nodeName))
-                return
+                log.diag(nodeNotFound(coll.node.span, nodeName))
+                continue
             }
 
             val collAttrsPerNode = typeMap.nodeAttributes.getOrPut(nodeSym) { mutableListOf() } as MutableList
@@ -201,13 +222,13 @@ class MemberEnter private constructor(context: Context) {
 
             val parser = symTab.parsers.values.firstOrNull { it.name == parserName }
             if (parser == null) {
-                log.diag(parserNotFound(null, parserName))
+                log.diag(parserNotFound(rule.parserName.span, parserName))
                 continue
             }
 
             val rules = typeMap.parserRuleDefs.getOrPut(parser) { mutableListOf() } as MutableList
             if (rules.any { it.name == ruleName }) {
-                log.diag(abstractParseRuleAlreadyExist(null, "$parserName.$ruleName"))
+                log.diag(abstractParseRuleAlreadyExist(rule.ruleName.span, "$parserName.$ruleName"))
                 continue
             }
             val sym = InterfaceParserRuleSymbol(parser, ruleName, returnType, rule.ruleName.span)
@@ -224,17 +245,25 @@ class MemberEnter private constructor(context: Context) {
 
             val parser = symTab.parsers.values.find { it.name == parserName }
             if (parser == null) {
-                log.diag(parserNotFound(null, parserName))
+                log.diag(parserNotFound(rule.parserName.span, parserName))
                 continue
             }
 
-            val rules = typeMap.parserRuleImpls.getOrPut(parser) { mutableListOf() } as MutableList
-            if (!typeMap.parserRuleDefs.getOrDefault(parser, listOf()).any { it.name == ruleName }) {
-                if (rules.any { it.name == ruleName }) {
-                    log.diag(parseRuleAlreadyExist(null, "$parserName.$ruleName"))
-                    continue
-                }
+            // A rule may be defined several times (each definition adds alternatives) if there is an
+            // abstract declaration of it, or if it is inherited from a parent parser.
+            val declared = resolve.resolveParserRule(parser, ruleName)
+            val ownDefinitions = typeMap.parserRuleImpls[parser].orEmpty().filter { it.name == ruleName }
+            val inherited = declared != null && declared !is InterfaceParserRuleSymbol &&
+                    (declared as ConcreteParserRuleSymbol).parser != parser
+            if (declared is ConcreteParserRuleSymbol && !inherited && ownDefinitions.isNotEmpty()) {
+                log.diag(parseRuleAlreadyExist(rule.ruleName.span, "$parserName.$ruleName"))
+                continue
             }
+            if (declared is ParserRuleSymbol) {
+                chk.checkAssignable(declared.returnType, returnType, rule.returnType.span)
+            }
+
+            val rules = typeMap.parserRuleImpls.getOrPut(parser) { mutableListOf() } as MutableList
             val sym = ConcreteParserRuleSymbol(parser, ruleName, returnType, rule.ruleName.span)
             rules += sym
             rule.setSym(sym)

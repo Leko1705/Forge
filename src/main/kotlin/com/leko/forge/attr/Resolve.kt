@@ -84,28 +84,44 @@ class Resolve private constructor(context: Context) {
         }
         if (sym is NodeSymbol) {
             if (receiverKind != Kind.VAL) return null
+            // the node itself first, then its interfaces (nearest first)
+            val lineage = mutableListOf<NodeSymbol>(sym)
+            var i = 0
+            while (i < lineage.size) {
+                for (p in lineage[i].parents) if (p !in lineage) lineage += p
+                i++
+            }
             return when (memberKind) {
                 Kind.VAL -> {
                     if (sym is ConcreteNodeSymbol && sym.fields.any { it.name == member }) {
                         sym.fields.first { it.name == member }
                     } else {
-                        var sym: Symbol? = typeMap.nodeAttributes[sym]?.find { it.name == member }
-                        if (sym == null) sym = symTab.inheritedAttributes[member]
-                        sym
+                        lineage.firstNotNullOfOrNull { n -> typeMap.nodeAttributes[n]?.find { it.name == member } }
+                            ?: symTab.inheritedAttributes[member]
                     }
                 }
-                Kind.MTH -> {
-                    val methods = typeMap.methods[sym] ?: return null
-                    methods.firstOrNull { it.name == member }
-                }
+                Kind.MTH -> lineage.firstNotNullOfOrNull { n -> typeMap.methods[n]?.firstOrNull { it.name == member } }
                 else -> null
             }
         }
         if (sym is ParserSymbol) {
             if (receiverKind != Kind.TYP) return null
             if (memberKind != Kind.MTH) return null
-            return typeMap.parserRuleDefs[sym]?.firstOrNull { it.name == member }
-                ?: typeMap.parserRuleImpls[sym]?.firstOrNull { it.name == member }
+            return resolveParserRule(sym, member)
+        }
+        return null
+    }
+
+    /**
+     * The symbol of the rule [name] of [parser]: the abstract declaration if there is one, the
+     * (first) concrete definition otherwise. Rules of parent parsers are inherited.
+     */
+    fun resolveParserRule(parser: ParserSymbol, name: String): Symbol? {
+        for (p in parser.lineage) {
+            typeMap.parserRuleDefs[p]?.firstOrNull { it.name == name }?.let { return it }
+        }
+        for (p in parser.lineage) {
+            typeMap.parserRuleImpls[p]?.firstOrNull { it.name == name }?.let { return it }
         }
         return null
     }

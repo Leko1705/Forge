@@ -41,14 +41,18 @@ inhDelegate: child=IDENT (LBRACKET key=expression RBRACKET)? RARROW value=expres
 coll: COLL node=IDENT DOT collName=IDENT COLON collType=type ASSIGN init=expression;
 contrib: CONTRIB node=IDENT ARROW receiver=expression DOT collName=IDENT (AS alias=IDENT)? ASSIGN value=expression;
 
-parserDef: PARSER name=IDENT;
+parserDef: PARSER name=IDENT (COLON parent=IDENT)? annotation*;
+
+// `@name` or `@name(arg, ...)`; used for parser layout (`@skip`) and production precedence (`@left(10)`)
+annotation: AT name=IDENT (LPAREN (annotationArg (COMMA annotationArg)*)? RPAREN)?;
+annotationArg: INT | REGEX_STRING | STRING | IDENT;
 
 parseRuleDef
     : RULE parserName=IDENT DOT ruleName=IDENT COLON returnType=type (ARROW parserRuleOption (IOR parserRuleOption)*)?
     ;
 
 parserRuleOption
-    : parseRule (LBRACE producer=expression RBRACE)?
+    : parseRule (LBRACE producer=expression RBRACE)? annotation*
     ;
 
 parseRule
@@ -77,7 +81,8 @@ parserAtom
     | LPAREN parseRule RPAREN
     ;
 
-terminalRule: REGEX_STRING;
+// 'regex' matches a regular expression, "text" matches the text literally
+terminalRule: REGEX_STRING | STRING;
 nonterminalRule: name=IDENT;
 
 type: LIST LT type GT # listType

@@ -1,10 +1,10 @@
 package com.leko.forge.analysis
 
-import com.ibm.icu.impl.EraRules
 import com.leko.forge.attr.Resolve
 import com.leko.forge.attr.SymTab
 import com.leko.forge.context.Context
 import com.leko.forge.model.CallableSymbol
+import com.leko.forge.model.SourceSpan
 import com.leko.forge.types.*
 import com.leko.forge.util.Log
 
@@ -23,10 +23,10 @@ class Check private constructor(context: Context) {
     val symTab = SymTab.instance(context)
 
 
-    fun checkAssignable(expected: Type, got: Type): Type {
+    fun checkAssignable(expected: Type, got: Type, span: SourceSpan? = null): Type {
         if (expected == ErrorType || got == ErrorType) return ErrorType
         if (!types.isAssignable(expected, got)) {
-            log.diag(typeMismatch(null, expected, got))
+            log.diag(typeMismatch(span, expected, got))
             return ErrorType
         }
         return expected
@@ -50,7 +50,6 @@ class Check private constructor(context: Context) {
         var res = checked.first()
         for (curr in checked) {
             if (res == curr) continue
-            if (curr is EraRules) continue
             val sharedSuperType = checkShareCommonSuperType(curr, res, expectedType)
             if (sharedSuperType is ErrorType) {
                 if (expectedType != null) {
@@ -100,12 +99,12 @@ class Check private constructor(context: Context) {
         }
     }
 
-    fun resolveFunction(name: String): CallableSymbol? {
-        val sym: CallableSymbol? = symTab.table.values
+    fun resolveFunction(name: String, span: SourceSpan? = null): CallableSymbol? {
+        val sym: CallableSymbol? = symTab.functions[name] ?: symTab.table.values
             .filterIsInstance<CallableSymbol>()
             .find { it.name == name }
         if (sym == null) {
-            log.diag(functionNotFound(null, name))
+            log.diag(functionNotFound(span, name))
         }
         return sym
     }

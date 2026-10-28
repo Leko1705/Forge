@@ -1,269 +1,505 @@
 package com.leko.forge.gen
 
 import com.leko.forge.context.Context
-import com.leko.forge.llir.Function
 import com.leko.forge.llir.*
+import com.leko.forge.llir.Function
+import com.leko.forge.lr.Sem
 import com.leko.forge.types.*
+import com.leko.forge.utils.Options
+import com.leko.forge.utils.kotlinStringLiteral
 
+/**
+ * Generates Kotlin source code. The output consists of the compiler itself (one
+ * file) and the Forge runtime (`ForgeRuntime.kt`, package `forge.runtime`).
+ *
+ * All names of the Kotlin standard library are written fully qualified, because a
+ * Forge program may well declare a node called `String` or `Int`. Names starting
+ * with `forge` / `Forge` are reserved for generated helpers.
+ */
 object KotlinTarget : Target {
-
-    private val INDENTATION = " ".repeat(4)
-
-    override val extension: String get() = ".kt"
 
     override val name: String get() = "kotlin"
 
-    override fun generate(module: LLIRModule, context: Context): ByteArray {
-        return module.generateImpl().toByteArray()
+    const val RUNTIME_RESOURCE = "/forge/runtime/ForgeRuntime.kt.txt"
+
+    private const val INDENT = "    "
+
+    private const val NODE = "ForgeAstNode"
+    private const val NODE_BASE = "ForgeAstNodeBase"
+    private const val RT = "forge.runtime"
+
+    private val KEYWORDS = setOf(
+        "as", "break", "class", "continue", "do", "else", "false", "for", "fun", "if", "in", "interface", "is",
+        "null", "object", "package", "return", "super", "this", "throw", "true", "try", "typealias", "typeof",
+        "val", "var", "when", "while",
+    )
+
+    private fun id(name: String): String = if (name in KEYWORDS) "`$name`" else name
+
+    override fun generate(module: LLIRModule, baseName: String, context: Context): List<GeneratedFile> {
+        val options = Options.instance(context)
+        val packageName = options.get("-p")?.firstOrNull()
+        val files = mutableListOf(GeneratedFile("$baseName.kt", Generation(module, packageName).generate().toByteArray()))
+        if (!options.isSet("--no-runtime")) {
+            val runtime = KotlinTarget::class.java.getResourceAsStream(RUNTIME_RESOURCE)?.readBytes()
+                ?: throw IllegalStateException("Forge runtime resource $RUNTIME_RESOURCE is missing")
+            files += GeneratedFile("ForgeRuntime.kt", runtime)
+        }
+        return files
     }
 
-    private fun LLIRModule.generateImpl(): String {
-        val sb = StringBuilder()
-        sb.appendLine()
+    private class Generation(val module: LLIRModule, val packageName: String?) {
 
-        with(sb) {
-            appendLine($$"interface $Node {")
-            appendLine($$"    var $parent: $Node?")
-            for (inh in inherited.values) {
-                append("    val ${inh.name}: ").generateTypeRepr(inh.type).appendLine()
-                append($$"    fun compute_$${inh.name}($child: $Node): ").generateTypeRepr(inh.type).appendLine()
-            }
-            appendLine("}\n")
-            appendLine($$"abstract class $NodeBase : $Node {")
-            appendLine($$"    override var $parent: $Node? = null")
-            for (inh in inherited.values) {
-                append("    override val ${inh.name}: ").generateTypeRepr(inh.type)
-                    .append($$" by lazy { val p = $parent; if (p != null) p.compute_$${inh.name}(this) else ")
-                    .generateValue(inh.init).appendLine(" }")
-                append($$"    override fun compute_$${inh.name}($child: $Node): ").generateTypeRepr(inh.type).appendLine(" = ${inh.name}")
-            }
-            appendLine("}\n")
+        private val out = StringBuilder()
+        private var indent = 0
+        private var fresh = 0
+
+        private val nodeNames = module.nodes.map { it.name }.toSet()
+
+        private fun line(text: String = "") {
+            if (text.isEmpty()) out.appendLine() else out.append(INDENT.repeat(indent)).appendLine(text)
         }
 
-        enums.forEach { sb.generateEnum(it) }
-        nodes.forEach { sb.generateNode(this, it) }
-        functions.forEach { sb.generateFunction(it) }
-        return sb.toString()
-    }
+        private inline fun block(header: String, footer: String = "}", body: () -> Unit) {
+            line(header)
+            indent++
+            body()
+            indent--
+            line(footer)
+        }
 
-    private fun StringBuilder.generateNode(module: LLIRModule, node: Node) {
-        if (node.isInterface) {
-            appendLine("// interface node ${node.name}")
-            append("sealed interface ${node.name} : ").append($$"$Node")
-            node.parents.forEach { append(", ${it.name}") }
-            appendLine(" {")
-            for ((name, type) in node.synthetics.values) {
-                append("${INDENTATION}// syn $name: ").generateTypeRepr(type).appendLine()
-                append(INDENTATION)
-                if (node.hasParent { parent -> parent.synthetics.values.any { it.name == name && it.type == type } }) {
-                    append("override ")
+        private fun freshName(base: String): String = "forge${base}${++fresh}"
+
+        fun generate(): String {
+            line("// Generated by Forge from ${module.sourceName ?: "<unknown>"}. Do not edit.")
+            line("@file:Suppress(\"UNCHECKED_CAST\", \"UNUSED_VARIABLE\", \"UNUSED_PARAMETER\", \"NAME_SHADOWING\", \"unused\", \"USELESS_CAST\", \"UNUSED_ANONYMOUS_PARAMETER\", \"SENSELESS_COMPARISON\", \"UNNECESSARY_NOT_NULL_ASSERTION\", \"UNNECESSARY_SAFE_CALL\", \"USELESS_IS_CHECK\", \"REDUNDANT_ELSE_IN_WHEN\", \"KotlinConstantConditions\", \"RedundantExplicitType\", \"RemoveRedundantQualifierName\", \"ClassName\", \"FunctionName\", \"LocalVariableName\", \"PropertyName\", \"ObjectPropertyName\")")
+            line()
+            if (packageName != null) {
+                line("package $packageName")
+                line()
+            }
+            line("import $RT.*")
+            line()
+            generateNodeBase()
+            module.enums.forEach { generateEnum(it) }
+            module.records.forEach { generateRecord(it) }
+            module.nodes.forEach { generateNode(it) }
+            module.functions.forEach { generateFunction(it) }
+            module.parsers.forEach { generateParser(it) }
+            return out.toString()
+        }
+
+        // ------------------------------------------------------------------
+        // types
+        // ------------------------------------------------------------------
+
+        fun kt(type: Type): String = when (type) {
+            IntType -> "kotlin.Int"
+            FloatType -> "kotlin.Double"
+            BoolType -> "kotlin.Boolean"
+            StrType -> "kotlin.String"
+            NullType -> "kotlin.Nothing?"
+            is ListType -> "kotlin.collections.List<${kt(type.elem)}>"
+            is MapType -> "kotlin.collections.Map<${kt(type.key)}, ${kt(type.value)}>"
+            is OptionalType -> if (type.elem == NullType) "kotlin.Nothing?" else kt(type.elem) + "?"
+            is ComplexType -> id(type.name)
+            is ParserType -> id(type.name)
+            is FunctionType -> "(${type.parameters.joinToString(", ") { kt(it) }}) -> ${kt(type.returnType)}"
+            ArbitraryType, ErrorType -> "kotlin.Any?"
+            is TerminalRuleProduction -> kt(type.actual)
+        }
+
+        /** whether values of [type] can contain AST nodes (that must be adopted as children) */
+        fun containsNodes(type: Type): Boolean = when (type) {
+            is ComplexType -> type.name in nodeNames
+            is ListType -> containsNodes(type.elem)
+            is MapType -> containsNodes(type.value)
+            is OptionalType -> containsNodes(type.elem)
+            else -> false
+        }
+
+        // ------------------------------------------------------------------
+        // declarations
+        // ------------------------------------------------------------------
+
+        private fun generateNodeBase() {
+            line("/** Base of all AST nodes; declares the inherited attributes. */")
+            block("interface $NODE : $RT.ForgeNode {") {
+                for (inh in module.inherited.values) {
+                    line("val ${id(inh.name)}: ${kt(inh.type)}")
+                    line("fun forgeInh_${inh.name}(child: $NODE): ${kt(inh.type)}")
                 }
-                append("val $name: ").generateTypeRepr(type).appendLine()
-
             }
-            appendLine("}")
-        }
-        else {
-            appendLine("// node ${node.name}")
-            append("class ${node.name}(")
-            if (node.fields.isNotEmpty()) {
-                node.fields.entries.first().also { append("val ").generateParameter(it.key, it.value) }
-                for ((name, type) in node.fields.entries.drop(1)) {
-                    append(", ").append("val ").generateParameter(name, type)
+            line()
+            block("abstract class $NODE_BASE : $RT.ForgeNodeBase(), $NODE {") {
+                for (inh in module.inherited.values) {
+                    line("// inh ${inh.name}: the parent's equation for this node, the default at the root")
+                    block("override val ${id(inh.name)}: ${kt(inh.type)} by $RT.forgeLazy(${kotlinStringLiteral(inh.name)}) {") {
+                        line("val forgeParent = this.forgeParent")
+                        line("if (forgeParent is $NODE) forgeParent.forgeInh_${inh.name}(this) else ${emit(inh.init)}")
+                    }
+                    line("/** the value of `${inh.name}` for [child]; by default children inherit the value of their parent */")
+                    line("override fun forgeInh_${inh.name}(child: $NODE): ${kt(inh.type)} = this.${id(inh.name)}")
                 }
             }
-            append($$") : $Node()")
-            node.parents.forEach { append(", ${it.name}") }
-            appendLine(" {")
-            for ((name, type, body) in node.synthetics.values) {
-                append("${INDENTATION}// syn $name: ").generateTypeRepr(type).appendLine()
-                append(INDENTATION)
-                if (node.hasParent { parent -> parent.synthetics.values.any { it.name == name && it.type == type } }) {
-                    append("override ")
+            line()
+        }
+
+        private fun generateEnum(enum: LLIREnum) {
+            block("sealed class ${id(enum.name)} {") {
+                for (item in enum.items) {
+                    if (item.fields.isEmpty()) {
+                        line("data object ${id(item.itemName)} : ${id(enum.name)}()")
+                    } else {
+                        val params = item.fields.entries.joinToString(", ") { (n, t) -> "val ${id(n)}: ${kt(t)}" }
+                        line("data class ${id(item.itemName)}($params) : ${id(enum.name)}()")
+                    }
                 }
-                append("val $name: ").generateTypeRepr(type)..appendLine(" by lazy {")
-                append("${INDENTATION.repeat(2)}return ").generateValue(body).appendLine()
-                appendLine("${INDENTATION}}")
             }
-            for (inh in node.inherited.values) {
-                append("${INDENTATION}// inh $name: ").generateTypeRepr(inh.type).appendLine()
-
-                val impl = node.inherited[name]
-
-                append(INDENTATION).append($$"override fun compute_$${name}(child: $Node): ").generateTypeRepr(inh.type).appendLine(" {")
-                    .append(INDENTATION.repeat(2)).append($$"if ($parent != null) $parent.compute_$${name}(this) else ").generateValue(inh.default.body).appendLine()
-                    .appendLine("${INDENTATION}}")
-            }
-            for ((name, type) in node.collections.values) {
-                append("${INDENTATION}// coll $name: ").generateTypeRepr(type).appendLine()
-                append("${INDENTATION}val $name: ").generateTypeRepr(type).appendLine()
-            }
-            appendLine("}")
+            line()
         }
-    }
 
-    private fun StringBuilder.generateEnum(enum: LLIREnum) {
-        appendLine("// enum ${enum.name}")
-        appendLine("enum class ${enum.name} {")
-        enum.enumItems.forEach { generateEnumItem(it) }
-        appendLine("}")
-    }
-
-    private fun StringBuilder.generateEnumItem(enum: EnumItem) {
-        append("$INDENTATION${enum.itemName}(")
-        enum.fields.forEach { generateParameter(it.key, it.value) }
-        appendLine(")  // variant ${enum.enumName}.${enum.name}")
-    }
-
-    private fun StringBuilder.generateParameter(name: String, type: Type): StringBuilder {
-        append(name).append(": ").generateTypeRepr(type)
-        return this
-    }
-
-    private fun StringBuilder.generateFunction(function: Function): StringBuilder {
-        if (function.body == null) return this
-        appendLine("// function ${function.name}")
-        append("fun ")
-        if (function.receiver != null) generateTypeRepr(function.receiver).append(".")
-        append("${function.name}(")
-        function.parameters.forEach { generateParameter(it.name, it.type) }
-        append("): ").generateTypeRepr(function.returnType).appendLine(" {")
-        append("${INDENTATION}return ").generateValue(function.body!!).appendLine()
-            .appendLine("}")
-        return this
-    }
-
-    private fun StringBuilder.generateTypeRepr(type: Type): StringBuilder {
-        when (type) {
-            BoolType -> append("Boolean")
-            is FunctionType -> {
-                append("(")
-                var first = true
-                for (param in type.parameters) {
-                    if (!first) append(", ")
-                    generateTypeRepr(param)
-                    first = false
+        private fun generateRecord(record: Record) {
+            if (record.fields.isEmpty()) {
+                block("class ${id(record.name)} {") {
+                    line("override fun equals(other: kotlin.Any?): kotlin.Boolean = other is ${id(record.name)}")
+                    line("override fun hashCode(): kotlin.Int = 0")
+                    line("override fun toString(): kotlin.String = ${kotlinStringLiteral(record.name + "()")}")
                 }
-                append(") -> ")
-                generateTypeRepr(type.returnType)
+            } else {
+                val params = record.fields.entries.joinToString(", ") { (n, t) -> "val ${id(n)}: ${kt(t)}" }
+                line("data class ${id(record.name)}($params)")
             }
-            is ComplexType -> append(type.name)
-            FloatType -> append("Float")
-            IntType -> append("Int")
-            is ListType -> append("MutableList<").generateTypeRepr(type.elem).append(">")
-            is MapType -> "Map<${generateTypeRepr(type.key)}, ${generateTypeRepr(type.value)}>"
-            NullType -> append("Unit?")
-            is OptionalType -> generateTypeRepr(type.elem).append("?")
-            is ParserType -> append(type.name)
-            StrType -> append("String")
-            else -> throw IllegalStateException("should not reach here for $type")
-        }
-        return this
-    }
-
-    private fun StringBuilder.generateValue(value: Value): StringBuilder {
-
-        fun Value.accessField(name: String) {
-            this@generateValue.generateValue(this).append(".$name")
+            line()
         }
 
-        fun Value.binaryOp(other: Value, op: String) {
-            this@generateValue.generateValue(this).append(" $op ").generateValue(other)
-        }
+        private fun declaresSyn(node: Node, name: String): Boolean = node.ancestors().any { name in it.synthetics }
 
-        fun StringBuilder.generateCommaSeparated(values: List<Value>): StringBuilder {
-            if (values.isEmpty()) return this
-            generateValue(values.first())
-            for (value in values.drop(1)) {
-                append(", ").generateValue(value)
+        private fun generateNode(node: Node) {
+            val parents = node.parents.joinToString("") { ", ${id(it.name)}" }
+            if (node.isInterface) {
+                block("interface ${id(node.name)} : $NODE$parents {") {
+                    for (syn in node.synthetics.values) {
+                        val override = if (declaresSyn(node, syn.name)) "override " else ""
+                        line("${override}val ${id(syn.name)}: ${kt(syn.type)}")
+                    }
+                }
+                line()
+                return
             }
-            return this
+
+            val params = node.fields.entries.joinToString(", ") { (n, t) -> "val ${id(n)}: ${kt(t)}" }
+            block("class ${id(node.name)}($params) : $NODE_BASE()$parents {") {
+                val children = node.fields.filter { containsNodes(it.value) }.keys
+                if (children.isNotEmpty()) {
+                    block("init {") {
+                        children.forEach { line("forgeAdopt(this.${id(it)})") }
+                    }
+                    line("override fun forgeChildren(): kotlin.collections.List<$RT.ForgeNode> = forgeCollectChildren(${children.joinToString(", ") { "this." + id(it) }})")
+                }
+                line("override fun toString(): kotlin.String = ${kotlinStringLiteral(node.name + "(")} + ${
+                    if (node.fields.isEmpty()) "\"\"" else node.fields.keys.joinToString(" + \", \" + ") { "this.${id(it)}" }
+                } + \")\"")
+
+                // synthesized attributes: own equations, then default equations of interfaces
+                val synthetics = LinkedHashMap<String, SynAttribute>()
+                node.synthetics.values.forEach { synthetics[it.name] = it }
+                for (ancestor in node.ancestors()) {
+                    for (syn in ancestor.synthetics.values) {
+                        if (syn.name !in synthetics && syn.body != null) synthetics[syn.name] = syn
+                    }
+                }
+                for (syn in synthetics.values) {
+                    val body = syn.body ?: continue
+                    val override = if (declaresSyn(node, syn.name)) "override " else ""
+                    line("// syn ${syn.owner.name}.${syn.name}")
+                    block("${override}val ${id(syn.name)}: ${kt(syn.type)} by $RT.forgeLazy(${kotlinStringLiteral("${node.name}.${syn.name}")}) {") {
+                        line(emit(body))
+                    }
+                }
+
+                for (coll in node.collections.values) generateCollection(node, coll)
+
+                for (equation in node.inhEquations.values) generateInhEquation(node, equation)
+            }
+            line()
         }
 
-        when (value) {
-            is AccessEnumField -> value.accessed.accessField(value.name)
-            is AccessListContainer -> generateValue(value.container).append("[").generateValue(value.key).append("]")
-            is AccessMapContainer -> generateValue(value.container).append("[").generateValue(value.key).append("]")
-            is AccessNodeAttr -> value.receiver.accessField(value.attr.name)
-            is AccessNodeField -> value.accessed.accessField(value.name)
-            is AccessParentInhAttr -> append(value.name)
-            is AccessRecordField -> value.accessed.accessField(value.name)
-            is AddFloat -> value.lhs.binaryOp(value.rhs, "+")
-            is AddInt -> value.lhs.binaryOp(value.rhs, "+")
-            is AndBool -> value.lhs.binaryOp(value.rhs, "and")
-            is AndInt -> value.lhs.binaryOp(value.rhs, "and")
-            is AppendAllListItems -> generateValue(value.list).append(".also { addAll(").generateValue(value.elements).append(") }")
-            is AppendListItem -> generateValue(value.list).append(".also { add(").generateValue(value.element).append(") }")
-            is BoolEquals -> value.lhs.binaryOp(value.rhs, "==")
-            is Call -> (if (value.receiver != null) generateValue(value.receiver).append(".") else this)
-                .append(value.target.name).append('(').generateCommaSeparated(value.args).append(")")
-            is Cast -> generateValue(value.value).append(" as ").append(value.target.name)
-            is CreateEnum -> append("${value.target.enumName}.${value.target.itemName}").append("(").generateCommaSeparated(value.args).append(")")
-            is CreateNode -> append(value.target.name).append("(").generateCommaSeparated(value.args).append(")")
-            is CreateRecord -> append(value.target.name).append("(").generateCommaSeparated(value.args).append(")")
-            is DivFloat -> value.lhs.binaryOp(value.rhs, "/")
-            is DivInt -> value.lhs.binaryOp(value.rhs, "/")
-            is EnumEquals -> value.lhs.binaryOp(value.rhs, "==")
-            is Float2Int -> generateValue(value.value).append(".toInt()")
-            is FloatEquals -> value.lhs.binaryOp(value.rhs, "==")
-            is FoldAcc -> append(value.name)
-            is FoldItem -> append(value.name)
-            is FoldOp -> generateValue(value.iterable).append(".map { ${value.acc.name}, ${value.item.name} -> ").generateValue(value.body).append(" }")
-            is GeqFloat -> value.lhs.binaryOp(value.rhs, ">=")
-            is GeqInt -> value.lhs.binaryOp(value.rhs, ">=")
-            is GtFloat -> value.lhs.binaryOp(value.rhs, ">")
-            is GtInt -> value.lhs.binaryOp(value.rhs, ">")
-            is IAnd -> value.lhs.binaryOp(value.rhs, "and")
-            is IOr -> value.lhs.binaryOp(value.rhs, "or")
-            is IfElse -> append("if (").generateValue(value.cond).append(") ").generateValue(value.then).append(" else ").generateValue(value.alt)
-            is InList -> value.element.binaryOp(value.list, "in")
-            is InMapKeys -> value.key.binaryOp(value.map, "in")
-            is Int2Float -> generateValue(value.value).append(".toFloat()")
-            is IntEquals -> value.lhs.binaryOp(value.rhs, "==")
-            is InvertBool -> append("!").append(value.value)
-            is InvertInt -> append("~").append(value.value)
-            is IsInstanceOf -> generateValue(value.value).append(" is ").append(value.target.name)
-            is IsNull -> append("(").generateValue(value.checked).append(" == null)")
-            is LeqFloat -> value.lhs.binaryOp(value.rhs, "<=")
-            is LeqInt -> value.lhs.binaryOp(value.rhs, "<=")
-            is ListEquals -> value.lhs.binaryOp(value.rhs, "==")
-            is ListLiteral -> append("mutableListOf<").generateTypeRepr(value.elementType).append(">(").generateCommaSeparated(value.list).append(")")
-            is LtFloat -> value.lhs.binaryOp(value.rhs, "<")
-            is LtInt -> value.lhs.binaryOp(value.rhs, "<")
-            is MapEquals -> value.lhs.binaryOp(value.rhs, "==")
-            is MapLiteral -> TODO()
-            is MapOp -> generateValue(value.iterable).append(".map { ${value.ref.name} -> ").generateValue(value.body).append(" }")
-            is MapRef -> append(value.name)
-            is Match -> append("TODO()")  // TODO
-            is MergeLists -> value.lhs.binaryOp(value.rhs, "+")
-            is MergeMaps -> value.lhs.binaryOp(value.rhs, "+")
-            is ModInt -> value.lhs.binaryOp(value.rhs, "%")
-            is MulFloat -> value.lhs.binaryOp(value.rhs, "*")
-            is MulInt -> value.lhs.binaryOp(value.rhs, "*")
-            is NegateFloat -> append("-").append(value.value)
-            is NegateInt -> append("-").append(value.value)
-            is NodeEquals -> value.lhs.binaryOp(value.rhs, "==")
-            is OrBool -> value.lhs.binaryOp(value.rhs, "or")
-            is OrInt -> value.lhs.binaryOp(value.rhs, "or")
-            is Panic -> append("error(").append(value.message).append(")")
-            is Parameter -> append(value.name)
-            is PutAllMapItems -> value.map.binaryOp(value.elements, "+")
-            is PutMapItem -> value.map.binaryOp(MapLiteral(mapOf(value.key to value.value), MapType(value.key.type, value.value.type)), "%")
-            is RecordEquals -> value.lhs.binaryOp(value.rhs, "==")
-            is StringEquals -> value.lhs.binaryOp(value.rhs, "==")
-            is StringValue -> append(value.value)
-            is SubFloat -> value.lhs.binaryOp(value.rhs, "-")
-            is SubInt -> value.lhs.binaryOp(value.rhs, "-")
-            is This -> append("this")
-            is XorBool -> value.lhs.binaryOp(value.rhs, "xor")
-            is XorInt -> value.lhs.binaryOp(value.rhs, "xor")
-            is BoolValue -> append(value.value)
-            is FloatValue -> append(value.value)
-            is IntValue -> append(value.value)
-            NullValue -> append("null")
-            is ConcatStr -> value.lhs.binaryOp(value.rhs, "+")
+        private fun generateCollection(node: Node, coll: CollAttribute) {
+            line("// coll ${node.name}.${coll.name}: folds the contributions of all nodes of the tree")
+            block("val ${id(coll.name)}: ${kt(coll.type)} by $RT.forgeLazy(${kotlinStringLiteral("${node.name}.${coll.name}")}) {") {
+                line("var forgeAcc: ${kt(coll.type)} = ${emit(coll.init)}")
+                if (coll.contributions.isNotEmpty()) {
+                    line("val forgeTarget = this")
+                    block("this.forgeRoot().forgeTraverse { forgeNode ->") {
+                        for (contribution in coll.contributions) {
+                            block("if (forgeNode is ${id(contribution.source.name)}) with(forgeNode) {") {
+                                block("if (${emit(contribution.target)} === forgeTarget) {") {
+                                    line("val ${id(contribution.alias.name)}: ${kt(coll.type)} = forgeAcc")
+                                    line("forgeAcc = ${emit(contribution.value)}")
+                                }
+                            }
+                        }
+                    }
+                }
+                line("forgeAcc")
+            }
         }
-        return this
+
+        private fun generateInhEquation(node: Node, equation: InhEquation) {
+            val inh = module.inherited.getValue(equation.attrName)
+            line("// inh ${node.name}.${equation.attrName}")
+            block("override fun forgeInh_${equation.attrName}(child: $NODE): ${kt(inh.type)} {") {
+                for (delegate in equation.delegates) {
+                    val field = "this.${id(delegate.field)}"
+                    if (delegate.key == null && delegate.binder == null) {
+                        line("if (child === $field) return ${emit(delegate.value)}")
+                        continue
+                    }
+                    val index = freshName("Index")
+                    block("kotlin.run {") {
+                        line("val $index = $RT.forgeIndexOf($field, child)")
+                        if (delegate.binder != null) {
+                            block("if ($index >= 0) {") {
+                                line("val ${id(delegate.binder.name)}: kotlin.Int = $index")
+                                line("return ${emit(delegate.value)}")
+                            }
+                        } else {
+                            line("if ($index >= 0 && $index == ${emit(delegate.key!!)}) return ${emit(delegate.value)}")
+                        }
+                    }
+                }
+                line("return super.forgeInh_${equation.attrName}(child)")
+            }
+        }
+
+        private fun generateFunction(function: Function) {
+            val receiver = function.receiver?.let { kt(it) + "." } ?: ""
+            val params = function.parameters.joinToString(", ") { "${id(it.name)}: ${kt(it.type)}" }
+            if (function.isExternal) {
+                line("// external fun $receiver${function.name}($params): ${kt(function.returnType)} -- implemented by the Forge runtime, the Kotlin standard library or by hand")
+                line()
+                return
+            }
+            val body = function.body ?: return
+            line("fun $receiver${id(function.name)}($params): ${kt(function.returnType)} =")
+            indent++
+            line(emit(body))
+            indent--
+            line()
+        }
+
+        // ------------------------------------------------------------------
+        // parsers
+        // ------------------------------------------------------------------
+
+        private fun generateParser(parser: LLIRParser) {
+            val def = parser.definition
+            val grammar = def.grammar
+            block("object ${id(parser.name)} {") {
+                block("private val forgeTerminals: kotlin.collections.List<$RT.ForgeTerminal> = kotlin.collections.listOf(", ")") {
+                    for (t in grammar.terminals) {
+                        line("$RT.ForgeTerminal(${kotlinStringLiteral(t.name)}, ${kotlinStringLiteral(t.pattern)}, ${t.literal}),")
+                    }
+                }
+                line("private val forgeLayout: kotlin.collections.List<kotlin.String> = kotlin.collections.listOf(${def.layout.joinToString(", ") { kotlinStringLiteral(it) }})")
+                val chunks = def.tables.encode().chunked(16000)
+                block("private val forgeTables: kotlin.String = kotlin.collections.listOf(", ").joinToString(\"\")") {
+                    chunks.forEach { line(kotlinStringLiteral(it) + ",") }
+                }
+                line("private val forgeParser: $RT.ForgeLRParser by kotlin.lazy { $RT.ForgeLRParser(forgeTables, forgeTerminals, forgeLayout, ::forgeReduce) }")
+                line()
+                for (entry in def.entries) {
+                    line("/** Parses [source] as `${entry.rule}`; throws [$RT.ForgeParseException] on syntax errors. */")
+                    line("fun ${id(entry.rule)}(source: kotlin.String): ${kt(entry.type)} = forgeParser.parse(source, ${entry.index}) as ${kt(entry.type)}")
+                    line()
+                }
+                val groups = parser.productions.indices.chunked(64)
+                block("private fun forgeReduce(forgeProduction: kotlin.Int, forgeRhs: kotlin.Array<kotlin.Any?>): kotlin.Any? = when (forgeProduction / 64) {", "}") {
+                    groups.indices.forEach { line("$it -> forgeReduce$it(forgeProduction, forgeRhs)") }
+                    line("else -> throw kotlin.IllegalStateException(\"unknown production \$forgeProduction\")")
+                }
+                for ((g, group) in groups.withIndex()) {
+                    line()
+                    block("private fun forgeReduce$g(forgeProduction: kotlin.Int, forgeRhs: kotlin.Array<kotlin.Any?>): kotlin.Any? = when (forgeProduction) {", "}") {
+                        for (p in group) {
+                            line("// ${grammar.describe(grammar.productions[p])}")
+                            when (val production = parser.productions[p]) {
+                                is LLIRProduction.Helper -> line("$p -> ${sem(production.value)}")
+                                is LLIRProduction.User -> block("$p -> {") {
+                                    for ((local, value) in production.labels) {
+                                        line("val ${id(local.name)}: ${kt(local.type)} = ${sem(value)} as ${kt(local.type)}")
+                                    }
+                                    line(production.producer?.let { emit(it) } ?: sem(production.value))
+                                }
+                            }
+                        }
+                        line("else -> throw kotlin.IllegalStateException(\"unknown production \$forgeProduction\")")
+                    }
+                }
+            }
+            line()
+        }
+
+        private fun sem(sem: Sem): String = when (sem) {
+            is Sem.Rhs -> "forgeRhs[${sem.index}]"
+            Sem.Null -> "null"
+            Sem.EmptyList -> "kotlin.collections.emptyList<kotlin.Any?>()"
+            is Sem.Concat -> "$RT.forgeConcat(${sem.parts.joinToString(", ") { sem(it) }})"
+            is Sem.FrameField -> "$RT.forgeFrameField(forgeRhs[${sem.index}], ${sem.field})"
+            is Sem.RepField -> "$RT.forgeRepField(forgeRhs[${sem.index}], ${sem.field})"
+            is Sem.Frame -> "kotlin.arrayOf<kotlin.Any?>(${sem.fields.joinToString(", ") { sem(it) }})"
+            is Sem.RepStart -> "$RT.forgeRepStart(${sem(sem.frame)})"
+            is Sem.RepAppend -> "$RT.forgeRepAppend(forgeRhs[${sem.index}], ${sem(sem.frame)})"
+        }
+
+        // ------------------------------------------------------------------
+        // values
+        // ------------------------------------------------------------------
+
+        private fun bin(lhs: Value, op: String, rhs: Value): String = "(${emit(lhs)} $op ${emit(rhs)})"
+
+        fun emit(value: Value): String = when (value) {
+            is IntValue -> value.value.toString()
+            is FloatValue -> value.value.toString()
+            is BoolValue -> value.value.toString()
+            is StringValue -> kotlinStringLiteral(value.value)
+            NullValue -> "null"
+            is Parameter -> id(value.name)
+            is Local -> id(value.name)
+            is This -> "this"
+
+            is ListLiteral -> "kotlin.collections.listOf<${kt((value.type as ListType).elem)}>(${value.list.joinToString(", ") { emit(it) }})"
+            is MapLiteral -> {
+                val type = value.type as MapType
+                "kotlin.collections.mapOf<${kt(type.key)}, ${kt(type.value)}>(${value.entries.joinToString(", ") { "kotlin.Pair(${emit(it.first)}, ${emit(it.second)})" }})"
+            }
+
+            is Call -> (value.receiver?.let { "(${emit(it)})." } ?: "") + "${id(value.target.name)}(${value.args.joinToString(", ") { emit(it) }})"
+            is CreateRecord -> "${id(value.target.name)}(${value.args.joinToString(", ") { emit(it) }})"
+            is CreateNode -> "${id(value.target.name)}(${value.args.joinToString(", ") { emit(it) }})"
+            is CreateEnum -> {
+                val name = "${id(value.target.enumName)}.${id(value.target.itemName)}"
+                if (value.target.fields.isEmpty()) name else "$name(${value.args.joinToString(", ") { emit(it) }})"
+            }
+            is ParseCall -> "${id(value.parser)}.${id(value.rule)}(${emit(value.source)})"
+
+            is AccessRecordField -> "(${emit(value.accessed)}).${id(value.name)}"
+            is AccessNodeField -> "(${emit(value.accessed)}).${id(value.name)}"
+            is AccessNodeAttr -> "(${emit(value.receiver)}).${id(value.attr.name)}"
+            is AccessBuiltinField -> {
+                val name = if (value.receiver.type == StrType && value.name == "size") "length" else value.name
+                "(${emit(value.receiver)}).$name"
+            }
+            is AccessListContainer -> "(${emit(value.container)})[${emit(value.key)}]"
+            is AccessMapContainer -> "(${emit(value.container)}).getValue(${emit(value.key)})"
+
+            is Int2Float -> "(${emit(value.value)}).toDouble()"
+            is Float2Int -> "(${emit(value.value)}).toInt()"
+            is Cast -> "(${emit(value.value)} as ${kt(value.type)})"
+            is IsInstanceOf -> "(${emit(value.value)} is ${id(value.target.name)})"
+
+            is NegateInt -> "(-${emit(value.value)})"
+            is NegateFloat -> "(-${emit(value.value)})"
+            is InvertBool -> "(!${emit(value.value)})"
+            is InvertInt -> "(${emit(value.value)}).inv()"
+            is IsNull -> "(${emit(value.checked)} == null)"
+            is NotNull -> "(${emit(value.value)})!!"
+            is Elvis -> "(${emit(value.value)} ?: ${emit(value.alt)})"
+
+            is MulInt, is MulFloat -> bin((value as BinaryValue).lhs, "*", value.rhs)
+            is DivInt, is DivFloat -> bin((value as BinaryValue).lhs, "/", value.rhs)
+            is ModInt -> bin(value.lhs, "%", value.rhs)
+            is AddInt, is AddFloat, is ConcatStr, is MergeLists, is MergeMaps -> bin((value as BinaryValue).lhs, "+", value.rhs)
+            is SubInt, is SubFloat -> bin((value as BinaryValue).lhs, "-", value.rhs)
+            is AndInt, is IAnd -> bin((value as BinaryValue).lhs, "and", value.rhs)
+            is OrInt, is IOr -> bin((value as BinaryValue).lhs, "or", value.rhs)
+            is XorInt, is XorBool -> bin((value as BinaryValue).lhs, "xor", value.rhs)
+            is AndBool -> bin(value.lhs, "&&", value.rhs)
+            is OrBool -> bin(value.lhs, "||", value.rhs)
+            is LtInt, is LtFloat -> bin((value as BinaryValue).lhs, "<", value.rhs)
+            is GtInt, is GtFloat -> bin((value as BinaryValue).lhs, ">", value.rhs)
+            is LeqInt, is LeqFloat -> bin((value as BinaryValue).lhs, "<=", value.rhs)
+            is GeqInt, is GeqFloat -> bin((value as BinaryValue).lhs, ">=", value.rhs)
+            is IntEquals, is FloatEquals, is BoolEquals, is StringEquals, is ListEquals, is MapEquals,
+            is EnumEquals, is RecordEquals, is ValueEquals -> bin((value as BinaryValue).lhs, "==", value.rhs)
+            is NodeEquals -> bin(value.lhs, "===", value.rhs)
+
+            is InList -> bin(value.element, "in", value.list)
+            is InMapKeys -> bin(value.key, "in", value.map)
+            is AppendListItem -> "(${emit(value.list)} + kotlin.collections.listOf(${emit(value.element)}))"
+            is AppendAllListItems -> bin(value.list, "+", value.elements)
+            is PutMapItem -> "(${emit(value.map)} + kotlin.Pair(${emit(value.key)}, ${emit(value.value)}))"
+            is PutAllMapItems -> bin(value.map, "+", value.elements)
+
+            is IfElse -> "(if (${emit(value.cond)}) ${emit(value.then)} else ${emit(value.alt)})"
+            is Panic -> "(throw kotlin.IllegalStateException(${kotlinStringLiteral(value.message)}))"
+            is WithLocalFunction -> {
+                val fn = value.function
+                val params = fn.parameters.joinToString(", ") { "${id(it.name)}: ${kt(it.type)}" }
+                "kotlin.run {\n" +
+                        "fun ${id(fn.name)}($params): ${kt(fn.returnType)} = ${emit(fn.body!!)}\n" +
+                        "${emit(value.body)}\n}"
+            }
+
+            is MapOp -> "(${emit(value.iterable)}).map { ${id(value.item.name)}: ${kt(value.item.type)} -> ${emit(value.body)} }"
+            is FoldOp -> "(${emit(value.iterable)}).fold<${kt(value.item.type)}, ${kt(value.acc.type)}>(${emit(value.initAcc)}) { ${id(value.acc.name)}: ${kt(value.acc.type)}, ${id(value.item.name)}: ${kt(value.item.type)} -> ${emit(value.body)} }"
+
+            is Match -> emitMatch(value)
+        }
+
+        private fun emitMatch(match: Match): String {
+            val label = freshName("Match")
+            val subject = freshName("Subject")
+            val sb = StringBuilder()
+            sb.append("kotlin.run<${kt(match.type)}> $label@{\n")
+            sb.append("val $subject = ${emit(match.scrutinee)}\n")
+            for (case in match.cases) {
+                val success = buildString {
+                    if (case.guard != null) append("if (${emit(case.guard)}) ")
+                    append("return@$label ${emit(case.body)}\n")
+                }
+                sb.append(emitPattern(case.pattern, subject, success))
+            }
+            if (match.alt != null) {
+                sb.append("${emit(match.alt)}\n")
+            } else {
+                sb.append("throw $RT.ForgeMatchException($subject)\n")
+            }
+            sb.append("}")
+            return sb.toString()
+        }
+
+        /** Code that executes [success] if [subject] matches [pattern] (with the pattern's variables bound). */
+        private fun emitPattern(pattern: MatchPattern, subject: String, success: String): String = when (pattern) {
+            WildcardPattern -> "kotlin.run {\n$success}\n"
+            is BindPattern -> "kotlin.run {\nval ${id(pattern.variable.name)}: ${kt(pattern.variable.type)} = $subject as ${kt(pattern.variable.type)}\n$success}\n"
+            is ValuePattern -> "if ($subject == ${emit(pattern.value)}) {\n$success}\n"
+            is ConstructorPattern -> {
+                val item = pattern.variant.item
+                val fields = item.fields.keys.toList()
+                var inner = success
+                for (i in pattern.args.indices.reversed()) {
+                    val field = freshName("Field")
+                    inner = "val $field = $subject.${id(fields[i])}\n" + emitPattern(pattern.args[i], field, inner)
+                }
+                "if ($subject is ${id(item.enumName)}.${id(item.itemName)}) {\n$inner}\n"
+            }
+            is ListPattern -> {
+                var inner = success
+                for (i in pattern.elements.indices.reversed()) {
+                    val element = freshName("Element")
+                    inner = "val $element = $subject[$i]\n" + emitPattern(pattern.elements[i], element, inner)
+                }
+                "if ($subject is kotlin.collections.List<*> && $subject.size == ${pattern.elements.size}) {\n$inner}\n"
+            }
+            is SplitPattern -> {
+                val head = freshName("Head")
+                val tail = freshName("Tail")
+                val inner = emitPattern(pattern.head, head, emitPattern(pattern.tail, tail, success))
+                "if ($subject is kotlin.collections.List<*> && $subject.isNotEmpty()) {\n" +
+                        "val $head = $subject[0]\nval $tail = $subject.subList(1, $subject.size)\n$inner}\n"
+            }
+        }
     }
-
 }

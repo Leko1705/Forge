@@ -1,13 +1,6 @@
 package com.leko.forge.llir
 
-import ForgeParser
-import com.leko.forge.analysis.*
-import com.leko.forge.attr.SymTab
-import com.leko.forge.attr.setSym
 import com.leko.forge.context.Context
-import com.leko.forge.model.*
-import com.leko.forge.types.toType
-import com.leko.forge.util.Log
 
 
 class Optimizer private constructor(context: Context) {
