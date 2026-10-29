@@ -258,6 +258,9 @@ Names starting with `forge`/`Forge` are reserved for generated code.
 - [`examples/whilelang`](examples/whilelang): an imperative language compiled to
   stack machine code, plus an extension in a separate file (`parser WhileExt : WhileLang`
   with new statements and operators)
+- [`examples/cfg`](examples/cfg): a control flow graph built from attributes, liveness
+  analysis as a fixpoint, dead store / unreachable code warnings, code generation from
+  the graph and Graphviz export
 - [`examples/sample`](examples/sample): the type checker of `sample.forge`
 - [`examples/features`](examples/features): tour of the expression language
 

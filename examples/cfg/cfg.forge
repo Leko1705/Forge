@@ -1,0 +1,253 @@
+// A control flow graph in Forge: construction, analysis and code generation.
+//
+// The graph is not a separate data structure. Its vertices are AST nodes, its
+// edges are attributes (`succ`), and everything else (reachability, predecessors,
+// liveness, layout, code) is computed from those attributes on demand.
+//
+//   1. syntax          the language: assignments, print, if, while, break
+//   2. construction    first / next / breakTarget  ->  succ
+//   3. graph basics    entry, reachable vertices (DFS), ids, predecessors
+//   4. analysis        liveness as a fixpoint over the graph
+//   5. diagnostics     unreachable code, dead stores, uninitialized variables
+//   6. codegen         linearize the graph into stack machine code, drop dead stores
+//   7. debugging       Graphviz export
+
+// ============================================================ 1. syntax
+
+node Program(body: List<Stmt>, exit: Exit)
+node CfgNode                                   // everything that is a vertex of the CFG
+node Stmt: CfgNode
+node Assign(name: str, value: Expr): Stmt
+node Print(value: Expr): Stmt
+node If(cond: Expr, yes: List<Stmt>, no: List<Stmt>): Stmt
+node While(cond: Expr, body: List<Stmt>): Stmt
+node Break(): Stmt
+node Exit(): CfgNode                           // a vertex that is not in the source
+
+node Expr
+node Num(n: int): Expr
+node Var(name: str): Expr
+node Bin(op: str, lhs: Expr, rhs: Expr): Expr
+
+parser CfgLang @skip('\s+', '//[^\n]*')
+
+// the exit vertex is created by the producer, so it is part of the tree
+rule CfgLang.program: Program -> body:stmt* { Program(body, Exit()) }
+
+rule CfgLang.stmt: Stmt
+rule CfgLang.stmt: Assign -> name:ident ":=" value:expr ";" { Assign(name, value) }
+rule CfgLang.stmt: Print -> "print" value:expr ";" { Print(value) }
+rule CfgLang.stmt: If -> "if" c:expr "then" yes:stmt* no:("else" stmt*)? "end" { If(c, yes, no ?: []) }
+rule CfgLang.stmt: While -> "while" c:expr "do" body:stmt* "end" { While(c, body) }
+rule CfgLang.stmt: Break -> "break" ";" { Break() }
+
+rule CfgLang.ident: str -> '[a-z][a-zA-Z0-9_]*'
+
+rule CfgLang.expr: Expr
+rule CfgLang.expr: Bin -> l:expr op:("<" | "==") r:expr { Bin(op, l, r) } @nonassoc(1)
+                        | l:expr op:("+" | "-") r:expr { Bin(op, l, r) } @left(2)
+                        | l:expr op:"*" r:expr { Bin(op, l, r) } @left(3)
+rule CfgLang.expr: Num -> v:'[0-9]+' { Num(v.int()) }
+rule CfgLang.expr: Var -> n:ident { Var(n) }
+rule CfgLang.expr: Expr -> "(" expr ")"
+
+external fun str.int(): int
+external fun int.str(): str
+external fun List<str>.sorted(): List<str>
+external fun List<str>.joinToString(separator: str): str
+
+// ============================================================ 2. construction
+//
+// Every statement is a vertex. Two attributes describe how a statement is wired:
+//   first : the vertex control enters the statement at   (synthesized)
+//   next  : the vertex control continues at afterwards    (inherited)
+// Jump targets are inherited attributes too, so they are lexically scoped
+// without any label table: `break` jumps to the `next` of the enclosing loop.
+
+syn Stmt.first: CfgNode = this
+
+fun firstOf(stmts: List<Stmt>, after: CfgNode): CfgNode =
+    if stmts.size == 0 then after else stmts[0].first
+
+/** the vertex after statement i of a statement list */
+fun seqNext(stmts: List<Stmt>, i: int, after: CfgNode): CfgNode =
+    if i + 1 < stmts.size then stmts[i + 1].first else after
+
+inh next: CfgNode? = null
+inh Program.next {
+    body[i] <- seqNext(this.body, i, this.exit)
+}
+inh If.next {
+    yes[i] <- seqNext(this.yes, i, this.next!!)
+    no[i] <- seqNext(this.no, i, this.next!!)
+}
+inh While.next {
+    body[i] <- seqNext(this.body, i, this)        // the back edge to the loop header
+}
+
+inh breakTarget: CfgNode? = null
+inh While.breakTarget {
+    body[i] <- this.next
+}
+
+// the edges
+syn CfgNode.succ: List<CfgNode>
+syn Assign.succ: List<CfgNode> = [this.next!!]
+syn Print.succ: List<CfgNode> = [this.next!!]
+syn If.succ: List<CfgNode> = [firstOf(this.yes, this.next!!), firstOf(this.no, this.next!!)]   // [true, false]
+syn While.succ: List<CfgNode> = [firstOf(this.body, this), this.next!!]                      // [true, false]
+syn Break.succ: List<CfgNode> = [this.breakTarget ?: this.next!!]
+syn Exit.succ: List<CfgNode> = []
+
+// ============================================================ 3. graph basics
+
+inh program: Program? = null
+inh Program.program {
+    body[i] <- this
+    exit <- this
+}
+
+syn Program.entry: CfgNode = firstOf(this.body, this.exit)
+
+/** depth first search; the order is also the code layout */
+fun dfs(todo: List<CfgNode>, seen: List<CfgNode>): List<CfgNode> = match todo {
+    [] -> seen
+    v :: rest -> if v in seen then dfs(rest, seen) else dfs(v.succ ++ rest, seen ++ [v])
+}
+
+syn Program.reachable: List<CfgNode> = dfs([this.entry], [])
+
+/** all vertices, reachable or not: every CfgNode contributes itself */
+coll Program.vertices: List<CfgNode> = []
+contrib CfgNode -> this.program!!.vertices = vertices ++ [this]
+
+fun indexIn(vs: List<CfgNode>, v: CfgNode, i: int): int =
+    if i >= vs.size then -1 else if vs[i] == v then i else indexIn(vs, v, i + 1)
+
+/** position in the layout, -1 if unreachable */
+syn CfgNode.id: int = indexIn(this.program!!.reachable, this, 0)
+
+/** the reverse edges, derived from succ */
+syn CfgNode.pred: List<CfgNode> =
+    acc ++ (if this in p.succ then [p] else []) for p in this.program!!.reachable with acc = []
+
+// ============================================================ 4. analysis: liveness
+//
+// liveIn(v)  = uses(v) ∪ (liveOut(v) − defs(v))
+// liveOut(v) = ∪ liveIn(s) for s in succ(v)
+//
+// The equations are recursive along loops. Until Forge has `circular`
+// attributes, the fixpoint is computed by a function that iterates the
+// equations over all vertices, indexed by vertex id, until nothing changes.
+
+syn Expr.vars: List<str>
+syn Num.vars: List<str> = []
+syn Var.vars: List<str> = [this.name]
+syn Bin.vars: List<str> = union(this.lhs.vars, this.rhs.vars)
+
+syn CfgNode.uses: List<str> = []
+syn Assign.uses: List<str> = this.value.vars
+syn Print.uses: List<str> = this.value.vars
+syn If.uses: List<str> = this.cond.vars
+syn While.uses: List<str> = this.cond.vars
+
+syn CfgNode.defs: List<str> = []
+syn Assign.defs: List<str> = [this.name]
+
+fun union(a: List<str>, b: List<str>): List<str> =
+    (acc ++ (if x in acc then [] else [x]) for x in b with acc = a).sorted()
+fun minus(a: List<str>, b: List<str>): List<str> =
+    acc ++ (if x in b then [] else [x]) for x in a with acc = []
+
+fun liveOutOf(v: CfgNode, liveIn: List<List<str>>): List<str> =
+    union(acc, liveIn[s.id]) for s in v.succ with acc = []
+
+fun liveStep(vs: List<CfgNode>, liveIn: List<List<str>>): List<List<str>> =
+    union(v.uses, minus(liveOutOf(v, liveIn), v.defs)) for v in vs
+
+fun fixpoint(vs: List<CfgNode>, current: List<List<str>>): List<List<str>> =
+    check(liveStep(vs, current))
+    where fun check(next: List<List<str>>): List<List<str>> =
+        if next == current then current else fixpoint(vs, next)
+
+syn Program.liveIn: List<List<str>> = fixpoint(this.reachable, [] for v in this.reachable)
+
+syn CfgNode.liveIn: List<str> = this.program!!.liveIn[this.id]
+syn CfgNode.liveOut: List<str> = liveOutOf(this, this.program!!.liveIn)
+
+// ============================================================ 5. diagnostics
+
+fun at(n: CfgNode): str = n.line.str() + ":" + n.column.str() + ": "
+
+/** an assignment whose value is never read */
+syn Assign.isDead: bool = this.id >= 0 && !(this.name in this.liveOut)
+
+coll Program.warnings: List<str> = []
+contrib Stmt -> this.program!!.warnings =
+    warnings ++ (if this.id < 0 then [at(this) + "unreachable statement"] else [])
+contrib Assign -> this.program!!.warnings =
+    warnings ++ (if this.isDead then [at(this) + "value assigned to '" + this.name + "' is never used"] else [])
+contrib Break -> this.program!!.warnings =
+    warnings ++ (if this.breakTarget == null then [at(this) + "break outside of a loop"] else [])
+
+/** variables live at the entry are read before they are assigned on some path */
+syn Program.uninitialized: List<str> = this.entry.liveIn
+
+// ============================================================ 6. code generation
+//
+// The vertices are laid out in DFS order. Every vertex gets a label; a jump is
+// only emitted where the successor is not the next vertex in the layout. The
+// analysis feeds back into codegen: dead stores are not emitted at all.
+
+fun label(v: CfgNode): str = "L" + v.id.str()
+
+fun jumpTo(from: CfgNode, target: CfgNode): List<str> =
+    if target.id == from.id + 1 then [] else ["jmp " + label(target)]
+
+syn Expr.code: List<str>
+syn Num.code: List<str> = ["push " + this.n.str()]
+syn Var.code: List<str> = ["load " + this.name]
+syn Bin.code: List<str> = this.lhs.code ++ this.rhs.code ++ [match this.op {
+    "+" -> "add"
+    "-" -> "sub"
+    "*" -> "mul"
+    "<" -> "lt"
+    "==" -> "eq"
+}]
+
+syn CfgNode.code: List<str>
+syn Assign.code: List<str> =
+    (if this.isDead then [] else this.value.code ++ ["store " + this.name]) ++ jumpTo(this, this.succ[0])
+syn Print.code: List<str> = this.value.code ++ ["print"] ++ jumpTo(this, this.succ[0])
+syn If.code: List<str> = this.cond.code ++ ["jz " + label(this.succ[1])] ++ jumpTo(this, this.succ[0])
+syn While.code: List<str> = this.cond.code ++ ["jz " + label(this.succ[1])] ++ jumpTo(this, this.succ[0])
+syn Break.code: List<str> = jumpTo(this, this.succ[0])
+syn Exit.code: List<str> = ["halt"]
+
+syn Program.code: List<str> = acc ++ ["label " + label(v)] ++ v.code for v in this.reachable with acc = []
+
+// ============================================================ 7. debugging: Graphviz
+
+syn CfgNode.describe: str
+syn Assign.describe: str = this.name + " := ..."
+syn Print.describe: str = "print"
+syn If.describe: str = "if"
+syn While.describe: str = "while"
+syn Break.describe: str = "break"
+syn Exit.describe: str = "exit"
+
+syn Program.dot: str = "digraph cfg {\n" + (
+    (label(v) + " [label=\"" + v.describe + "\\nlive: " + v.liveOut.joinToString(",") + "\"];\n"
+        + (label(v) + " -> " + label(s) + ";\n" for s in v.succ).joinToString("")
+    ) for v in this.reachable).joinToString("") + "}"
+
+// ============================================================ result
+
+record Compiled {
+    code: List<str>,
+    warnings: List<str>,
+    uninitialized: List<str>
+}
+
+fun Program.compile(): Compiled = Compiled(this.code, this.warnings, this.uninitialized)
+fun compile(source: str): Compiled = CfgLang.program(source).compile()
