@@ -2,7 +2,9 @@ package com.leko.forge.enter
 
 import ForgeParser
 import com.leko.forge.analysis.*
+import com.leko.forge.attr.Builtins
 import com.leko.forge.attr.SymTab
+import com.leko.forge.attr.TypeMap
 import com.leko.forge.attr.setSym
 import com.leko.forge.context.Context
 import com.leko.forge.model.*
@@ -20,7 +22,10 @@ class Enter private constructor(context: Context) {
 
     private val log = Log.instance(context)
 
+    private val typeMap = TypeMap.instance(context)
+
     fun enter(root: ForgeParser.RootContext) {
+        Builtins.enter(symTab, typeMap)
         for (node in root.nodeDef()) {
             if (node.LPAREN() == null) {
                 if (node.name.text in symTab) {
@@ -96,7 +101,7 @@ class Enter private constructor(context: Context) {
                 func.ty.toType(),
                 func.name.span,
             )
-            symTab[sym.type] = sym
+            symTab.functions[sym.name] = sym
             func.setSym(sym)
         }
         for (inhDef in root.inhDef()) {
@@ -119,6 +124,31 @@ class Enter private constructor(context: Context) {
             val sym = ParserSymbol(name, parser.name.span)
             symTab[sym.type] = sym
             parser.setSym(sym)
+        }
+        for (portDef in root.portDef()) {
+            for (ident in portDef.IDENT()) {
+                val name = ident.text
+                if (name in symTab.ports) {
+                    log.diag(portAlreadyExist(ident.span, name))
+                    continue
+                }
+                symTab.ports[name] = PortSymbol(name, portDef.inherited != null, ident.span)
+            }
+        }
+        for (graph in root.graphDef()) {
+            val name = graph.name.text
+            if (name in symTab) {
+                log.diag(graphAlreadyExist(graph.name.span, name))
+                continue
+            }
+            val rootSym = symTab[graph.rootNode.text] as? NodeSymbol
+            if (rootSym == null) {
+                log.diag(nodeNotFound(graph.rootNode.span, graph.rootNode.text))
+                continue
+            }
+            val sym = FlowGraphSymbol(name, rootSym, graph.name.span)
+            symTab[sym.type] = sym
+            graph.setSym(sym)
         }
     }
 }

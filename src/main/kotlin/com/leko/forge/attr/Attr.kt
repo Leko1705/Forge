@@ -25,6 +25,8 @@ class Attr private constructor(context: Context) {
         val expected: Type? = null,
         val matched: Type? = null,
         var delegateIndexVarEnabled: Boolean = false,
+        /** Set inside `flow` bodies: ports and the flow operations (`entry`, `sequence`, `bound`) are visible. */
+        val inFlow: Boolean = false,
     )
 
 
@@ -35,6 +37,10 @@ class Attr private constructor(context: Context) {
     val symTab = SymTab.instance(context)
 
     val log = Log.instance(context)
+
+    val types = Types.instance(context)
+
+    private enum class FlowRole { SOURCE, TARGET, CHILD }
 
 
     fun attr(root: ForgeParser.RootContext) {
@@ -52,7 +58,18 @@ class Attr private constructor(context: Context) {
         private fun attribIdent(ctx: ForgeParser.IdentifierContext, accepted: Set<Kind>): Type {
             val name = ctx.IDENT().text
 
-            var sym = env.value.scope.entries[name]
+            var sym = lookupLocal(name)
+            if (sym == null) {
+                val port = symTab.ports[name]
+                if (port != null) {
+                    if (!env.value.inFlow) {
+                        log.diag(portOnlyInFlows(ctx.IDENT().span, name))
+                        return ctx.setType(ErrorType)
+                    }
+                    ctx.attach("port", port)
+                    return ctx.setType(PortType)
+                }
+            }
             if (sym == null) sym = resolve.resolve(name)
             if (sym == null && env.value.delegateIndexVarEnabled) {
                 sym = VarSymbol(name, IntType, ctx.IDENT().span)
@@ -71,6 +88,16 @@ class Attr private constructor(context: Context) {
                 return ctx.setType(ErrorType)
             }
             return ctx.setType(sym.type)
+        }
+
+        /** Variables of the enclosing scopes, innermost first. */
+        private fun lookupLocal(name: String): Symbol? {
+            var e: Env<AttributeContext>? = env
+            while (e != null) {
+                e.value.scope.entries[name]?.let { return it }
+                e = e.next
+            }
+            return null
         }
 
         private fun ForgeParser.ExpressionContext.attribOwner(accepted: Set<Kind>): Type = when (this) {
@@ -107,6 +134,13 @@ class Attr private constructor(context: Context) {
             this.env.value.delegateIndexVarEnabled = false
         }
 
+        private inline fun withFlow(receiver: Type, block: () -> Unit) {
+            val prev = this.env
+            this.env = prev.child(prev.value.copy(scope = Scope(), receiver = receiver, inFlow = true))
+            block()
+            this.env = prev
+        }
+
         private inline fun withChildScope(block: () -> Unit) {
             val env = this.env
             this.env = env.child(env.value.copy(scope = Scope()))
@@ -128,7 +162,7 @@ class Attr private constructor(context: Context) {
         override fun visitSynDef(ctx: ForgeParser.SynDefContext): Type? {
             val attrSym = ctx.symbol ?: return null
 
-            if (attrSym.owner is ConcreteNodeSymbol) {
+            if (ctx.syn != null) {
                 withExpected(attrSym.type) {
                     withReceiver(attrSym.owner.type) {
                         val synTy = ctx.syn.attribType()
@@ -139,8 +173,20 @@ class Attr private constructor(context: Context) {
             return null
         }
 
+        override fun visitCircularDef(ctx: ForgeParser.CircularDefContext): Type? {
+            val attrSym = ctx.symbol ?: return null
+            withExpected(attrSym.type) {
+                withReceiver(attrSym.owner.type) {
+                    chk.checkAssignable(attrSym.type, ctx.init.attribType())
+                    chk.checkAssignable(attrSym.type, ctx.body.attribType())
+                }
+            }
+            return null
+        }
+
         override fun visitInhDef(ctx: ForgeParser.InhDefContext): Type {
-            return chk.checkAssignable(ctx.symbol!!.type, ctx.init.attribType())
+            val sym = ctx.symbol ?: return ErrorType
+            return withExpected(sym.type) { chk.checkAssignable(sym.type, ctx.init.attribType()) }
         }
 
         override fun visitInhImpl(ctx: ForgeParser.InhImplContext): Type? {
@@ -181,7 +227,11 @@ class Attr private constructor(context: Context) {
         override fun visitContrib(ctx: ForgeParser.ContribContext): Type? {
             val nodeName = ctx.node.text
             val attrName = ctx.collName.text
-            val nodeSym = symTab.concreteNodes.values.find { it.name == nodeName } ?: return null
+            val nodeSym = resolve.resolve(nodeName) as? NodeSymbol
+            if (nodeSym == null) {
+                log.diag(nodeNotFound(ctx.node.span, nodeName))
+                return null
+            }
             val alias = ctx.alias?.text ?: attrName
 
             withReceiver(nodeSym.type) {
@@ -243,6 +293,7 @@ class Attr private constructor(context: Context) {
                     withDelegateIndexVarEnabled {
                         chk.checkAssignable(IntType, key.attribType())
                     }
+                    env.value.scope.members.firstOrNull()?.let { ctx.attach("binder", it) }
                     chk.checkAssignable(env.value.expected!!, value.attribType())
                 }
             }
@@ -326,15 +377,58 @@ class Attr private constructor(context: Context) {
 
         override fun visitCast(ctx: ForgeParser.CastContext): Type {
             val type = chk.checkExists(ctx.ty.toType())
-            withExpected(type) {
-                chk.checkAssignable(type, ctx.value.attribType())
+            val valueType = withExpected(type) { ctx.value.attribType() }
+            if (type != ErrorType && valueType != ErrorType && !castable(valueType, type)) {
+                log.diag(invalidCast(ctx.span, valueType, type))
             }
             return ctx.setType(type)
         }
 
         override fun visitNullCheck(ctx: ForgeParser.NullCheckContext): Type {
             val type = ctx.value.attribType()
-            return if (type is OptionalType) type.elem else type
+            return ctx.setType(if (type is OptionalType) type.elem else type)
+        }
+
+        override fun visitEnclosed(ctx: ForgeParser.EnclosedContext): Type {
+            return ctx.setType(ctx.expression().attribType())
+        }
+
+        override fun visitRelational(ctx: ForgeParser.RelationalContext): Type {
+            val lhsTy = ctx.left.attribType()
+            val rhsTy = ctx.right.attribType()
+            chk.checkNumericOp(lhsTy, rhsTy, ctx.op.text)
+            return ctx.setType(BoolType)
+        }
+
+        override fun visitInOp(ctx: ForgeParser.InOpContext): Type {
+            val container = ctx.right.attribType()
+            when (container) {
+                is ListType -> withExpected(container.elem) { chk.checkAssignable(container.elem, ctx.left.attribType()) }
+                is MapType -> withExpected(container.key) { chk.checkAssignable(container.key, ctx.left.attribType()) }
+                ErrorType -> ctx.left.attribType()
+                else -> {
+                    ctx.left.attribType()
+                    log.diag(typeMismatch(ctx.right.span, listOf(ListType(ArbitraryType), MapType(ArbitraryType, ArbitraryType)), container))
+                }
+            }
+            return ctx.setType(BoolType)
+        }
+
+        override fun visitInstanceOf(ctx: ForgeParser.InstanceOfContext): Type {
+            val type = chk.checkExists(ctx.ty.toType())
+            val valueType = ctx.value.attribType()
+            if (type != ErrorType && valueType != ErrorType && !castable(valueType, type)) {
+                log.diag(invalidCast(ctx.span, valueType, type))
+            }
+            return ctx.setType(BoolType)
+        }
+
+        private fun castable(from: Type, to: Type): Boolean {
+            val numeric = setOf(IntType, FloatType)
+            if (from in numeric && to in numeric) return true
+            val f = if (from is OptionalType) from.elem else from
+            val t = if (to is OptionalType) to.elem else to
+            return types.isAssignable(t, f) || types.isAssignable(f, t)
         }
 
         override fun visitListLiteral(ctx: ForgeParser.ListLiteralContext): Type {
@@ -408,7 +502,7 @@ class Attr private constructor(context: Context) {
                 chk.checkAssignable(IntType, rhsTy)
                 IntType
             } else {
-                chk.checkNumericOp(lhsTy, lhsTy, ctx.STAR()?.let { "*" } ?: "/")
+                chk.checkNumericOp(lhsTy, rhsTy, ctx.STAR()?.let { "*" } ?: "/")
             })
         }
 
@@ -510,10 +604,13 @@ class Attr private constructor(context: Context) {
             val recvSym = recv.symbol
             val fieldName = ctx.name.text
 
-            val sym = resolveMember(recvTy, fieldName, recvSym?.kind ?: Kind.VAL, Kind.VAL)
+            val sym = resolveMember(recvTy, fieldName, recvSym?.kind?.takeIf { it != Kind.MTH } ?: Kind.VAL, Kind.VAL)
 
             if (sym is InhSymbol && recv !is ForgeParser.ThisExprContext) {
                 log.diag(invalidExternalInhAttribAccess(ctx.span))
+            }
+            if (sym is InhSymbol && recvTy == ComplexType(VERTEX)) {
+                log.diag(inhOnVertex(ctx.span, fieldName))
             }
 
             if (sym == null) {
@@ -525,22 +622,78 @@ class Attr private constructor(context: Context) {
         }
 
         override fun visitFunctionCall(ctx: ForgeParser.FunctionCallContext): Type {
-            val sym = chk.resolveFunction(ctx.name.text) ?: return ErrorType
+            val name = ctx.name.text
+            if (env.value.inFlow && lookupLocal(name) == null) {
+                attribFlowCall(ctx)?.let { return it }
+            }
+            val sym = chk.resolveFunction(name) ?: run {
+                ctx.expression().forEach { it.attribType() }
+                return ctx.setType(ErrorType)
+            }
             ctx.setSym(sym)
+            if (sym is RecordSymbol && sym.opaque) {
+                log.diag(opaqueType(ctx.name.span, sym.name))
+            }
             val paramTypes = sym.params.map { it.type }
-            val argTypes = ctx.expression().map { it.attribType() }
-            if (argTypes.size < paramTypes.size) {
-                log.diag(tooFewArguments(null))
+            val args = ctx.expression()
+            if (args.size < paramTypes.size) {
+                log.diag(tooFewArguments(ctx.span))
             }
-            if (argTypes.size > paramTypes.size) {
-                log.diag(tooManyArguments(null))
+            if (args.size > paramTypes.size) {
+                log.diag(tooManyArguments(ctx.span))
             }
-            for ((got, expected) in argTypes.zip(paramTypes)) {
+            for ((i, arg) in args.withIndex()) {
+                val expected = paramTypes.getOrNull(i)
+                if (expected == null) {
+                    arg.attribType()
+                    continue
+                }
                 withExpected(expected) {
-                    chk.checkAssignable(expected, got)
+                    chk.checkAssignable(expected, arg.attribType())
                 }
             }
             return ctx.setType(sym.returnType)
+        }
+
+        /** `entry(x)`, `sequence(xs)`, `bound(port)` and `port(child)` inside flows; `null` for other calls. */
+        private fun attribFlowCall(ctx: ForgeParser.FunctionCallContext): Type? {
+            val name = ctx.name.text
+            val args = ctx.expression()
+            fun arity(n: Int) {
+                if (args.size < n) log.diag(tooFewArguments(ctx.span))
+                if (args.size > n) log.diag(tooManyArguments(ctx.span))
+            }
+            val port = symTab.ports[name]
+            if (port != null) {
+                arity(1)
+                args.firstOrNull()?.let { checkFlowOperand(it, it.attribType(), FlowRole.CHILD) }
+                ctx.attach("port", port)
+                return ctx.setType(PortRefType)
+            }
+            when (name) {
+                "entry" -> {
+                    arity(1)
+                    args.firstOrNull()?.let { checkFlowOperand(it, it.attribType(), FlowRole.TARGET) }
+                }
+                "sequence" -> {
+                    arity(1)
+                    args.firstOrNull()?.let {
+                        val type = it.attribType()
+                        if (type != ErrorType && !(type is ListType && isNodeType(type.elem))) {
+                            log.diag(typeMismatch(it.span, ListType(ComplexType(VERTEX)), type))
+                        }
+                    }
+                }
+                "bound" -> {
+                    arity(1)
+                    args.firstOrNull()?.let { chk.checkAssignable(PortType, it.attribType()) }
+                    ctx.attach("flowBuiltin", name)
+                    return ctx.setType(BoolType)
+                }
+                else -> return null
+            }
+            ctx.attach("flowBuiltin", name)
+            return ctx.setType(NullType)
         }
 
         override fun visitMethodCall(ctx: ForgeParser.MethodCallContext): Type {
@@ -552,7 +705,7 @@ class Attr private constructor(context: Context) {
 
             val recvSym = recv.symbol
             val methodName = ctx.name.text
-            val sym = resolveMember(recvTy, methodName, if (recvSym?.kind != Kind.MTH) recvSym!!.kind else Kind.VAL, Kind.MTH)
+            val sym = resolveMember(recvTy, methodName, recvSym?.kind?.takeIf { it != Kind.MTH } ?: Kind.VAL, Kind.MTH)
 
             if (sym == null) {
                 log.diag(methodNotFound(ctx.name.span, recvTy.toString(), methodName))
@@ -703,7 +856,9 @@ class Attr private constructor(context: Context) {
                 }
             }.filter { it !is ArbitraryType }
 
-            val res = if (patternTypes.isNotEmpty()) {
+            val res = if (ctx.patternArg().isEmpty()) {
+                (env.value.expected as? ListType)?.elem ?: ArbitraryType
+            } else if (patternTypes.isNotEmpty()) {
                 chk.checkAllAssignable(patternTypes, (env.value.expected as? ListType)?.elem)
             } else {
                 for (pattern in ctx.patternArg()) {
@@ -825,6 +980,94 @@ class Attr private constructor(context: Context) {
             else {
                 log.diag(ruleLabelingNotAllowedHere(ctx.label.span))
                 env.value.scope.enter(VarSymbol(label, ErrorType, ctx.label.span))
+            }
+            return null
+        }
+
+        // ---- flows ------------------------------------------------------------------------------
+
+        private fun isNodeType(type: Type): Boolean = type is ComplexType && resolve.resolve(type) is NodeSymbol
+
+        /**
+         * Checks an operand of a flow statement: children and vertices are nodes (or `Vertex`), sources may be
+         * ports of children (`onTrue(cond)`), targets may be ports of the node itself (`next`).
+         */
+        private fun checkFlowOperand(ctx: ParserRuleContext, type: Type, role: FlowRole) {
+            when {
+                type == ErrorType -> {}
+                type == PortType -> if (role != FlowRole.TARGET) log.diag(ownPortNotASource(ctx.span))
+                type == PortRefType -> if (role != FlowRole.SOURCE) log.diag(portOfChildNotATarget(ctx.span))
+                type is OptionalType && isNodeType(type.elem) -> log.diag(typeMismatch(ctx.span, type.elem, type))
+                !isNodeType(type) -> log.diag(notAFlowTarget(ctx.span, type))
+            }
+        }
+
+        override fun visitFlowDef(ctx: ForgeParser.FlowDefContext): Type? {
+            val sym = ctx.symbol ?: return null
+            withFlow(sym.node.type) {
+                val fields = (sym.node as? ConcreteNodeSymbol)?.fields ?: emptyList()
+                for ((binder, field) in ctx.flowBinder().zip(fields)) {
+                    val name = binder.name ?: continue
+                    val local = VarSymbol(name.text, field.type, name.span)
+                    env.value.scope.enter(local)
+                    binder.attach("local", local)
+                }
+                ctx.flowBlock().accept(this)
+            }
+            return null
+        }
+
+        override fun visitFlowBlock(ctx: ForgeParser.FlowBlockContext): Type? {
+            withChildScope {
+                ctx.flowStmt().forEach { it.accept(this) }
+            }
+            return null
+        }
+
+        override fun visitFlowConnect(ctx: ForgeParser.FlowConnectContext): Type? {
+            checkFlowOperand(ctx.source, ctx.source.attribType(), FlowRole.SOURCE)
+            checkFlowOperand(ctx.target, ctx.target.attribType(), FlowRole.TARGET)
+            if (ctx.label != null) {
+                withExpected(StrType) { chk.checkAssignable(StrType, ctx.label.attribType()) }
+            }
+            return null
+        }
+
+        override fun visitFlowVertex(ctx: ForgeParser.FlowVertexContext): Type? {
+            if (ctx.label != null) {
+                withExpected(StrType) { chk.checkAssignable(StrType, ctx.label.attribType()) }
+            }
+            val local = VarSymbol(ctx.name.text, ComplexType(VERTEX), ctx.name.span)
+            env.value.scope.enter(local)
+            ctx.attach("local", local)
+            return null
+        }
+
+        override fun visitFlowIf(ctx: ForgeParser.FlowIfContext): Type? {
+            chk.checkAssignable(BoolType, ctx.cond.attribType())
+            ctx.then.accept(this)
+            ctx.alt?.accept(this)
+            return null
+        }
+
+        override fun visitFlowFor(ctx: ForgeParser.FlowForContext): Type? {
+            val iterable = ctx.iterable.attribType()
+            chk.checkAssignable(ListType(ArbitraryType), iterable)
+            val elem = (iterable as? ListType)?.elem ?: ErrorType
+            withChildScope {
+                val local = VarSymbol(ctx.name.text, elem, ctx.name.span)
+                env.value.scope.enter(local)
+                ctx.attach("local", local)
+                ctx.flowBlock().accept(this)
+            }
+            return null
+        }
+
+        override fun visitFlowCall(ctx: ForgeParser.FlowCallContext): Type? {
+            val expr = ctx.expression()
+            expr.attribType()
+            if (expr !is ForgeParser.FunctionCallContext || expr.flowBuiltin !in setOf("entry", "sequence")) {
+                log.diag(invalidFlowStatement(expr.span))
             }
             return null
         }

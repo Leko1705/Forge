@@ -14,6 +14,10 @@ record
 | contrib
 | parserDef
 | parseRuleDef
+| circularDef
+| portDef
+| graphDef
+| flowDef
 )* EOF;
 
 parameter: name=IDENT COLON ty=type;
@@ -37,6 +41,27 @@ synDef: SYN node=IDENT DOT attrName=IDENT COLON attrType=type (ASSIGN syn=expres
 inhDef: INH attrName=IDENT COLON attrType=type ASSIGN init=expression;
 inhImpl: INH node=IDENT DOT attrName=IDENT LBRACE inhDelegate* RBRACE;
 inhDelegate: child=IDENT (LBRACKET key=expression RBRACKET)? RARROW value=expression;
+
+// circular(init) Node.attr: Type = body   -- fixpoint attribute
+circularDef: CIRCULAR LPAREN init=expression RPAREN node=IDENT DOT attrName=IDENT COLON attrType=type ASSIGN body=expression;
+
+// port onTrue, onFalse   /   inh port break   (inherited ports are looked up through enclosing flows)
+portDef: (inherited=INH)? PORT IDENT (COMMA IDENT)*;
+
+// graph cfg: Function   -- one graph per Function node, built from the flows of the nodes below it
+graphDef: GRAPH name=IDENT COLON rootNode=IDENT;
+
+// flow cfg: While(cond, body) { entry(cond); onTrue(cond) -> body; onFalse(cond) -> next; body -> cond }
+flowDef: FLOW graph=IDENT COLON node=IDENT (LPAREN (flowBinder (COMMA flowBinder)*)? RPAREN)? flowBlock;
+flowBinder: name=IDENT | UNDERSCORE;
+flowBlock: LBRACE (flowStmt SEMI?)* RBRACE;
+flowStmt
+    : source=expression ARROW target=expression (WITH label=expression)?    # flowConnect
+    | VERTEX name=IDENT (ASSIGN label=expression)?                          # flowVertex
+    | IF cond=expression then=flowBlock (ELSE alt=flowBlock)?               # flowIf
+    | FOR name=IDENT IN iterable=expression flowBlock                       # flowFor
+    | expression                                                            # flowCall
+    ;
 
 coll: COLL node=IDENT DOT collName=IDENT COLON collType=type ASSIGN init=expression;
 contrib: CONTRIB node=IDENT ARROW receiver=expression DOT collName=IDENT (AS alias=IDENT)? ASSIGN value=expression;
@@ -123,6 +148,7 @@ expression
 
     | value=expression NOTNULL                                               # nullCheck
     | value=expression AS ty=type                                            # cast
+    | value=expression IS ty=type                                            # instanceOf
     | expr=expression WHERE fun=function                                     # contextualized
     | put=expression FOR name=IDENT IN iterable=expression
         (WITH acc=IDENT ASSIGN accInit=expression)?                          # listComprehension
@@ -133,7 +159,7 @@ expression
 
 matchCase: pattern (IF cond=expression)? ARROW value=expression;
 
-pattern: typePattern | splitPattern | exprPattern | listPattern;
+pattern: typePattern | splitPattern | listPattern | exprPattern;
 patternArg
     : typePattern                                              # typePatternArg
     | wildcardPattern                                          # wildcardPatternArg

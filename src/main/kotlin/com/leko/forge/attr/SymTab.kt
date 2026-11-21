@@ -19,6 +19,9 @@ class SymTab private constructor() {
         strSymbol.type to strSymbol,
     )
 
+    /** Top level functions by name (their types are not unique, so they are not part of [table]). */
+    val functions = linkedMapOf<String, FunctionSymbol>()
+
     val interfaceNodes get() = globals<InterfaceNodeSymbol>()
 
     val concreteNodes get() = globals<ConcreteNodeSymbol>()
@@ -27,7 +30,12 @@ class SymTab private constructor() {
 
     val parsers get() = globals<ParserSymbol>()
 
+    val graphs get() = globals<FlowGraphSymbol>()
+
     val inheritedAttributes = mutableMapOf<String, InhSymbol>()
+
+    /** Flow ports by name, including the built-in `next`. */
+    val ports = linkedMapOf<String, PortSymbol>("next" to PortSymbol("next", false, null))
 
 
     private inline fun <reified T> globals() =
@@ -35,7 +43,7 @@ class SymTab private constructor() {
 
     operator fun get(type: Type): Symbol? = table[type]
 
-    operator fun get(name: String): Symbol? = table.values.firstOrNull { it.name == name }
+    operator fun get(name: String): Symbol? = table.values.firstOrNull { it.name == name } ?: functions[name]
 
     operator fun set(type: Type, symbol: Symbol) {
         table[type] = symbol
@@ -43,5 +51,5 @@ class SymTab private constructor() {
 
     operator fun contains(type: Type): Boolean = type in table
 
-    operator fun contains(type: String): Boolean = table.values.any { it.name == type }
+    operator fun contains(type: String): Boolean = table.values.any { it.name == type } || type in functions
 }

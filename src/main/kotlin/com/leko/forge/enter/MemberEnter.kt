@@ -16,6 +16,8 @@ import com.leko.forge.attr.TypeMap
 import com.leko.forge.attr.setSym
 import com.leko.forge.attr.symbol
 import com.leko.forge.context.Context
+import com.leko.forge.analysis.*
+import com.leko.forge.model.*
 import com.leko.forge.model.CollSymbol
 import com.leko.forge.model.ConcreteNodeSymbol
 import com.leko.forge.model.ConcreteParserRuleSymbol
@@ -47,75 +49,132 @@ class MemberEnter private constructor(context: Context) {
 
 
     fun enter(root: ForgeParser.RootContext) {
-        enterInterfaceInheritance(root)
-        enterConcreteInheritance(root)
+        enterInheritance(root)
         enterSyntheticAttributes(root)
+        enterCircularAttributes(root)
         enterInheritedAttributes(root)
         enterCollectionAttributes(root)
         enterMethods(root)
         enterParserRules(root)
+        enterFlows(root)
+        checkNameClashes()
     }
 
-    private fun enterInterfaceInheritance(root: ForgeParser.RootContext) {
-        for (node in root.nodeDef()) {
-            val sym = node.symbol as? InterfaceNodeSymbol ?: continue
-            val parentName = node.parent?.text ?: continue
-
-            val parentSym = symTab.interfaceNodes.values.find { it.name == parentName }
-            if (parentSym != null) {
-                val ifaces = typeMap.ifaceParents.getOrPut(sym) { mutableListOf() } as MutableList
-                ifaces.add(parentSym)
-                sym.parents.addAll(ifaces)
-            }
-            else {
-                log.diag(interfaceNodeNotFound(null, parentName))
+    /** Fields and attributes become members of the same generated classes, so their names must differ. */
+    private fun checkNameClashes() {
+        for (node in symTab.concreteNodes.values) {
+            val owners = listOf(node) + typeMap.allParentsOf(node)
+            for (field in node.fields) {
+                if (field.name in symTab.inheritedAttributes) {
+                    log.diag(fieldClashesWithAttribute(field.span, node.name, field.name, "inherited attribute"))
+                    continue
+                }
+                if (owners.any { owner -> typeMap.nodeAttributes[owner].orEmpty().any { it.name == field.name } }) {
+                    log.diag(fieldClashesWithAttribute(field.span, node.name, field.name, "attribute"))
+                }
             }
         }
     }
 
-    private fun enterConcreteInheritance(root: ForgeParser.RootContext) {
-        for (node in root.nodeDef()) {
-            val sym = node.symbol as? ConcreteNodeSymbol ?: continue
-            val parentName = node.parent?.text ?: continue
+    private fun addParent(sym: NodeSymbol, parent: InterfaceNodeSymbol) {
+        if (parent in sym.parents) return
+        when (sym) {
+            is InterfaceNodeSymbol -> (typeMap.ifaceParents.getOrPut(sym) { mutableListOf() } as MutableList) += parent
+            is ConcreteNodeSymbol -> (typeMap.nodeIfaceImpls.getOrPut(sym) { mutableListOf() } as MutableList) += parent
+        }
+        sym.parents += parent
+    }
 
+    /** `node A: B`, `for A impl B`, and `Vertex` as the parent of every node without one. */
+    private fun enterInheritance(root: ForgeParser.RootContext) {
+        for (node in root.nodeDef()) {
+            val sym = node.symbol ?: continue
+            val parentName = node.parent?.text ?: continue
             val parentSym = symTab.interfaceNodes.values.find { it.name == parentName }
             if (parentSym != null) {
-                val ifaces = typeMap.nodeIfaceImpls.getOrPut(sym) { mutableListOf() } as MutableList
-                ifaces.add(parentSym)
-                sym.parents.addAll(ifaces)
+                addParent(sym, parentSym)
             }
             else {
-                log.diag(interfaceNodeNotFound(null, parentName))
+                log.diag(interfaceNodeNotFound(node.parent.span, parentName))
             }
         }
+        for (impl in root.nodeInterfaceImpl()) {
+            val sym = symTab[impl.extended.text] as? NodeSymbol
+            val parentSym = symTab.interfaceNodes.values.find { it.name == impl.iface.text }
+            if (sym == null) {
+                log.diag(nodeNotFound(impl.extended.span, impl.extended.text))
+                continue
+            }
+            if (parentSym == null) {
+                log.diag(interfaceNodeNotFound(impl.iface.span, impl.iface.text))
+                continue
+            }
+            addParent(sym, parentSym)
+        }
+        val vertex = symTab[VERTEX] as InterfaceNodeSymbol
+        for (node in root.nodeDef()) {
+            val sym = node.symbol ?: continue
+            if (sym.parents.isEmpty()) addParent(sym, vertex)
+        }
     }
+
+    private fun findNode(name: String): NodeSymbol? = symTab[name] as? NodeSymbol
 
     private fun enterSyntheticAttributes(root: ForgeParser.RootContext) {
-        for (synIfaceDef in root.synDef()) {
-            val nodeName = synIfaceDef.node.text
-            val attrName = synIfaceDef.attrName.text
-            val type = chk.checkExists(synIfaceDef.attrType.toType())
+        for (synDef in root.synDef()) {
+            val nodeName = synDef.node.text
+            val attrName = synDef.attrName.text
+            val type = chk.checkExists(synDef.attrType.toType())
 
-            val nodeSym = if (synIfaceDef.syn == null) {
+            // an equation can be given on any node (on an interface, it is the default of its subtypes);
+            // a declaration without equation only on interfaces
+            val nodeSym = if (synDef.syn == null) {
                 symTab.interfaceNodes.values.find { it.name == nodeName }
             }
             else {
-                symTab.concreteNodes.values.find { it.name == nodeName }
+                findNode(nodeName)
             }
 
             if (nodeSym == null) {
-                log.diag(nodeNotFound(null, nodeName))
-                return
+                log.diag(if (synDef.syn == null) interfaceNodeNotFound(synDef.node.span, nodeName) else nodeNotFound(synDef.node.span, nodeName))
+                continue
             }
 
             val synAttrsPerNode = typeMap.nodeAttributes.getOrPut(nodeSym) { mutableListOf() } as MutableList
             if (synAttrsPerNode.any { it.name == attrName }) {
-                log.diag(attributeAlreadyDefined(null, nodeName, attrName))
+                log.diag(attributeAlreadyDefined(synDef.attrName.span, nodeName, attrName))
                 continue
             }
-            val sym = SynSymbol(nodeSym, attrName, type, synIfaceDef.attrName.span)
+            val sym = SynSymbol(nodeSym, attrName, type, synDef.attrName.span, hasBody = synDef.syn != null)
             synAttrsPerNode += sym
-            synIfaceDef.setSym(sym)
+            synDef.setSym(sym)
+        }
+    }
+
+    private fun enterCircularAttributes(root: ForgeParser.RootContext) {
+        for (circular in root.circularDef()) {
+            val nodeName = circular.node.text
+            val attrName = circular.attrName.text
+            val type = chk.checkExists(circular.attrType.toType())
+            val nodeSym = findNode(nodeName)
+
+            if (nodeSym == null) {
+                log.diag(nodeNotFound(circular.node.span, nodeName))
+                continue
+            }
+
+            val attrsPerNode = typeMap.nodeAttributes.getOrPut(nodeSym) { mutableListOf() } as MutableList
+            val existing = attrsPerNode.find { it.name == attrName }
+            if (existing != null) {
+                log.diag(
+                    if (existing is SynSymbol) circularAndSynDefined(circular.attrName.span, nodeName, attrName)
+                    else attributeAlreadyDefined(circular.attrName.span, nodeName, attrName)
+                )
+                continue
+            }
+            val sym = CircularSymbol(nodeSym, attrName, type, circular.attrName.span)
+            attrsPerNode += sym
+            circular.setSym(sym)
         }
     }
 
@@ -126,15 +185,41 @@ class MemberEnter private constructor(context: Context) {
             val nodeSym = symTab.concreteNodes.values.find { it.name == nodeName }
 
             if (nodeSym == null) {
-                log.diag(nodeNotFound(null, nodeName))
-                return
+                log.diag(nodeNotFound(inhImpl.node.span, nodeName))
+                continue
             }
 
             val synAttrsPerNode = typeMap.nodeAttributes.getOrPut(nodeSym) { mutableListOf() }
             if (synAttrsPerNode.any { it.name == attrName }) {
-                log.diag(attributeAlreadyDefined(null, nodeName, attrName))
+                log.diag(attributeAlreadyDefined(inhImpl.attrName.span, nodeName, attrName))
                 continue
             }
+        }
+    }
+
+    private fun enterFlows(root: ForgeParser.RootContext) {
+        val seen = mutableSetOf<Pair<FlowGraphSymbol, NodeSymbol>>()
+        for (flow in root.flowDef()) {
+            val graph = symTab.graphs.values.find { it.name == flow.graph.text }
+            if (graph == null) {
+                log.diag(graphNotFound(flow.graph.span, flow.graph.text))
+                continue
+            }
+            val node = findNode(flow.node.text)
+            if (node == null) {
+                log.diag(nodeNotFound(flow.node.span, flow.node.text))
+                continue
+            }
+            if (!seen.add(graph to node)) {
+                log.diag(flowAlreadyDefined(flow.node.span, graph.name, node.name))
+                continue
+            }
+            val binders = flow.flowBinder()
+            val fields = (node as? ConcreteNodeSymbol)?.fields ?: emptyList()
+            if (binders.size > fields.size) {
+                log.diag(tooManyFlowBinders(flow.node.span, node.name, fields.size))
+            }
+            flow.setSym(FlowSymbol(graph, node, flow.node.span))
         }
     }
 
@@ -146,8 +231,8 @@ class MemberEnter private constructor(context: Context) {
             val nodeSym = symTab.concreteNodes.values.find { it.name == nodeName }
 
             if (nodeSym == null) {
-                log.diag(nodeNotFound(null, nodeName))
-                return
+                log.diag(nodeNotFound(coll.node.span, nodeName))
+                continue
             }
 
             val collAttrsPerNode = typeMap.nodeAttributes.getOrPut(nodeSym) { mutableListOf() } as MutableList
@@ -175,7 +260,7 @@ class MemberEnter private constructor(context: Context) {
                 val sym = FunctionSymbol(
                     receiverSym,
                     func.name.text,
-                    func.parameter().map { VarSymbol(it.name.text, chk.checkExists(it.ty.toType()), it.name.span) },
+                    func.parameter().map { VarSymbol(it.name.text, chk.checkExists(it.ty.toType()), it.name.span, VarSymbol.VarKind.PARAMETER) },
                     chk.checkExists(func.ty.toType()),
                     func.name.span
                 )

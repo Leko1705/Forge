@@ -14,6 +14,9 @@ class LLIRModule(
     val functions: List<Function>,
     /** global `inh` declarations (name -> declaration incl. init value) */
     val inherited: Map<String, InhAttribute>,
+    val parsers: List<ParserDecl> = emptyList(),
+    val ports: List<Port> = emptyList(),
+    val graphs: List<FlowGraphDecl> = emptyList(),
 )
 
 // ============================================================
@@ -31,6 +34,8 @@ sealed interface Container {
 
 class Record(override val name: String) : Struct, Container {
     override val fields: MutableMap<String, Type> = linkedMapOf()
+    /** provided by the runtime of the target (`Edge`, `Graph`) */
+    var isBuiltin: Boolean = false
 }
 
 class LLIREnum(override val name: String) : Struct {
@@ -46,9 +51,12 @@ class Node(override val name: String) : Struct, Container {
     override val fields: MutableMap<String, Type> = linkedMapOf()
     val parents: MutableList<Node> = mutableListOf()
     var isInterface: Boolean = false
+    /** provided by the language itself (`Vertex`) */
+    var isBuiltin: Boolean = false
 
     val synthetics: MutableMap<String, SynAttribute> = linkedMapOf()
     val collections: MutableMap<String, CollAttribute> = linkedMapOf()
+    val circulars: MutableMap<String, CircularAttribute> = linkedMapOf()
     /** attrName -> how THIS node hands inherited values down to its children */
     val inhEquations: MutableMap<String, InhEquation> = linkedMapOf()
 
@@ -62,6 +70,11 @@ class Node(override val name: String) : Struct, Container {
     }
 
     fun inheritsSyn(attr: String): Boolean = ancestors().any { attr in it.synthetics }
+
+    /** Whether a supertype declares the attribute [attr] (syn or circular), so this node overrides it. */
+    fun inheritsAttribute(attr: String): Boolean = ancestors().any { attr in it.synthetics || attr in it.circulars }
+
+    fun isSubtypeOf(other: Node): Boolean = this === other || other in ancestors()
 }
 
 class Function(
@@ -92,6 +105,12 @@ class InhAttribute(override val name: String, override val type: Type) : Attribu
     lateinit var init: Value
 }
 
+/** `circular(init) Node.x: T = body`: computed as a fixpoint starting at `init`. */
+class CircularAttribute(val owner: Node, override val name: String, override val type: Type) : Attribute() {
+    lateinit var init: Value
+    lateinit var body: Value
+}
+
 /** `coll Node.x: T = init` */
 class CollAttribute(val owner: Node, override val name: String, override val type: Type) : Attribute() {
     lateinit var init: Value
@@ -106,7 +125,7 @@ class Contribution(
     /** evaluated with `this` == the contributing node; must resolve to the collecting node */
     val target: Value,
     /** the fold-so-far, bound to the user's alias name */
-    val alias: Parameter,
+    val alias: String,
     val value: Value,
 )
 
@@ -120,9 +139,39 @@ class InhEquation(val attrName: String, val delegates: List<InhDelegate>)
 class InhDelegate(
     val field: String,
     val key: Value?,
-    val binder: DelegateIndex?,
+    val binder: LocalRef?,
     val value: Value,
 )
+
+/** `parser P` with its rules (name -> result type). */
+class ParserDecl(val name: String) {
+    val rules: MutableMap<String, Type> = linkedMapOf()
+}
+
+// ============================================================
+// Flows and graphs
+// ============================================================
+
+/** `port name` / `inh port name` */
+class Port(val name: String, val inherited: Boolean) {
+    val isNext: Boolean get() = name == "next"
+}
+
+/** `graph name: Root` with its flows */
+class FlowGraphDecl(val name: String, val root: Node) {
+    val flows: MutableList<FlowRule> = mutableListOf()
+}
+
+/** `flow graph: Node(binders) { body }`; binders are (local name, field name) */
+class FlowRule(val node: Node, val binders: List<Pair<String, String>>, val body: List<FlowStmt>)
+
+sealed interface FlowStmt
+data class FlowEntry(val target: Value) : FlowStmt
+data class FlowConnect(val source: Value, val target: Value, val label: Value?) : FlowStmt
+data class FlowVertex(val name: String, val label: Value?) : FlowStmt
+data class FlowSequence(val items: Value) : FlowStmt
+data class FlowIf(val cond: Value, val then: List<FlowStmt>, val alt: List<FlowStmt>) : FlowStmt
+data class FlowFor(val name: String, val iterable: Value, val body: List<FlowStmt>) : FlowStmt
 
 // ============================================================
 // Values
@@ -138,11 +187,9 @@ data class StringValue(val value: String) : Value { override val type: Type get(
 data object NullValue : Value { override val type: Type get() = NullType }
 
 data class Parameter(val name: String, override val type: Type) : Value
+/** a local variable: match bindings, comprehension variables, contribution aliases, flow binders, ... */
+data class LocalRef(val name: String, override val type: Type) : Value
 data class This(override val type: Type) : Value
-/** variable bound by a match pattern */
-data class MatchVar(val name: String, override val type: Type) : Value
-/** index variable of an inh delegate (`i` in `children[i+1] <- ...`) */
-data class DelegateIndex(val name: String) : Value { override val type: Type get() = IntType }
 /** the value an `inh` equation receives from the parent (bare name inside inh bodies) */
 data class AccessParentInhAttr(val name: String, override val type: Type) : Value
 
@@ -167,17 +214,15 @@ data class CreateNode(val target: Node, val args: List<Value>) : Value {
 data class AccessRecordField(val target: Record, val accessed: Value, val name: String, override val type: Type) : Value
 data class AccessNodeField(val target: Node, val accessed: Value, val name: String, override val type: Type) : Value
 /** syn / inh / coll attribute of a node */
-data class AccessNodeAttr(val receiver: Value, val attr: Attribute) : Value {
-    override val type: Type get() = attr.type
-}
+data class AccessNodeAttr(val receiver: Value, val name: String, override val type: Type) : Value
 data class AccessListContainer(val container: Value, val key: Value, override val type: Type) : Value
 data class AccessMapContainer(val container: Value, val key: Value, override val type: Type) : Value
 
 // ---- conversions ----
 data class Int2Float(val value: Value) : Value { override val type: Type get() = FloatType }
 data class Float2Int(val value: Value) : Value { override val type: Type get() = IntType }
-data class Cast(val value: Value, val target: Struct) : Value { override val type: Type get() = ComplexType(target.name) }
-data class IsInstanceOf(val value: Value, val target: Struct) : Value { override val type: Type get() = BoolType }
+data class Cast(val value: Value, override val type: Type) : Value
+data class IsInstanceOf(val value: Value, val target: Type) : Value { override val type: Type get() = BoolType }
 
 // ---- unary ----
 data class NegateInt(val value: Value) : Value { override val type: Type get() = IntType }
@@ -257,24 +302,26 @@ data class PutAllMapItems(val map: Value, val elements: Value) : Value { overrid
 data class IfElse(val cond: Value, val then: Value, val alt: Value, override val type: Type) : Value
 data class Panic(val message: String) : Value { override val type: Type get() = ArbitraryType }
 
-// ---- comprehensions: tag-based binders (no names resolved by position, no self-reference) ----
-data class MapRef(val name: String, override val type: Type) : Value
-data class MapOp(val iterable: Value, val ref: MapRef, val body: Value) : Value {
+// ---- comprehensions ----
+data class MapOp(val iterable: Value, val name: String, val body: Value) : Value {
     override val type: Type get() = ListType(body.type)
 }
-data class FoldItem(val name: String, override val type: Type) : Value
-data class FoldAcc(val name: String, override val type: Type) : Value
-data class FoldOp(val iterable: Value, val initAcc: Value, val item: FoldItem, val acc: FoldAcc, val body: Value) : Value {
-    override val type: Type get() = acc.type
+data class FoldOp(val iterable: Value, val initAcc: Value, val item: String, val acc: String, val body: Value, override val type: Type) : Value
+
+// ---- flows & graphs ----
+data class PortValue(val port: Port) : Value { override val type: Type get() = PortType }
+data class PortRefValue(val port: Port, val child: Value) : Value { override val type: Type get() = PortRefType }
+data class BoundCheck(val port: Value) : Value { override val type: Type get() = BoolType }
+data class FlowGraphRef(val graph: FlowGraphDecl) : Value {
+    override val type: Type get() = FlowGraphType(graph.name, graph.root.name)
 }
 
 // ---- match ----
 sealed interface MatchPattern
 data object WildcardPattern : MatchPattern
-data class BindPattern(val variable: MatchVar) : MatchPattern
+data class BindPattern(val variable: LocalRef) : MatchPattern
 data class ValuePattern(val value: Value) : MatchPattern
-data class EnumVariant(val item: EnumItem)
-data class ConstructorPattern(val variant: EnumVariant, val args: List<MatchPattern>) : MatchPattern
+data class ConstructorPattern(val item: EnumItem, val args: List<MatchPattern>) : MatchPattern
 data class ListPattern(val elements: List<MatchPattern>) : MatchPattern
 data class SplitPattern(val head: MatchPattern, val tail: MatchPattern) : MatchPattern
 

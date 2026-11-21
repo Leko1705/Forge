@@ -1,6 +1,5 @@
 package com.leko.forge.analysis
 
-import com.ibm.icu.impl.EraRules
 import com.leko.forge.attr.Resolve
 import com.leko.forge.attr.SymTab
 import com.leko.forge.context.Context
@@ -50,7 +49,6 @@ class Check private constructor(context: Context) {
         var res = checked.first()
         for (curr in checked) {
             if (res == curr) continue
-            if (curr is EraRules) continue
             val sharedSuperType = checkShareCommonSuperType(curr, res, expectedType)
             if (sharedSuperType is ErrorType) {
                 if (expectedType != null) {
@@ -96,6 +94,7 @@ class Check private constructor(context: Context) {
                 }
             }
             StrType -> type
+            PortType, PortRefType, is FlowGraphType -> type
             is TerminalRuleProduction -> TerminalRuleProduction(checkExists(type.actual))
         }
     }
@@ -104,6 +103,7 @@ class Check private constructor(context: Context) {
         val sym: CallableSymbol? = symTab.table.values
             .filterIsInstance<CallableSymbol>()
             .find { it.name == name }
+            ?: symTab.functions[name]
         if (sym == null) {
             log.diag(functionNotFound(null, name))
         }

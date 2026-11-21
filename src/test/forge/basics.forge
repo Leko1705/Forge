@@ -1,0 +1,96 @@
+// The language before graphs: nodes, attributes, enums, records, match.
+
+node Program(decls: List<Decl>)
+node Decl
+node Function(name: str, params: List<Param>, body: Expr): Decl
+node Param(name: str)
+node Expr
+node Num(value: int): Expr
+node Text(value: str): Expr
+node Ref(name: str): Expr
+node Plus(lhs: Expr, rhs: Expr): Expr
+node Call(callee: str, args: List<Expr>): Expr
+
+enum Type {
+    INT,
+    STR,
+    ERROR(msg: str)
+}
+
+record Diagnostic {
+    msg: str,
+    function: str
+}
+
+fun Type.repr(): str = match this {
+    Type.INT -> "int"
+    Type.STR -> "str"
+    Type.ERROR(msg) -> "error: " + msg
+}
+
+// names visible in a function: its parameters
+inh scope: List<str> = []
+inh Function.scope {
+    body <- (p.name for p in this.params)
+}
+
+// the index of an argument in its call (-1 outside of calls)
+inh argIndex: int = -1
+inh Call.argIndex {
+    args[i] <- i
+}
+
+inh function: str? = null
+inh Function.function {
+    body <- this.name
+}
+
+syn Expr.type: Type
+syn Num.type: Type = Type.INT
+syn Text.type: Type = Type.STR
+syn Ref.type: Type = if this.name in this.scope then Type.INT else Type.ERROR("unknown name " + this.name)
+syn Plus.type: Type = match [this.lhs.type, this.rhs.type] {
+    [Type.ERROR(m), _] -> Type.ERROR(m)
+    [_, Type.ERROR(m)] -> Type.ERROR(m)
+    [Type.INT, Type.INT] -> Type.INT
+    [Type.STR, Type.STR] -> Type.STR
+    _ -> Type.ERROR("can not add " + this.lhs.type.repr() + " and " + this.rhs.type.repr())
+}
+syn Call.type: Type = Type.INT
+
+// a default on an interface, overridden for one node
+syn Expr.size: int = 1
+syn Plus.size: int = 1 + this.lhs.size + this.rhs.size
+
+syn Expr.position: int = this.argIndex
+
+coll Program.diags: List<Diagnostic> = []
+contrib Expr -> this.program!!.diags = diags ++ match this.type {
+    Type.ERROR(msg) -> if this is Plus then [] else [Diagnostic(msg, this.function ?: "?")]
+    _ -> []
+}
+contrib Plus -> this.program!!.diags as d = d ++ match this.type {
+    Type.ERROR(msg) if msg != "" -> [Diagnostic(msg, this.function ?: "?")]
+    _ -> []
+}
+
+inh program: Program? = null
+inh Program.program {
+    decls[i] <- this
+}
+
+fun sum(xs: List<int>): int = acc + x for x in xs with acc = 0
+fun describe(xs: List<int>): str = match xs {
+    [] -> "empty"
+    [x] -> "one: " + x.text()
+    x :: rest if rest.size > 1 -> "many, starting with " + x.text()
+    _ -> "two"
+}
+fun lookup(m: Map<str, int>, key: str): int = if key in m then m[key] else -1
+fun scale(x: int, f: float): float = x * f
+fun firstOr(xs: List<str>, other: str): str = match xs {
+    x :: _ -> x
+    _ -> other
+}
+
+external fun int.text(): str

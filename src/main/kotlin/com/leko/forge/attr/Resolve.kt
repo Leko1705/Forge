@@ -4,6 +4,7 @@ import com.leko.forge.context.Context
 import com.leko.forge.model.ConcreteNodeSymbol
 import com.leko.forge.model.EnumItemSymbol
 import com.leko.forge.model.EnumSymbol
+import com.leko.forge.model.FlowGraphSymbol
 import com.leko.forge.model.Kind
 import com.leko.forge.model.NodeSymbol
 import com.leko.forge.model.ParserSymbol
@@ -84,22 +85,24 @@ class Resolve private constructor(context: Context) {
         }
         if (sym is NodeSymbol) {
             if (receiverKind != Kind.VAL) return null
+            // own members first, then those of the supertypes (closest first)
+            val owners = listOf(sym) + typeMap.allParentsOf(sym).sortedByDescending { typeMap.allParentsOf(it).size }
             return when (memberKind) {
                 Kind.VAL -> {
                     if (sym is ConcreteNodeSymbol && sym.fields.any { it.name == member }) {
                         sym.fields.first { it.name == member }
                     } else {
-                        var sym: Symbol? = typeMap.nodeAttributes[sym]?.find { it.name == member }
-                        if (sym == null) sym = symTab.inheritedAttributes[member]
-                        sym
+                        owners.firstNotNullOfOrNull { owner -> typeMap.nodeAttributes[owner]?.find { it.name == member } }
+                            ?: symTab.inheritedAttributes[member]
                     }
                 }
-                Kind.MTH -> {
-                    val methods = typeMap.methods[sym] ?: return null
-                    methods.firstOrNull { it.name == member }
-                }
+                Kind.MTH -> owners.firstNotNullOfOrNull { owner -> typeMap.methods[owner]?.firstOrNull { it.name == member } }
                 else -> null
             }
+        }
+        if (sym is FlowGraphSymbol) {
+            if (receiverKind != Kind.VAL || memberKind != Kind.MTH) return null
+            return sym.methods.firstOrNull { it.name == member }
         }
         if (sym is ParserSymbol) {
             if (receiverKind != Kind.TYP) return null

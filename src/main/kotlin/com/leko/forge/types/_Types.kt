@@ -66,6 +66,21 @@ data class TerminalRuleProduction(val actual: Type): Type {
     }
 }
 
+/** A port of a flow (`next`, `onTrue`, ...), only usable inside flows. */
+object PortType : Type {
+    override fun toString(): String = "Port"
+}
+
+/** The port of a child inside a flow, e.g. `onTrue(cond)`. */
+object PortRefType : Type {
+    override fun toString(): String = "PortRef"
+}
+
+/** A graph definition (`graph cfg: Function`), whose graphs are built per [root] node. */
+data class FlowGraphType(val name: String, val root: String) : Type {
+    override fun toString(): String = "FlowGraph<$root>"
+}
+
 object ArbitraryType : Type {
     override fun toString(): String = "*"
 }

@@ -1,0 +1,118 @@
+// Graphs, flows and circular attributes: a control flow graph built from the AST by flows,
+// and live variables computed on it as a fixpoint.
+
+node Function(name: str, body: Stmt)
+node Stmt
+node Block(stmts: List<Stmt>): Stmt
+node Assign(target: str, value: Expr): Stmt
+node Print(value: Expr): Stmt
+node If(cond: Expr, yes: Stmt, no: Stmt?): Stmt
+node While(cond: Expr, body: Stmt): Stmt
+node Break(): Stmt
+node Return(value: Expr?): Stmt
+node Fork(branches: List<Stmt>): Stmt
+node Expr
+node Var(name: str): Expr
+node Num(value: int): Expr
+node Less(l: Expr, r: Expr): Expr
+node Add(l: Expr, r: Expr): Expr
+
+// ---- control flow ---------------------------------------------------------------------------
+
+port onTrue, onFalse
+inh port break, return
+
+graph cfg: Function
+
+flow cfg: Function(_, body) {
+    entry(body)
+    body -> next
+}
+flow cfg: Block(stmts) { sequence(stmts) }
+flow cfg: Assign { entry(this); this -> next }
+flow cfg: Print { entry(this); this -> next }
+flow cfg: If(cond, yes, no) {
+    entry(cond)
+    onTrue(cond) -> yes
+    yes -> next
+    if no == null {
+        onFalse(cond) -> next
+    } else {
+        onFalse(cond) -> no!!
+        no!! -> next
+    }
+}
+flow cfg: While(cond, body) {
+    entry(cond)
+    onTrue(cond) -> body
+    onFalse(cond) -> next
+    body -> cond
+    break(body) -> next
+}
+flow cfg: Break { entry(this); this -> break }
+flow cfg: Return { entry(this); this -> return }
+
+// synthetic vertices: control splits into all branches and joins again
+flow cfg: Fork(branches) {
+    vertex split = "split"
+    vertex join
+    entry(split)
+    for b in branches {
+        split -> b
+        b -> join
+    }
+    join -> next
+}
+
+// an expression is a condition where the parent connects its ports, else a single step
+flow cfg: Expr {
+    entry(this)
+    if bound(onTrue) {
+        this -> onTrue with "true"
+        this -> onFalse with "false"
+    } else {
+        this -> next
+    }
+}
+
+// ---- liveness -------------------------------------------------------------------------------
+
+fun union(a: List<str>, b: List<str>): List<str> = (if x in acc then acc else acc ++ [x]) for x in b with acc = a
+fun minus(a: List<str>, b: List<str>): List<str> = (if x in b then acc else acc ++ [x]) for x in a with acc = []
+
+syn Expr.vars: List<str>
+syn Var.vars: List<str> = [this.name]
+syn Num.vars: List<str> = []
+syn Less.vars: List<str> = union(this.l.vars, this.r.vars)
+syn Add.vars: List<str> = union(this.l.vars, this.r.vars)
+
+// defaults for every vertex (also for the exit vertices of the graph)
+syn Vertex.uses: List<str> = []
+syn Vertex.defs: List<str> = []
+syn Expr.uses: List<str> = this.vars
+syn Assign.uses: List<str> = this.value.vars
+syn Assign.defs: List<str> = [this.target]
+syn Print.uses: List<str> = this.value.vars
+syn Return.uses: List<str> = if this.value == null then [] else this.value!!.vars
+
+circular([]) Vertex.liveOut: List<str> = union(acc, s.liveIn) for s in cfg.succ(this) with acc = []
+circular([]) Vertex.liveIn: List<str> = union(this.uses, minus(this.liveOut, this.defs))
+
+// ---- using the graph ------------------------------------------------------------------------
+
+inh function: Function? = null
+inh Function.function {
+    body <- this
+}
+
+syn Stmt.dead: bool = !(this in cfg.get(this.function!!).reachable())
+
+fun statements(g: Graph): int = (if v is Stmt then acc + 1 else acc) for v in g.vertices with acc = 0
+fun names(vs: List<Vertex>): List<str> = describe(v) for v in vs
+fun describe(v: Vertex): str =
+    if v is Assign then (v as Assign).target + " = .."
+    else if v is Expr then "expr"
+    else "other"
+
+// graphs that are not built by flows, e.g. call graphs
+fun calls(f: Function, g: Function, h: Function): Graph = graphOf(f, [Edge(f, g, "calls"), Edge(g, h, null), Edge(h, g, null)])
