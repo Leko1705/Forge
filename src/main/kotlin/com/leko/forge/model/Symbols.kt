@@ -195,7 +195,13 @@ data class CollSymbol(
 
 data class ParserSymbol(
     override val name: String,
-    override val span: SourceSpan
+    override val span: SourceSpan,
+    /** Parses bytes (`List<int>`) instead of text; enables bit patterns and `@u1`, `@uint(n)`, ... */
+    val binary: Boolean = false,
+    /** Skipped before every terminal; `null` skips nothing. */
+    val skip: String? = if (binary) null else "\\s+",
+    /** Words that regex terminals (which are not plain literals) never match, e.g. identifiers. */
+    val keywords: List<String> = emptyList(),
 ) : Symbol {
     override val type: Type get() = ParserType(name)
     override val kind: Kind get() = Kind.TYP
@@ -204,7 +210,9 @@ data class ParserSymbol(
 interface ParserRuleSymbol : CallableSymbol {
     val parser: ParserSymbol
 
-    override val params: List<VarSymbol> get() = listOf(VarSymbol("source", StrType, span))
+    override val params: List<VarSymbol> get() = listOf(
+        VarSymbol("source", if (parser.binary) ListType(IntType) else StrType, span, VarSymbol.VarKind.PARAMETER)
+    )
 
     override val type: Type get() = FunctionType(params.map { it.type }, returnType)
 
@@ -273,3 +281,4 @@ val builtinSpan: SourceSpan = SourceSpan(0, 0, 0, 0)
 const val VERTEX = "Vertex"
 const val GRAPH = "Graph"
 const val EDGE = "Edge"
+const val SPAN = "Span"

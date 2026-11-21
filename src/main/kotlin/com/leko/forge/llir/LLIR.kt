@@ -125,13 +125,19 @@ class LLIR private constructor(context: Context) {
         val parsers = linkedMapOf<String, ParserDecl>()
         for (parser in ctx.parserDef()) {
             val sym = parser.anySymbol as? ParserSymbol ?: continue
-            parsers[sym.name] = ParserDecl(sym.name)
+            parsers[sym.name] = ParserDecl(sym.name, sym.binary, sym.skip, sym.keywords)
         }
-        // abstract rules first: their result type is the type of the rule
-        for (rule in ctx.parseRuleDef().sortedBy { it.ARROW() != null }) {
+        // abstract rules first: their alternatives are the rules with the same name
+        for (rule in ctx.parseRuleDef().filter { it.ARROW() == null }) {
             val sym = rule.symbol ?: continue
             val decl = parsers[sym.parser.name] ?: continue
-            decl.rules.putIfAbsent(sym.name, sym.returnType)
+            decl.rules[sym.name] = GrammarRule(sym.name, sym.returnType, isAbstract = true)
+        }
+        for (rule in ctx.parseRuleDef().filter { it.ARROW() != null }) {
+            val sym = rule.symbol ?: continue
+            val decl = parsers[sym.parser.name] ?: continue
+            val grammarRule = decl.rules.getOrPut(sym.name) { GrammarRule(sym.name, sym.returnType, isAbstract = false) }
+            grammarRule.alternatives += transform(rule, sym.name)
         }
 
         return LLIRModule(
@@ -204,6 +210,106 @@ class LLIR private constructor(context: Context) {
         val fn = function(sym)
         fn.body = ctx.expression()?.transform()
         return fn
+    }
+
+    // ---- grammars ---------------------------------------------------------------------------
+
+    private fun attr(ctx: ParserRuleContext, name: String): Any? = TreeAttributes.attributes[ctx]?.get(name)
+
+    private fun transform(ctx: ForgeParser.ParseRuleDefContext, ruleName: String): GrammarAlternative {
+        val spec = ctx.operatorSpec()
+        val operator = when (spec?.kind?.text) {
+            null -> null
+            "prefix" -> OperatorKind.PREFIX
+            "infixLeft" -> OperatorKind.INFIX_LEFT
+            "infixRight" -> OperatorKind.INFIX_RIGHT
+            else -> OperatorKind.POSTFIX
+        }
+        val precedence = spec?.let { (if (it.negative != null) -1 else 1) * it.precedence.text.toInt() } ?: Int.MAX_VALUE
+        // a token: a rule that is just one regular expression is named by the rule in error messages
+        val options = ctx.parserRuleOption()
+        val token = options.size == 1 && options[0].producer == null &&
+                options[0].parseRule().parserAlternative().parserSequence().singleOrNull()?.parserLabeled()?.singleOrNull()
+                    ?.let { it.label == null && it.predicate == null && it.parserPostfix().op == null && it.parserPostfix().count == null && it.parserPostfix().atom.terminalRule() != null } == true
+        return GrammarAlternative(operator, precedence, options.map { option ->
+            @Suppress("UNCHECKED_CAST")
+            val labels = (attr(option, "labels") as? List<VarSymbol>).orEmpty().map { it.name to it.type }
+            GrammarOption(option.parseRule().transformGrammar(if (token) ruleName else null), option.producer?.transform(), labels)
+        })
+    }
+
+    private fun ForgeParser.ParseRuleContext.transformGrammar(tokenName: String?): GExpr {
+        val sequences = parserAlternative().parserSequence().map { it.transformGrammar(tokenName) }
+        return sequences.singleOrNull() ?: GChoice(sequences)
+    }
+
+    private fun ForgeParser.ParserSequenceContext.transformGrammar(tokenName: String?): GExpr {
+        val items = parserLabeled().map { item ->
+            var expr = item.parserPostfix().transformGrammar(tokenName)
+            if (item.predicate != null) expr = GPredicate(expr, negate = item.predicate.text == "!")
+            GItem(item.label?.text, expr)
+        }
+        return GSequence(items, attr(this, "value") as? Int)
+    }
+
+    private fun ForgeParser.ParserPostfixContext.transformGrammar(tokenName: String?): GExpr {
+        val expr = atom.transformGrammar(tokenName)
+        return when {
+            count != null -> GRepeat(expr, RepeatKind.COUNT, count.transform())
+            QUESTIONMARK() != null -> GRepeat(expr, RepeatKind.OPTIONAL, null)
+            STAR() != null -> GRepeat(expr, RepeatKind.MANY, null)
+            PLUS() != null -> GRepeat(expr, RepeatKind.SOME, null)
+            else -> expr
+        }
+    }
+
+    private fun ForgeParser.ParserAtomContext.transformGrammar(tokenName: String?): GExpr {
+        terminalRule()?.let {
+            val text = it.REGEX_STRING().text
+            val regex = text.substring(1, text.length - 1)
+            val valid = try { java.util.regex.Pattern.compile(regex); true } catch (_: java.util.regex.PatternSyntaxException) { false }
+            if (!valid) return GTerminal(java.util.regex.Pattern.quote(regex), regex, null)
+            val literal = literalOf(regex)
+            return GTerminal(regex, literal, if (literal == null) tokenName else null)
+        }
+        bitsRule()?.let {
+            val text = it.text
+            val digits = text.substring(2)
+            val bits = if (it.HEX() != null) {
+                digits.map { c -> c.digitToInt(16).toString(2).padStart(4, '0') }.joinToString("")
+            } else digits
+            return GBits(bits, if (it.HEX() != null) "0x" + digits.uppercase() else text)
+        }
+        builtinRule()?.let { return GPrimitive(it.name.text, it.arg?.transform()) }
+        nonterminalRule()?.let {
+            val role = when (attr(it, "role")) {
+                "left" -> NonterminalRole.LEFT
+                "operand" -> NonterminalRole.OPERAND
+                else -> NonterminalRole.RULE
+            }
+            return GNonterminal(it.name.text, role)
+        }
+        return parseRule().transformGrammar(tokenName)
+    }
+
+    /** The text a regular expression matches if it matches exactly one text (`fun`, `\+`, `<=`), else `null`. */
+    private fun literalOf(regex: String): String? {
+        val sb = StringBuilder()
+        var i = 0
+        while (i < regex.length) {
+            val c = regex[i]
+            if (c == '\\') {
+                val next = regex.getOrNull(i + 1) ?: return null
+                if (next.isLetterOrDigit()) return null
+                sb.append(next)
+                i += 2
+                continue
+            }
+            if (c in ".^$*+?()[]{}|") return null
+            sb.append(c)
+            i++
+        }
+        return sb.toString().takeIf { it.isNotEmpty() }
     }
 
     private fun transform(ctx: ForgeParser.FlowDefContext) {

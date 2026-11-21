@@ -40,6 +40,8 @@ class Attr private constructor(context: Context) {
 
     val types = Types.instance(context)
 
+    val typeMap = TypeMap.instance(context)
+
     private enum class FlowRole { SOURCE, TARGET, CHILD }
 
 
@@ -339,22 +341,86 @@ class Attr private constructor(context: Context) {
             return null
         }
 
+        /** The parser whose rule is being checked. */
+        private var currentParser: ParserSymbol? = null
+
         override fun visitParseRuleDef(ctx: ForgeParser.ParseRuleDefContext): Type? {
-            if (ctx.ARROW() == null) return null
             val sym = ctx.symbol ?: return null
+            val abstract = symTab.parsers.values.firstOrNull { it.name == sym.parser.name }
+                ?.let { typeMap.parserRuleDefs[it] }?.firstOrNull { it.name == sym.name }
+            if (ctx.ARROW() == null) {
+                // an abstract rule: needs alternatives
+                val hasAlternatives = typeMap.parserRuleImpls[sym.parser].orEmpty().any { it.name == sym.name }
+                if (!hasAlternatives) log.diag(abstractRuleWithoutAlternatives(ctx.ruleName.span, "${sym.parser.name}.${sym.name}"))
+                return null
+            }
+            if (abstract != null && !types.isAssignable(abstract.returnType, sym.returnType)) {
+                log.diag(alternativeTypeMismatch(ctx.returnType.span, "${sym.parser.name}.${sym.name}", abstract.returnType, sym.returnType))
+            }
+            currentParser = sym.parser
             withReceiver(sym.parser.type) {
-                val optionTypes = ctx.parserRuleOption().map { it.accept(this) }
+                val optionTypes = ctx.parserRuleOption().map { withExpected(sym.returnType) { it.accept(this) } }
                 if (optionTypes.all { it != null }) {
-                    val sharedType = chk.checkAllAssignable(optionTypes, sym.type)
-                    chk.checkAssignable(sym.returnType, sharedType)
+                    for ((option, type) in ctx.parserRuleOption().zip(optionTypes)) {
+                        if (type != ErrorType && !types.isAssignable(sym.returnType, type!!)) {
+                            log.diag(typeMismatch(option.span, sym.returnType, type))
+                        }
+                    }
                 }
                 else {
                     log.diag(canNotInferParseValue(ctx.ruleName.span))
                 }
             }
-            return ctx.setType(sym.type)
+            ctx.operatorSpec()?.let { checkOperator(ctx, it, sym, abstract) }
+            currentParser = null
+            return null
         }
 
+        /**
+         * `@infixLeft(10) -> l:expr '+' r:expr`: an operator of an abstract rule. Its sequence starts (infix,
+         * postfix) and/or ends (prefix, infix) with the rule itself: the left operand and the operand.
+         */
+        private fun checkOperator(
+            ctx: ForgeParser.ParseRuleDefContext,
+            spec: ForgeParser.OperatorSpecContext,
+            sym: ParserRuleSymbol,
+            abstract: ParserRuleSymbol?,
+        ) {
+            val kind = spec.kind.text
+            if (kind !in setOf("prefix", "infixLeft", "infixRight", "postfix")) {
+                log.diag(invalidOperator(spec.kind.span, "unknown operator '$kind'; expected prefix, infixLeft, infixRight or postfix"))
+                return
+            }
+            if (abstract == null) {
+                log.diag(invalidOperator(spec.span, "operators are only allowed in abstract rules; declare 'rule ${sym.parser.name}.${sym.name}: ${sym.returnType}' first"))
+                return
+            }
+            val sequence = ctx.parserRuleOption().singleOrNull()?.parseRule()?.parserAlternative()?.parserSequence()?.singleOrNull()
+            if (sequence == null) {
+                log.diag(invalidOperator(spec.span, "an operator consists of a single sequence"))
+                return
+            }
+            val items = sequence.parserLabeled()
+            fun isSelf(item: ForgeParser.ParserLabeledContext): Boolean {
+                val postfix = item.parserPostfix()
+                return item.predicate == null && postfix.op == null && postfix.count == null &&
+                        postfix.atom.nonterminalRule()?.name?.text == sym.name
+            }
+            val left = kind == "infixLeft" || kind == "infixRight" || kind == "postfix"
+            val right = kind != "postfix"
+            val required = (if (left) 1 else 0) + (if (right) 1 else 0) + 1
+            if (items.size < required || (left && !isSelf(items.first())) || (right && !isSelf(items.last()))) {
+                val shape = when (kind) {
+                    "prefix" -> "'-' e:${sym.name}"
+                    "postfix" -> "e:${sym.name} '!'"
+                    else -> "l:${sym.name} '+' r:${sym.name}"
+                }
+                log.diag(invalidOperator(spec.span, "a $kind operator has the shape $shape"))
+                return
+            }
+            if (left) items.first().parserPostfix().atom.nonterminalRule().attach("role", "left")
+            if (right) items.last().parserPostfix().atom.nonterminalRule().attach("role", "operand")
+        }
         override fun visitIntValue(ctx: ForgeParser.IntValueContext): Type {
             return ctx.setType(IntType)
         }
@@ -905,10 +971,12 @@ class Attr private constructor(context: Context) {
         override fun visitParserRuleOption(ctx: ForgeParser.ParserRuleOptionContext): Type? {
             withChildScope {
                 val ty = ctx.parseRule().accept(this)
+                // the labels of this option, for the generated code
+                ctx.attach("labels", env.value.scope.members.filterIsInstance<VarSymbol>())
                 return if (ctx.producer != null) {
                     ctx.setType(ctx.producer.attribType())
                 } else {
-                    ctx.setNullableType(ty)
+                    ctx.setNullableType(if (ty is TerminalRuleProduction) ty.actual else ty)
                 }
             }
             throw AssertionError("Should not reach here")
@@ -919,42 +987,100 @@ class Attr private constructor(context: Context) {
         }
 
         override fun visitParserAlternative(ctx: ForgeParser.ParserAlternativeContext): Type? {
-            val types = ctx.parserSequence().map { it.accept(this) }.map { if (it is TerminalRuleProduction) it.actual else it }
-            if (types.any { it is ErrorType }) return ErrorType
-            return if (types.all { it == types.first() }) types.first() else null
+            val alternatives = ctx.parserSequence().map { it.accept(this) }.map { if (it is TerminalRuleProduction) it.actual else it }
+            if (alternatives.any { it is ErrorType }) return ErrorType
+            if (alternatives.size == 1) return alternatives.first()
+            if (alternatives.any { it == null }) return null
+            return alternatives.reduce { a, b -> a?.let { types.sharedSuperType(it, b!!) } ?: return null }
         }
 
+        /**
+         * The value of a sequence: its only unlabeled element that has a value (`'(' expr ')'`), or the text of
+         * a single terminal, or the texts of a sequence of terminals. Otherwise a producer is needed.
+         */
         override fun visitParserSequence(ctx: ForgeParser.ParserSequenceContext): Type? {
-            val types = ctx.parserLabeled().map { it.accept(this) }
+            val items = ctx.parserLabeled()
+            val types = items.map { it.accept(this) }
             if (types.any { it is ErrorType }) return ErrorType
-            if (types.all { it is TerminalRuleProduction }) {
-                return if (types.size == 1) ctx.setType((types.first() as TerminalRuleProduction).actual)
-                else ctx.setType(ListType((types.first() as TerminalRuleProduction).actual))
+            val unlabeled = items.indices.filter { items[it].label == null && items[it].predicate == null }
+            val values = unlabeled.filter { types[it] !is TerminalRuleProduction }
+            if (values.size == 1) {
+                ctx.attach("value", values.single())
+                return ctx.setNullableType(types[values.single()])
             }
-            val nonTerminals = types.filter { it !is TerminalRuleProduction }
-            val res = if (nonTerminals.all { it == nonTerminals.first() }) nonTerminals.first() else null
-            return ctx.setNullableType(res)
+            if (values.isEmpty() && unlabeled.size == items.size) {
+                val terminals = unlabeled.filter { (types[it] as TerminalRuleProduction).actual == StrType }
+                if (terminals.size == 1 && items.size == 1) {
+                    ctx.attach("value", 0)
+                    return ctx.setType(StrType)
+                }
+                if (terminals.size == items.size && items.size > 1) {
+                    ctx.attach("value", -1)
+                    return ctx.setType(ListType(StrType))
+                }
+            }
+            return ctx.setNullableType(null)
         }
 
         override fun visitParserPostfix(ctx: ForgeParser.ParserPostfixContext): Type? {
-            val atomType = ctx.atom.accept(this)
+            var atomType = ctx.atom.accept(this)
             if (atomType is ErrorType) return ErrorType
+            if (ctx.count != null) {
+                withExpected(IntType) { chk.checkAssignable(IntType, ctx.count.attribType()) }
+            }
+            if (ctx.op == null && ctx.count == null) return atomType
+            if (atomType is TerminalRuleProduction) atomType = atomType.actual
+            if (atomType == null) return null
             return when {
                 ctx.QUESTIONMARK() != null -> OptionalType(atomType)
-                ctx.PLUS() != null || ctx.STAR() != null -> ListType(atomType)
-                else -> atomType
+                else -> ListType(atomType)
             }
         }
 
         override fun visitParserAtom(ctx: ForgeParser.ParserAtomContext): Type? {
-            if (ctx.terminalRule() != null) return ctx.terminalRule().accept(this)
-            if (ctx.nonterminalRule() != null) return ctx.nonterminalRule().accept(this)
+            ctx.terminalRule()?.let { return it.accept(this) }
+            ctx.bitsRule()?.let { return it.accept(this) }
+            ctx.builtinRule()?.let { return it.accept(this) }
+            ctx.nonterminalRule()?.let { return it.accept(this) }
             return ctx.parseRule().accept(this)
         }
 
         override fun visitTerminalRule(ctx: ForgeParser.TerminalRuleContext): Type {
+            val text = ctx.REGEX_STRING().text
+            val regex = text.substring(1, text.length - 1)
+            try {
+                java.util.regex.Pattern.compile(regex)
+            } catch (e: java.util.regex.PatternSyntaxException) {
+                log.diag(regexMatchedLiterally(ctx.span, regex, e.description))
+            }
             ctx.setType(StrType)
             return TerminalRuleProduction(StrType)
+        }
+
+        override fun visitBitsRule(ctx: ForgeParser.BitsRuleContext): Type {
+            if (currentParser?.binary != true) log.diag(binaryOnly(ctx.span, "bit patterns"))
+            ctx.setType(StrType)
+            return TerminalRuleProduction(StrType)
+        }
+
+        override fun visitBuiltinRule(ctx: ForgeParser.BuiltinRuleContext): Type {
+            val name = ctx.name.text
+            if (currentParser?.binary != true) log.diag(binaryOnly(ctx.span, "'@$name'"))
+            val (takesArgument, type) = when (name) {
+                "u1", "u2", "u4" -> false to IntType
+                "bit" -> false to BoolType
+                "uint", "sint" -> true to IntType
+                "bytes" -> true to ListType(IntType)
+                else -> {
+                    log.diag(unknownPrimitive(ctx.name.span, name))
+                    ctx.arg?.attribType()
+                    return ctx.setType(ErrorType)
+                }
+            }
+            if (takesArgument && ctx.arg == null) log.diag(tooFewArguments(ctx.span))
+            if (!takesArgument && ctx.arg != null) log.diag(tooManyArguments(ctx.span))
+            ctx.arg?.let { withExpected(IntType) { chk.checkAssignable(IntType, it.attribType()) } }
+            return ctx.setType(type)
         }
 
         override fun visitNonterminalRule(ctx: ForgeParser.NonterminalRuleContext): Type {
@@ -971,6 +1097,10 @@ class Attr private constructor(context: Context) {
 
         override fun visitParserLabeled(ctx: ForgeParser.ParserLabeledContext): Type? {
             var type = ctx.parserPostfix().accept(this)
+            if (ctx.predicate != null) {
+                if (ctx.label != null) log.diag(ruleLabelingNotAllowedHere(ctx.label.span))
+                return if (type == ErrorType) type else TerminalRuleProduction(NullType)
+            }
             if (ctx.label == null) return type
             val label = ctx.label.text
             if (type is TerminalRuleProduction) type = type.actual
@@ -981,7 +1111,7 @@ class Attr private constructor(context: Context) {
                 log.diag(ruleLabelingNotAllowedHere(ctx.label.span))
                 env.value.scope.enter(VarSymbol(label, ErrorType, ctx.label.span))
             }
-            return null
+            return type
         }
 
         // ---- flows ------------------------------------------------------------------------------

@@ -446,6 +446,21 @@ class __FlowBuild(private val root: kotlin.Any, private val rule: (__FlowScope, 
     }
 }
 
+/** Where a parser read a node from: [offset] and [length] in characters (bytes for binary input). */
+data class Span(
+    val source: kotlin.String?,
+    val line: kotlin.Int,
+    val column: kotlin.Int,
+    val offset: kotlin.Int,
+    val length: kotlin.Int,
+    val text: kotlin.String,
+) {
+    override fun toString(): kotlin.String = (if (source != null) source + ":" else "") + line + ":" + column
+}
+
+/** Where [node] was parsed from, or `null` if no parser created it. */
+fun spanOf(node: Vertex): Span? = (node as? __Node)?.__span
+
 /** The nodes of the tree below [node] (including it), parents before children. */
 fun __preorder(node: __Node): kotlin.collections.List<__Node> {
     val result = kotlin.collections.ArrayList<__Node>()

@@ -143,10 +143,65 @@ class InhDelegate(
     val value: Value,
 )
 
-/** `parser P` with its rules (name -> result type). */
-class ParserDecl(val name: String) {
-    val rules: MutableMap<String, Type> = linkedMapOf()
+// ============================================================
+// Parsers
+// ============================================================
+
+/** `parser P [binary] [skip '..'] [keywords '..' ..]` with its rules. */
+class ParserDecl(val name: String, val binary: Boolean, val skip: String?, val keywords: List<String>) {
+    val rules: MutableMap<String, GrammarRule> = linkedMapOf()
 }
+
+/**
+ * A rule. An abstract rule (`rule P.expr: Expr`) consists of the alternatives and operators defined for it
+ * by the rules with the same name; any other rule has exactly one alternative.
+ */
+class GrammarRule(val name: String, val type: Type, val isAbstract: Boolean) {
+    val alternatives: MutableList<GrammarAlternative> = mutableListOf()
+}
+
+enum class OperatorKind { PREFIX, INFIX_LEFT, INFIX_RIGHT, POSTFIX }
+
+/** `rule P.r: T [@op(precedence)] -> option | option` */
+class GrammarAlternative(val operator: OperatorKind?, val precedence: Int, val options: List<GrammarOption>)
+
+/** `body { producer }`; [labels] are the names bound in [body]. */
+class GrammarOption(val body: GExpr, val producer: Value?, val labels: List<Pair<String, Type>>)
+
+/** A parsing expression. */
+sealed interface GExpr
+
+/** A regular expression; [literal] is its text if it only matches that text (`'fun'`, `'\+'`). */
+data class GTerminal(val regex: String, val literal: String?, val name: String?) : GExpr
+
+/** An exact bit pattern of a binary parser; [bits] are `0`s and `1`s. */
+data class GBits(val bits: String, val description: String) : GExpr
+
+/** `@u1`, `@uint(n)`, ... */
+data class GPrimitive(val name: String, val argument: Value?) : GExpr
+
+enum class NonterminalRole { RULE, LEFT, OPERAND }
+
+/** Another rule; in operators, the rule itself as [NonterminalRole.LEFT] operand or as [NonterminalRole.OPERAND]. */
+data class GNonterminal(val rule: String, val role: NonterminalRole) : GExpr
+
+enum class RepeatKind { OPTIONAL, MANY, SOME, COUNT }
+
+data class GRepeat(val expr: GExpr, val kind: RepeatKind, val count: Value?) : GExpr
+
+/** `&x` (`negate == false`) and `!x`: lookahead, consumes nothing. */
+data class GPredicate(val expr: GExpr, val negate: Boolean) : GExpr
+
+/** `a | b`: the first one that matches. */
+data class GChoice(val alternatives: List<GExpr>) : GExpr
+
+/**
+ * A sequence. Its value is the item at [valueIndex], or with [valueIndex] -1 the list of all items
+ * (terminals), or `null` for none (a producer gives the value).
+ */
+data class GSequence(val items: List<GItem>, val valueIndex: Int?) : GExpr
+
+data class GItem(val label: String?, val expr: GExpr)
 
 // ============================================================
 // Flows and graphs

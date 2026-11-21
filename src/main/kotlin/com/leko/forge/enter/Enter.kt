@@ -121,7 +121,36 @@ class Enter private constructor(context: Context) {
                 log.diag(parserAlreadyExist(parser.name.span, name))
                 continue
             }
-            val sym = ParserSymbol(name, parser.name.span)
+            var binary = false
+            var skip: String? = null
+            var skipSet = false
+            val keywords = mutableListOf<String>()
+            for (option in parser.parserOption()) {
+                val values = option.REGEX_STRING().map { it.text.substring(1, it.text.length - 1) }
+                when (option.key.text) {
+                    "binary" -> {
+                        if (values.isNotEmpty()) log.diag(invalidParserOption(option.key.span, "'binary' takes no value"))
+                        binary = true
+                    }
+                    "skip" -> {
+                        if (values.size != 1) log.diag(invalidParserOption(option.key.span, "'skip' takes one regular expression, '' to skip nothing"))
+                        skip = values.firstOrNull()?.takeIf { it.isNotEmpty() }
+                        skipSet = true
+                    }
+                    "keywords" -> keywords += values
+                    else -> log.diag(invalidParserOption(option.key.span, "unknown option '${option.key.text}'; expected binary, skip or keywords"))
+                }
+            }
+            for (regex in listOfNotNull(skip)) {
+                try { java.util.regex.Pattern.compile(regex) } catch (e: java.util.regex.PatternSyntaxException) {
+                    log.diag(invalidRegex(parser.name.span, regex, e.description))
+                }
+            }
+            val sym = ParserSymbol(
+                name, parser.name.span, binary,
+                if (skipSet) skip else if (binary) null else "\\s+",
+                keywords,
+            )
             symTab[sym.type] = sym
             parser.setSym(sym)
         }

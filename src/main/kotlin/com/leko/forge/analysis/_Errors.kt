@@ -414,3 +414,27 @@ fun circularAndSynDefined(span: SourceSpan?, owner: String, name: String): Diagn
 
 fun fieldClashesWithAttribute(span: SourceSpan?, node: String, name: String, what: String): Diagnostic =
     Diagnostic(Severity.ERROR, span, "E007", "field '$node.$name' has the same name as the $what '$name'")
+
+fun invalidParserOption(span: SourceSpan?, message: String): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E014", message)
+
+fun invalidRegex(span: SourceSpan?, regex: String, message: String): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E014", "invalid regular expression '$regex': $message")
+
+fun invalidOperator(span: SourceSpan?, message: String): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E015", message)
+
+fun binaryOnly(span: SourceSpan?, what: String): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E015", "$what can only be used in binary parsers (parser P binary)")
+
+fun unknownPrimitive(span: SourceSpan?, name: String): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E015", "unknown primitive '@$name'; expected @u1, @u2, @u4, @bit, @uint(n), @sint(n) or @bytes(n)")
+
+fun abstractRuleWithoutAlternatives(span: SourceSpan?, name: String): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E015", "abstract rule '$name' has no alternatives")
+
+fun alternativeTypeMismatch(span: SourceSpan?, rule: String, expected: Type, got: Type): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E009", "alternative of '$rule' returns '$got', which is not a '$expected'")
+
+fun regexMatchedLiterally(span: SourceSpan?, regex: String, message: String): Diagnostic =
+    Diagnostic(Severity.WARNING, span, "W002", "'$regex' is not a valid regular expression ($message); it is matched literally")

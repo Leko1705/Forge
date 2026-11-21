@@ -1,0 +1,74 @@
+// Parsers: a text grammar with an abstract rule for operators, keywords, comments and left recursion,
+// and a binary format.
+
+node Program(stmts: List<Stmt>)
+node Stmt
+node Let(name: str, value: Expr): Stmt
+node Print(value: Expr): Stmt
+node While(cond: Expr, body: List<Stmt>): Stmt
+node Expr
+node Num(value: int): Expr
+node Var(name: str): Expr
+node Bin(op: str, l: Expr, r: Expr): Expr
+node Neg(e: Expr): Expr
+node Fact(e: Expr): Expr
+node Cond(c: Expr, a: Expr, b: Expr): Expr
+node Call(name: str, args: List<Expr>): Expr
+
+external fun str.toInt(): int
+
+// comments are skipped like whitespace; identifiers never match a keyword
+parser Calc skip '(\s|//[^\n]*)+' keywords 'let' 'print' 'while' 'do' 'end'
+
+rule Calc.program: Program -> stmts:stmt* { Program(stmts) }
+
+rule Calc.stmt: Stmt
+rule Calc.stmt: Let -> 'let' name:ident '=' value:expr { Let(name, value) }
+rule Calc.stmt: Print -> 'print' value:expr { Print(value) }
+rule Calc.stmt: While -> 'while' cond:expr 'do' body:stmt* 'end' { While(cond, body) }
+
+rule Calc.ident: str -> '[A-Za-z_]\w*'
+rule Calc.number: str -> '\d+'
+
+// operators with precedence and associativity instead of one rule per level
+rule Calc.expr: Expr
+rule Calc.expr: Num -> n:number { Num(n.toInt()) }
+rule Calc.expr: Call -> name:ident '\(' args:arguments? '\)' { Call(name, args ?: []) }
+rule Calc.expr: Var -> name:ident { Var(name) }
+rule Calc.expr: Expr -> '\(' e:expr '\)' { e }
+rule Calc.expr: Expr @prefix(30) -> '-' e:expr { Neg(e) }
+rule Calc.expr: Expr @infixLeft(10) -> l:expr op:('\+' | '-') r:expr { Bin(op, l, r) }
+rule Calc.expr: Expr @infixLeft(20) -> l:expr op:('\*' | '/') r:expr { Bin(op, l, r) }
+rule Calc.expr: Expr @infixRight(40) -> l:expr '\^' r:expr { Bin("^", l, r) }
+rule Calc.expr: Expr @postfix(50) -> e:expr '!' { Fact(e) }
+rule Calc.expr: Expr @infixRight(2) -> c:expr '\?' a:expr ':' b:expr { Cond(c, a, b) }
+
+rule Calc.arguments: List<Expr> -> first:expr rest:(',' expr)* { [first] ++ rest }
+
+// left recursion in a plain rule, several options, values without producers
+rule Calc.dotted: str -> l:dotted '\.' r:ident { l + "." + r } | ident
+rule Calc.pair: List<str> -> '\(' '\)'
+rule Calc.optionalSign: str? -> '[+-]'?
+
+// predicates: &x must match, !x must not, neither consumes input
+rule Calc.lower: str -> &'[a-z]' w:'\w+' { w }
+rule Calc.notNumber: str -> !number w:'\w+' { w }
+
+fun countStatements(source: str): int = Calc.program(source).stmts.size
+
+// a binary format: exact bit patterns, numbers of any width, counted repetition
+record Header {
+    version: int,
+    flags: List<bool>,
+    kind: int,
+    delta: int,
+    name: str,
+    data: List<int>
+}
+
+parser Blob binary
+
+rule Blob.header: Header ->
+    0xCAFE version:@u2 flags:@bit[4] kind:@uint(4) delta:@sint(8) len:@u1 name:'[a-z]+' data:@bytes(len) 0b10100101
+    { Header(version, flags, kind, delta, name, data) }
+rule Blob.words: List<int> -> n:@u1 words:@u2[n] { words }

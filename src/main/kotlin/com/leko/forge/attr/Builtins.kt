@@ -11,6 +11,7 @@ import com.leko.forge.types.*
  * - `Edge(from: Vertex, to: Vertex, label: str?)`: a record
  * - `Graph`: a directed graph (`entry`, `vertices`, `edges`, `root`, `succ(v)`, `pred(v)`, `reachable()`, ...)
  * - `graphOf(entry: Vertex, edges: List<Edge>): Graph` builds a graph from edges, e.g. a call graph
+ * - `Span(source, line, column, offset, length, text)` and `spanOf(node): Span?`: where a parser read a node
  */
 object Builtins {
 
@@ -59,6 +60,27 @@ object Builtins {
             method("postorder", emptyList(), ListType(vertexType)),
             method("reversePostorder", emptyList(), ListType(vertexType)),
             method("toDot", emptyList(), StrType),
+        )
+
+        val span = RecordSymbol(
+            SPAN,
+            listOf(
+                field("source", OptionalType(StrType)),
+                field("line", IntType),
+                field("column", IntType),
+                field("offset", IntType),
+                field("length", IntType),
+                field("text", StrType),
+            ),
+            builtinSpan,
+        )
+        symTab[span.type] = span
+        symTab.functions["spanOf"] = FunctionSymbol(
+            null,
+            "spanOf",
+            listOf(VarSymbol("node", vertexType, null, VarSymbol.VarKind.PARAMETER)),
+            OptionalType(span.type),
+            builtinSpan,
         )
 
         symTab.functions["graphOf"] = FunctionSymbol(

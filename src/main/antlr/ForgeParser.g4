@@ -66,11 +66,16 @@ flowStmt
 coll: COLL node=IDENT DOT collName=IDENT COLON collType=type ASSIGN init=expression;
 contrib: CONTRIB node=IDENT ARROW receiver=expression DOT collName=IDENT (AS alias=IDENT)? ASSIGN value=expression;
 
-parserDef: PARSER name=IDENT;
+// parser Lang skip '\s+' keywords 'if' 'while'   /   parser ClassFile binary
+parserDef: PARSER name=IDENT parserOption*;
+parserOption: key=IDENT REGEX_STRING*;
 
 parseRuleDef
-    : RULE parserName=IDENT DOT ruleName=IDENT COLON returnType=type (ARROW parserRuleOption (IOR parserRuleOption)*)?
+    : RULE parserName=IDENT DOT ruleName=IDENT COLON returnType=type operatorSpec? (ARROW parserRuleOption (IOR parserRuleOption)*)?
     ;
+
+// an operator of an abstract rule: @prefix(30), @infixLeft(10), @infixRight(40), @postfix(50)
+operatorSpec: AT kind=IDENT LPAREN (negative=MINUS)? precedence=INT RPAREN;
 
 parserRuleOption
     : parseRule (LBRACE producer=expression RBRACE)?
@@ -89,20 +94,26 @@ parserSequence
     ;
 
 parserLabeled
-    : (label=IDENT COLON)? parserPostfix
+    : (label=IDENT COLON)? (predicate=(EXCLAMATIONMARK | IAND))? parserPostfix
     ;
 
 parserPostfix
-    : atom=parserAtom op=(QUESTIONMARK | PLUS | STAR)?
+    : atom=parserAtom (op=(QUESTIONMARK | PLUS | STAR) | LBRACKET count=expression RBRACKET)?
     ;
 
 parserAtom
     : terminalRule
+    | bitsRule
+    | builtinRule
     | nonterminalRule
     | LPAREN parseRule RPAREN
     ;
 
 terminalRule: REGEX_STRING;
+// exact bit patterns of binary parsers: 0xCAFEBABE, 0b0101
+bitsRule: HEX | BIN;
+// primitives of binary parsers: @u1 @u2 @u4 @bit @uint(n) @sint(n) @bytes(n)
+builtinRule: AT name=IDENT (LPAREN arg=expression RPAREN)?;
 nonterminalRule: name=IDENT;
 
 type: LIST LT type GT # listType

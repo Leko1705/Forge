@@ -113,19 +113,63 @@ Graphs are used through the graph definition: `cfg.get(f)`, `cfg.of(v)`, `cfg.su
 
 ### Parsers
 
+A packrat parser: results are memoized per rule and position, so backtracking is cheap, and left
+recursion works (`rule P.path: str -> l:path '\.' r:ident { l + "." + r } | ident`).
+
 ```
-parser SampleLang
-rule SampleLang.expr: Expr                                    // abstract rule
-rule SampleLang.expr: Plus -> l:expr '\+' r:expr { Plus(l, r) }
+parser Calc skip '(\s|//[^\n]*)+' keywords 'let' 'while'   // skipped before terminals (default '\s+')
+
+rule Calc.program: Program -> stmts:stmt* { Program(stmts) }
+rule Calc.ident: str -> '[A-Za-z_]\w*'                     // never matches a keyword
+rule Calc.args: List<Expr> -> first:expr rest:(',' expr)* { [first] ++ rest }
+
+rule Calc.expr: Expr                                         // abstract rule: alternatives and operators
+rule Calc.expr: Num -> n:'\d+' { Num(n.toInt()) }
+rule Calc.expr: Expr -> '\(' e:expr '\)' { e }
+rule Calc.expr: Expr @prefix(30) -> '-' e:expr { Neg(e) }
+rule Calc.expr: Expr @infixLeft(10) -> l:expr op:('\+' | '-') r:expr { Bin(op, l, r) }
+rule Calc.expr: Expr @infixRight(40) -> l:expr '\^' r:expr { Pow(l, r) }
+rule Calc.expr: Expr @postfix(50) -> e:expr '!' { Fact(e) }
+rule Calc.expr: Expr @infixRight(2) -> c:expr '\?' a:expr ':' b:expr { Cond(c, a, b) }
 ```
 
-Parsers are checked, but the Kotlin target does not generate them yet (their functions throw `TODO`).
+| Syntax                     | Meaning                                                                         |
+|----------------------------|---------------------------------------------------------------------------------|
+| `'regex'`                  | a terminal (Java regular expression); returns the matched text                  |
+| `name` / `label:x`         | another rule; a label names a value for the producer `{ ... }`                  |
+| `x?` `x*` `x+` `x[n]`      | optional, many, at least one, exactly `n` (an expression, may use earlier labels) |
+| `(a b \| c)`               | grouping and ordered choice (the first alternative that matches)                |
+| `&x` `!x`                  | lookahead: `x` must (not) match here; consumes nothing                          |
+
+- **Values.** Without a producer, a sequence returns its only unlabeled element with a value (`'(' expr ')'`),
+  the text of a single terminal, or the texts of a sequence of terminals.
+- **Terminals.** A terminal that is a plain literal (`'fun'`, `'\+'`) does not match the start of a longer word
+  (`fun` does not match `funny`). Other terminals never match a keyword of their parser. A terminal that is
+  not a valid regular expression is matched literally, with a warning.
+- **Operators** are alternatives of an abstract rule with a precedence (higher binds stronger) and an
+  associativity: `@prefix(p)`, `@infixLeft(p)`, `@infixRight(p)`, `@postfix(p)`. The rule itself at the start
+  of the sequence is the left operand, at the end the operand (parsed with the right binding strength), and
+  in the middle a whole expression. Parsing works by precedence climbing, so no rule per level is needed:
+  `1 + 2 * 3 ^ 4 ^ 5` is `1 + (2 * (3 ^ (4 ^ 5)))`.
+- **Binary input.** `parser P binary` parses bytes (`List<int>`, or a `ByteArray` from Kotlin), big-endian,
+  at any bit position: bit patterns `0xCAFE` and `0b0101`, and `@u1`, `@u2`, `@u4`, `@bit`, `@uint(n)`,
+  `@sint(n)` (two's complement), `@bytes(n)`. Text terminals work at byte boundaries, one character per byte.
+  Nothing is skipped by default.
+- **Calls.** `Calc.program(source)` parses the whole input. From Kotlin there is a second parameter, the
+  name of the input for error messages.
+- **Errors.** A failed parse throws a `ParseException` for the furthest position reached, with `line`,
+  `column`, `offset` and `expected`: `main.calc:2:11: expected number or ident or '(', found end of input`
+  (binary: `byte 0: expected 0xCAFE, found 0xCA`). Tokens (rules that are a single regular expression) are
+  named by their rule.
+- **Positions.** `spanOf(node)` returns the `Span` (`source`, `line`, `column`, `offset`, `length`, `text`) a
+  node was parsed from, or `null`.
 
 ## Generated Kotlin
 
 One file (JVM) with a small runtime: nodes become classes (constructing a node sets the parent of its
 children), interface nodes interfaces, enums sealed classes, records data classes, attributes properties,
-graph definitions `__FlowGraph` values. Names starting with `__` are reserved.
+graph definitions `__FlowGraph` values, parsers objects with one function per rule. Names starting with
+`__` are reserved.
 
 ## Building and testing
 

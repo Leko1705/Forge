@@ -83,4 +83,37 @@ class CheckTest {
         assertError("same name as the inherited attribute", "node A(scope: int)\ninh scope: int = 0")
         assertError("same name as the attribute", "node A(x: int)\nsyn A.x: int = 0")
     }
+
+    private val grammar = """
+        node Expr
+        node Num(v: str): Expr
+        node Plus(l: Expr, r: Expr): Expr
+        parser P
+        rule P.expr: Expr
+        rule P.expr: Num -> v:'\d+' { Num(v) }
+    """
+
+    @Test
+    fun grammarsAreChecked() {
+        assertEquals(emptyList(), errors(grammar + "rule P.expr: Expr @infixLeft(10) -> l:expr '\\+' r:expr { Plus(l, r) }"))
+        assertError("operators are only allowed in abstract rules", grammar + "rule P.num: Expr @prefix(10) -> '-' e:num { e }")
+        assertError("unknown operator", grammar + "rule P.expr: Expr @infix(10) -> l:expr '\\+' r:expr { Plus(l, r) }")
+        assertError("has the shape", grammar + "rule P.expr: Expr @infixLeft(10) -> l:expr '\\+' { l }")
+        assertError("has the shape", grammar + "rule P.expr: Expr @prefix(10) -> e:expr '-' { e }")
+        assertError("has no alternatives", grammar + "rule P.stmt: Expr")
+        assertError("can not infer parsed value", grammar + "rule P.pair: Expr -> '\\(' e:expr '\\)'")
+        assertError("is not a 'Expr'", grammar + "rule P.expr: str -> 'x'")
+        assertError("expected type 'Expr'", grammar + "rule P.other: Expr -> 'x'")
+    }
+
+    @Test
+    fun parserOptionsAndBinaryPrimitives() {
+        assertError("unknown option", "parser P fast")
+        assertError("only be used in binary parsers", "parser P\nrule P.x: int -> @u1")
+        assertError("only be used in binary parsers", "parser P\nrule P.x: str -> 0xCAFE")
+        assertError("unknown primitive", "parser P binary\nrule P.x: int -> @u3")
+        assertError("too few arguments", "parser P binary\nrule P.x: int -> @uint")
+        assertEquals(emptyList(), errors("parser P binary\nrule P.x: List<int> -> n:@u1 xs:@uint(3)[n] { xs }"))
+        assertEquals(emptyList(), errors("parser P skip '' keywords 'if' 'else'\nrule P.x: str -> '[a-z]+'"))
+    }
 }
