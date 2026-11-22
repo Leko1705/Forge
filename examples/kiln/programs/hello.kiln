@@ -1,0 +1,4 @@
+// prints a greeting
+fun main() {
+    print("Hello from Kiln, running on the JVM!")
+}

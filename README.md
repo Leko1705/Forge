@@ -11,6 +11,12 @@ build/install/forge/bin/forge -f lang.forge -d out -p my.lang     # writes out/l
 
 Options: `-f` files, `-d` output directory, `-o` output name, `-p` package, `-t` target (`kotlin`), `-opt`.
 
+A file can use the declarations of others: `import "jvm.forge"` (relative to the importing file) at the top
+makes the declarations of the imported file part of this one, which is then compiled to one Kotlin file.
+
+For a complete example, see [examples/kiln](examples/kiln): a small language whose compiler is written in
+Forge and generates JVM class files, using a reusable JVM backend (`jvm.forge`).
+
 ## The language
 
 ```
@@ -26,6 +32,8 @@ external fun str.int(): int              // implemented in Kotlin
 ```
 
 Types: `int`, `float`, `bool`, `str`, `List<T>`, `Map<K, V>`, `T?`, nodes, enums, records, `Vertex`, `Graph`, `Edge`.
+A list of different nodes has their most specific common interface as element type, e.g. `[Push(1), Label("end")]`
+is a `List<Insn>` if both are `Insn`s.
 Expressions: arithmetic, `++` (lists, maps), `x in xs`, `a ?: b`, `x!!`, `v as T`, `v is T`, `if .. then .. else`,
 `match` (enum variants, lists `[a, b]`, `head :: tail`, values, guards `p if cond`), comprehensions
 (`f(x) for x in xs`, folds `acc + x for x in xs with acc = 0`). Comments: `//` and `/* */`.
