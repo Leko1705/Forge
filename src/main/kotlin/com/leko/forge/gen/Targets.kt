@@ -20,6 +20,7 @@ class Targets private constructor() {
     init {
         register(KotlinTarget)
         register(PythonTarget)
+        register(JavaTarget)
     }
 
     operator fun get(name: String): Target? = _targets[name]

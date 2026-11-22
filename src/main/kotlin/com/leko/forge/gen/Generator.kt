@@ -35,7 +35,7 @@ class Generator private constructor(private val context: Context) {
 
         val dir = options.get("-d")?.first()?.ifBlank { "." } ?: "."
 
-        val outFile = File(dir, File(sourceName).nameWithoutExtension + target.extension)
+        val outFile = File(dir, target.outputName(module, File(sourceName).nameWithoutExtension) + target.extension)
         outFile.parentFile.mkdirs()
         outFile.writeBytes(bytes)
         log.diag(targetWrittenSuccessfully(null, targetName, outFile.absolutePath))
