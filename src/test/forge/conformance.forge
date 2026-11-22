@@ -1,0 +1,427 @@
+// Conformance program for the Forge targets: every feature, with results as strings. Each target runs
+// `report()` and must print exactly what the Kotlin target prints.
+
+// ---- nodes, interfaces, enums, records ------------------------------------------------------------
+
+node Program(decls: List<Decl>)
+node Decl
+node Function(name: str, params: List<Param>, body: Expr): Decl
+node Param(name: str)
+node Expr
+node Num(value: int): Expr
+node Text(value: str): Expr
+node Ref(name: str): Expr
+node Plus(lhs: Expr, rhs: Expr): Expr
+node Call(callee: str, args: List<Expr>): Expr
+node Maybe(inner: Expr?): Expr
+node Named
+for Function impl Named
+for Param impl Named
+
+enum Type {
+    INT,
+    STR,
+    ERROR(msg: str)
+}
+
+record Diagnostic {
+    msg: str,
+    function: str
+}
+record Pair { a: int, b: List<str> }
+record Unit {}
+
+fun Type.repr(): str = match this {
+    Type.INT -> "int"
+    Type.STR -> "str"
+    Type.ERROR(msg) -> "error: " + msg
+}
+
+// ---- attributes -------------------------------------------------------------------------------------
+
+inh scope: List<str> = []
+inh Function.scope {
+    body <- (p.name for p in this.params)
+}
+inh argIndex: int = -1
+inh Call.argIndex {
+    args[i] <- i
+}
+inh function: str? = null
+inh Function.function {
+    body <- this.name
+}
+inh depth: int = 0
+inh Plus.depth {
+    lhs <- this.depth + 1
+    rhs <- this.depth + 1
+}
+
+syn Expr.type: Type
+syn Num.type: Type = Type.INT
+syn Text.type: Type = Type.STR
+syn Ref.type: Type = if this.name in this.scope then Type.INT else Type.ERROR("unknown name " + this.name)
+syn Plus.type: Type = match [this.lhs.type, this.rhs.type] {
+    [Type.ERROR(m), _] -> Type.ERROR(m)
+    [_, Type.ERROR(m)] -> Type.ERROR(m)
+    [Type.INT, Type.INT] -> Type.INT
+    [Type.STR, Type.STR] -> Type.STR
+    _ -> Type.ERROR("can not add " + this.lhs.type.repr() + " and " + this.rhs.type.repr())
+}
+syn Call.type: Type = Type.INT
+syn Maybe.type: Type = if this.inner == null then Type.STR else this.inner!!.type
+
+syn Expr.size: int = 1
+syn Plus.size: int = 1 + this.lhs.size + this.rhs.size
+syn Expr.position: int = this.argIndex
+syn Expr.level: int = this.depth
+syn Expr.scopeText: str = strs(this.scope)
+syn Named.label: str = "named"
+syn Param.label: str = "param " + this.name
+
+coll Program.diags: List<Diagnostic> = []
+contrib Expr -> this.program!!.diags = diags ++ match this.type {
+    Type.ERROR(msg) -> if this is Plus then [] else [Diagnostic(msg, this.function ?: "?")]
+    _ -> []
+}
+contrib Plus -> this.program!!.diags as d = d ++ match this.type {
+    Type.ERROR(msg) if msg != "" -> [Diagnostic(msg, this.function ?: "?")]
+    _ -> []
+}
+coll Program.count: int = 0
+contrib Num -> this.program!!.count = count + this.value
+
+inh program: Program? = null
+inh Program.program {
+    decls[i] <- this
+}
+
+// ---- functions, match, comprehensions, maps ---------------------------------------------------------
+
+fun sum(xs: List<int>): int = acc + x for x in xs with acc = 0
+fun describe(xs: List<int>): str = match xs {
+    [] -> "empty"
+    [x] -> "one: " + x.text()
+    x :: rest if rest.size > 1 -> "many, starting with " + x.text()
+    _ -> "two"
+}
+fun lookup(m: Map<str, int>, key: str): int = if key in m then m[key] else -1
+fun firstOr(xs: List<str>, other: str): str = match xs {
+    x :: _ -> x
+    _ -> other
+}
+fun word(n: int): str = match n {
+    1 -> "one"
+    2 -> "two"
+    _ -> "many"
+}
+fun nested(t: List<Type>): str = match t {
+    [Type.ERROR(m), Type.INT] -> "error then int: " + m
+    [a, b] if a == b -> "same"
+    head :: [Type.STR] -> "ends in str after " + head.repr()
+    _ -> "other"
+}
+fun ints(xs: List<int>): str = acc + (if acc == "" then "" else ",") + x.text() for x in xs with acc = ""
+fun strs(xs: List<str>): str = acc + (if acc == "" then "" else ",") + x for x in xs with acc = ""
+fun b(v: bool): str = if v then "true" else "false"
+fun opt(v: int?): str = if v == null then "null" else v!!.text()
+fun countMap(xs: List<str>): Map<str, int> = (acc ++ {x: (if x in acc then acc[x] + 1 else 1)}) for x in xs with acc = {}
+fun arith(): List<int> = [7 / 2, -7 / 2, 7 % 3, -7 % 3, 2147483647 + 1, 65536 * 65536, -(3 - 5), 6 & 3, 6 | 3]
+fun records(): List<str> = [
+    b(Pair(1, ["a"]) == Pair(1, ["a"])),
+    b(Pair(1, ["a"]) == Pair(1, ["b"])),
+    b(Unit() == Unit()),
+    b(Type.ERROR("x") == Type.ERROR("x")),
+    b(Type.INT == Type.STR),
+    b([1, 2] == [1, 2]),
+    b({"a": 1} == {"a": 1}),
+    b(Pair(2, []) in [Pair(1, []), Pair(2, [])])
+]
+fun mapKeys(): str = {Type.INT: "i", Type.ERROR("e"): "e"}[Type.ERROR("e")] + {Type.INT: "i"}[Type.INT]
+fun elvis(x: str?): str = x ?: "default"
+fun scale(x: int, f: float): float = x * f
+fun floats(): List<str> = [b(scale(2, 1.5) == 3.0), b(1.5 < 2.5), b(scale(3, 0.5) > 1.0)]
+
+// ---- graphs, flows, circular attributes -------------------------------------------------------------
+
+node Proc(name: str, body: Stmt)
+node Stmt
+node Block(stmts: List<Stmt>): Stmt
+node Assign(target: str, value: Cond): Stmt
+node Print(value: Cond): Stmt
+node If(cond: Cond, yes: Stmt, no: Stmt?): Stmt
+node While(cond: Cond, body: Stmt): Stmt
+node Break(): Stmt
+node Return(value: Cond?): Stmt
+node Fork(branches: List<Stmt>): Stmt
+node Cond
+node Var(name: str): Cond
+node Lit(value: int): Cond
+node Less(l: Cond, r: Cond): Cond
+node Add(l: Cond, r: Cond): Cond
+
+port onTrue, onFalse
+inh port break, return
+
+graph cfg: Proc
+
+flow cfg: Proc(_, body) {
+    entry(body)
+    body -> next
+}
+flow cfg: Block(stmts) { sequence(stmts) }
+flow cfg: Assign { entry(this); this -> next }
+flow cfg: Print { entry(this); this -> next }
+flow cfg: If(cond, yes, no) {
+    entry(cond)
+    onTrue(cond) -> yes
+    yes -> next
+    if no == null {
+        onFalse(cond) -> next
+    } else {
+        onFalse(cond) -> no!!
+        no!! -> next
+    }
+}
+flow cfg: While(cond, body) {
+    entry(cond)
+    onTrue(cond) -> body
+    onFalse(cond) -> next
+    body -> cond
+    break(body) -> next
+}
+flow cfg: Break { entry(this); this -> break }
+flow cfg: Return { entry(this); this -> return }
+flow cfg: Fork(branches) {
+    vertex split = "split"
+    vertex join
+    entry(split)
+    for b in branches {
+        split -> b
+        b -> join
+    }
+    join -> next
+}
+flow cfg: Cond {
+    entry(this)
+    if bound(onTrue) {
+        this -> onTrue with "true"
+        this -> onFalse with "false"
+    } else {
+        this -> next
+    }
+}
+
+fun union(a: List<str>, b: List<str>): List<str> = (if x in acc then acc else acc ++ [x]) for x in b with acc = a
+fun minus(a: List<str>, b: List<str>): List<str> = (if x in b then acc else acc ++ [x]) for x in a with acc = []
+
+syn Cond.vars: List<str>
+syn Var.vars: List<str> = [this.name]
+syn Lit.vars: List<str> = []
+syn Less.vars: List<str> = union(this.l.vars, this.r.vars)
+syn Add.vars: List<str> = union(this.l.vars, this.r.vars)
+
+syn Vertex.uses: List<str> = []
+syn Vertex.defs: List<str> = []
+syn Cond.uses: List<str> = this.vars
+syn Assign.uses: List<str> = this.value.vars
+syn Assign.defs: List<str> = [this.target]
+syn Print.uses: List<str> = this.value.vars
+syn Return.uses: List<str> = if this.value == null then [] else this.value!!.vars
+
+circular([]) Vertex.liveOut: List<str> = union(acc, s.liveIn) for s in cfg.succ(this) with acc = []
+circular([]) Vertex.liveIn: List<str> = union(this.uses, minus(this.liveOut, this.defs))
+
+inh proc: Proc? = null
+inh Proc.proc { body <- this }
+syn Stmt.dead: bool = !(this in cfg.get(this.proc!!).reachable())
+
+fun statements(g: Graph): int = (if v is Stmt then acc + 1 else acc) for v in g.vertices with acc = 0
+fun kinds(vs: List<Vertex>): str = acc + (if acc == "" then "" else " ") + kind(v) for v in vs with acc = ""
+fun kind(v: Vertex): str =
+    if v is Assign then (v as Assign).target + "="
+    else if v is Cond then "cond"
+    else if v is Stmt then "stmt"
+    else "other"
+
+fun calls(f: Proc, g: Proc, h: Proc): Graph = graphOf(f, [Edge(f, g, "calls"), Edge(g, h, null), Edge(h, g, null)])
+
+fun flows(): List<str> = flowsOf(
+    Proc("p", Block([
+        Assign("i", Lit(0)),
+        While(Less(Var("i"), Lit(10)), Block([
+            If(Less(Var("i"), Lit(5)), Assign("i", Add(Var("i"), Lit(1))), Break()),
+            Print(Var("i"))
+        ])),
+        Fork([Assign("a", Var("i")), Assign("b", Lit(1))]),
+        Return(Var("a")),
+        Print(Lit(2))
+    ])))
+
+fun flowsOf(p: Proc): List<str> = details(p, p.body as Block)
+fun details(p: Proc, block: Block): List<str> = [
+    "vertices " + cfg.get(p).vertices.size.text() + ", edges " + cfg.get(p).edges.size.text(),
+    "statements " + statements(cfg.get(p)).text(),
+    "reachable " + kinds(cfg.get(p).reachable()),
+    "postorder " + kinds(cfg.get(p).postorder()),
+    "rpo " + kinds(cfg.get(p).reversePostorder()),
+    "dead " + b((block.stmts[4]).dead) + " " + b((block.stmts[0]).dead),
+    "live in at entry " + strs(cfg.get(p).entry.liveIn),
+    "live out of first " + strs((block.stmts[0]).liveOut),
+    "exit return " + b(cfg.get(p).exit("return") != null) + ", exit next " + b(cfg.get(p).exit("next") != null),
+    "of " + b(cfg.of(block.stmts[0]) != null),
+    "succ of first " + kinds(cfg.succ(block.stmts[0])),
+    "pred of first " + kinds(cfg.pred(block.stmts[0])),
+    "index " + cfg.get(p).indexOf(block.stmts[0]).text() + " contains " + b(cfg.get(p).contains(block.stmts[0])),
+    "out edges " + cfg.get(p).outEdges(cfg.get(p).entry).size.text() + " in edges " + cfg.get(p).inEdges(block.stmts[0]).size.text(),
+    cfg.get(p).toDot()
+]
+fun graphs(): List<str> = callGraph(Proc("f", Break()), Proc("g", Break()), Proc("h", Break()))
+fun callGraph(f: Proc, g: Proc, h: Proc): List<str> = [
+    "call graph " + calls(f, g, h).vertices.size.text() + " " + calls(f, g, h).edges.size.text(),
+    "root " + b(calls(f, g, h).root == null),
+    "edge label " + (calls(f, g, h).edges[0].label ?: "none") + " " + (calls(f, g, h).edges[1].label ?: "none"),
+    "reachable " + calls(f, g, h).reachable().size.text()
+]
+
+// ---- parsers ----------------------------------------------------------------------------------------
+
+node Script(stmts: List<SStmt>)
+node SStmt
+node Let(name: str, value: SExpr): SStmt
+node Show(value: SExpr): SStmt
+node Loop(cond: SExpr, body: List<SStmt>): SStmt
+node SExpr
+node SNum(value: int): SExpr
+node SVar(name: str): SExpr
+node Bin(op: str, l: SExpr, r: SExpr): SExpr
+node Neg(e: SExpr): SExpr
+node Fact(e: SExpr): SExpr
+node Tern(c: SExpr, a: SExpr, b: SExpr): SExpr
+node SCall(name: str, args: List<SExpr>): SExpr
+
+syn SExpr.show: str
+syn SNum.show: str = this.value.text()
+syn SVar.show: str = this.name
+syn Bin.show: str = "(" + this.l.show + " " + this.op + " " + this.r.show + ")"
+syn Neg.show: str = "(-" + this.e.show + ")"
+syn Fact.show: str = "(" + this.e.show + "!)"
+syn Tern.show: str = "(" + this.c.show + " ? " + this.a.show + " : " + this.b.show + ")"
+syn SCall.show: str = this.name + "(" + strs(a.show for a in this.args) + ")"
+
+parser Calc skip '(\s|//[^\n]*)+' keywords 'let' 'print' 'while' 'do' 'end'
+
+rule Calc.program: Script -> stmts:stmt* { Script(stmts) }
+rule Calc.stmt: SStmt
+rule Calc.stmt: Let -> 'let' name:ident '=' value:expr { Let(name, value) }
+rule Calc.stmt: Show -> 'print' value:expr { Show(value) }
+rule Calc.stmt: Loop -> 'while' cond:expr 'do' body:stmt* 'end' { Loop(cond, body) }
+rule Calc.ident: str -> '[A-Za-z_]\w*'
+rule Calc.number: str -> '\d+'
+rule Calc.expr: SExpr
+rule Calc.expr: SNum -> n:number { SNum(n.toInt()) }
+rule Calc.expr: SCall -> name:ident '\(' args:arguments? '\)' { SCall(name, args ?: []) }
+rule Calc.expr: SVar -> name:ident { SVar(name) }
+rule Calc.expr: SExpr -> '\(' e:expr '\)' { e }
+rule Calc.expr: SExpr @prefix(30) -> '-' e:expr { Neg(e) }
+rule Calc.expr: SExpr @infixLeft(10) -> l:expr op:('\+' | '-') r:expr { Bin(op, l, r) }
+rule Calc.expr: SExpr @infixLeft(20) -> l:expr op:('\*' | '/') r:expr { Bin(op, l, r) }
+rule Calc.expr: SExpr @infixRight(40) -> l:expr '\^' r:expr { Bin("^", l, r) }
+rule Calc.expr: SExpr @postfix(50) -> e:expr '!' { Fact(e) }
+rule Calc.expr: SExpr @infixRight(2) -> c:expr '\?' a:expr ':' b:expr { Tern(c, a, b) }
+rule Calc.arguments: List<SExpr> -> first:expr rest:(',' expr)* { [first] ++ rest }
+rule Calc.dotted: str -> l:dotted '\.' r:ident { l + "." + r } | ident
+rule Calc.pair: List<str> -> '\(' '\)'
+rule Calc.sign: str? -> '[+-]'?
+rule Calc.lower: str -> &'[a-z]' w:'\w+' { w }
+rule Calc.notNumber: str -> !number w:'\w+' { w }
+rule Calc.word: str -> w:'[a-z]+' (',' '[a-z]+')+ { w }
+rule Calc.quoted: str -> '"(\\.|[^"\\])*"'
+rule Calc.assign: str -> n:ident '=(?!=)' v:number { n + ":" + v }
+
+record Header {
+    version: int,
+    flags: List<bool>,
+    kind: int,
+    delta: int,
+    name: str,
+    data: List<int>
+}
+parser Blob binary
+rule Blob.header: Header ->
+    0xCAFE version:@u2 flags:@bit[4] kind:@uint(4) delta:@sint(8) len:@u1 name:'[a-z]+' data:@bytes(len) 0b10100101
+    { Header(version, flags, kind, delta, name, data) }
+rule Blob.words: List<int> -> n:@u1 words:@u2[n] { words }
+rule Blob.big: int -> @u4
+
+fun parsing(): List<str> = [
+    strs(s.repr for s in Calc.program("let x = 1 + 2 * 3 // comment\nprint -x ^ 2 ^ 3!\nwhile x do print f(x, 1) end print a ? b : c ? d : e").stmts),
+    Calc.dotted("a.b.c"),
+    strs(Calc.pair("( )")),
+    Calc.sign("") ?: "none",
+    Calc.sign("-") ?: "none",
+    Calc.lower("abc"),
+    Calc.notNumber("abc"),
+    Calc.word("ab, cd,ef"),
+    Calc.quoted("\"a\\\"b\""),
+    Calc.assign("x = 12"),
+    spans(Calc.program("let x = 1\n  print  x + 2"))
+]
+syn SStmt.repr: str
+syn Let.repr: str = "let " + this.name + " = " + this.value.show
+syn Show.repr: str = "print " + this.value.show
+syn Loop.repr: str = "while " + this.cond.show + " do " + strs(s.repr for s in this.body) + " end"
+fun spans(s: Script): str = acc + spanText(st) + ";" for st in s.stmts with acc = ""
+fun spanText(st: SStmt): str = match spanOf(st) {
+    null -> "none"
+    _ -> (spanOf(st)!!).line.text() + ":" + (spanOf(st)!!).column.text() + "@" + (spanOf(st)!!).offset.text() + "+" + (spanOf(st)!!).length.text() + "=" + (spanOf(st)!!).text
+}
+fun binary(): List<str> = [
+    headerText(Blob.header([202, 254, 0, 7, 165, 254, 3, 97, 98, 99, 1, 2, 3, 165])),
+    ints(Blob.words([2, 1, 2, 255, 255])),
+    Blob.big([255, 255, 255, 254]).text()
+]
+fun headerText(h: Header): str = h.version.text() + " " + strs(b(f) for f in h.flags) + " " + h.kind.text() + " " + h.delta.text() + " " + h.name + " " + ints(h.data)
+
+// ---- the report -------------------------------------------------------------------------------------
+
+fun prog(): Program = Program([
+    Function("f", [Param("x"), Param("y")], Plus(Plus(Ref("x"), Num(1)), Call("g", [Num(2), Ref("z"), Text("s")]))),
+    Function("h", [], Plus(Num(1), Text("s"))),
+    Function("k", [], Maybe(null))
+])
+
+fun attributes(p: Program): List<str> = [
+    "types " + strs(f.body.type.repr() for f in (d as Function for d in p.decls)),
+    "sizes " + ints(f.body.size for f in (d as Function for d in p.decls)),
+    "diags " + strs(d.msg + "@" + d.function for d in p.diags),
+    "count " + p.count.text(),
+    "labels " + strs(f.label for f in (d as Function for d in p.decls)) + " " + Param("q").label,
+    "scope " + ((p.decls[0] as Function).body as Plus).rhs.scopeText,
+    "positions " + ints(a.position for a in (((p.decls[0] as Function).body as Plus).rhs as Call).args),
+    "levels " + ints([((p.decls[0] as Function).body as Plus).lhs.level, (((p.decls[0] as Function).body as Plus).lhs as Plus).lhs.level])
+]
+
+fun report(): List<str> = attributes(prog()) ++ [
+    "sum " + sum([1, 2, 3]).text(),
+    describe([]) + "; " + describe([7]) + "; " + describe([1, 2]) + "; " + describe([1, 2, 3]),
+    "lookup " + lookup({"a": 2}, "a").text() + " " + lookup({"a": 2}, "b").text(),
+    firstOr(["a", "b"], "z") + firstOr([], "z"),
+    word(1) + " " + word(2) + " " + word(9),
+    nested([Type.ERROR("e"), Type.INT]) + "; " + nested([Type.INT, Type.INT]) + "; " + nested([Type.INT, Type.STR]) + "; " + nested([])
+        + "; " + nested([Type.STR, Type.STR, Type.STR]),
+    "arith " + ints(arith()),
+    "records " + strs(records()),
+    "map " + mapKeys() + " " + ints(countMap(["a", "b", "a"])["a"] for _x in [1]) + " size " + countMap(["a", "b", "a"]).size.text(),
+    "merge " + ({"a": 1} ++ {"b": 2} ++ {"a": 3})["a"].text() + " " + ({"a": 1} ++ {"b": 2}).size.text(),
+    "lists " + ints([1, 2] ++ [3]) + " " + b(2 in [1, 2]) + " " + b(5 in [1, 2]) + " " + b(4 !in [1]) + " " + [5, 6, 7][1].text(),
+    "elvis " + elvis(null) + " " + elvis("x") + " " + opt(null) + " " + opt(4),
+    "floats " + strs(floats()),
+    "logic " + b(true && !false) + b(false || false) + b(true ^ true),
+    "strings " + ("a" + "b") + b("ab" == "a" + "b") + b("a" != "a"),
+    "show " + Type.ERROR("x").repr() + " " + "x".shout()
+] ++ flows() ++ graphs() ++ parsing() ++ binary()
+
+external fun int.text(): str
+external fun str.toInt(): int
+external fun str.shout(): str
