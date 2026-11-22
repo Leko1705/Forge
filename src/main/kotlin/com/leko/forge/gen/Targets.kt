@@ -21,6 +21,7 @@ class Targets private constructor() {
         register(KotlinTarget)
         register(PythonTarget)
         register(JavaTarget)
+        register(OcamlTarget)
     }
 
     operator fun get(name: String): Target? = _targets[name]
