@@ -22,6 +22,7 @@ class Targets private constructor() {
         register(PythonTarget)
         register(JavaTarget)
         register(OcamlTarget)
+        register(CppTarget)
     }
 
     operator fun get(name: String): Target? = _targets[name]
