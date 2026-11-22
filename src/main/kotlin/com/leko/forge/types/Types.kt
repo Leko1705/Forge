@@ -92,6 +92,24 @@ class Types private constructor(context: Context) {
             val st = sharedSuperType(t1, t2.elem) ?: return null
             return st as? OptionalType ?: OptionalType(st)
         }
+        if (t1 is ComplexType && t2 is ComplexType) {
+            val n1 = resolve.resolve(t1) as? NodeSymbol ?: return null
+            val n2 = resolve.resolve(t2) as? NodeSymbol ?: return null
+            return sharedSuperNode(n1, n2)?.type
+        }
         return null
+    }
+
+    /**
+     * The most specific node both nodes are assignable to, e.g. `JInsn` for `JPush` and `JLabel`, so that
+     * `[JPush(1), JLabel("end")]` is a `List<JInsn>`. `null` if there are several equally specific ones.
+     */
+    private fun sharedSuperNode(n1: NodeSymbol, n2: NodeSymbol): NodeSymbol? {
+        if (areNodesAssignable(n1, n2)) return n1
+        if (areNodesAssignable(n2, n1)) return n2
+        val shared = typeMap.allParentsOf(n1).filter { areNodesAssignable(it, n2) }
+        // drop the candidates that are supertypes of other candidates
+        val mostSpecific = shared.filter { c -> shared.none { o -> o != c && areNodesAssignable(c, o) } }
+        return mostSpecific.singleOrNull()
     }
 }

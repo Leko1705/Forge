@@ -1,5 +1,6 @@
 import com.leko.forge.context.Context
 import com.leko.forge.input.ArgumentParser
+import com.leko.forge.parse.ImportException
 import com.leko.forge.parse.parseForge
 import com.leko.forge.analysis.Analyzer
 import com.leko.forge.gen.Generator
@@ -32,7 +33,14 @@ fun main(args: Array<String>) {
         val options = Options.instance(context)
         val log = Log.instance(context)
 
-        val ast = file.parseForge()
+        // a file and the files it imports form one program
+        val ast = try {
+            file.parseForge()
+        } catch (e: ImportException) {
+            println("ERROR: " + e.message)
+            failed = true
+            continue
+        }
 
         Analyzer.instance(context).analyze(ast)
         if (log.hasErrors()) {

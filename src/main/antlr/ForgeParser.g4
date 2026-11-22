@@ -1,7 +1,7 @@
 parser grammar ForgeParser;
 options { tokenVocab=ForgeLexer; }
 
-root: (
+root: importDecl* (
 record
 | enum
 | function
@@ -19,6 +19,9 @@ record
 | graphDef
 | flowDef
 )* EOF;
+
+// import "jvm.forge"   -- the declarations of another file (relative to this one) are part of this program
+importDecl: IMPORT path=STRING;
 
 parameter: name=IDENT COLON ty=type;
 

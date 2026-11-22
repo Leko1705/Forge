@@ -90,13 +90,21 @@ data class ConcreteNodeSymbol(
 ) : NodeSymbol, CallableSymbol {
     override val params: List<VarSymbol> get() = fields
     override val returnType: Type get() = ComplexType(name)
+
+    // a node is declared once; `parents` grows after the symbol is used as a key, so it must not be hashed
+    override fun equals(other: Any?): Boolean = this === other
+    override fun hashCode(): Int = System.identityHashCode(this)
 }
 
 data class InterfaceNodeSymbol(
     override val name: String,
     override val parents: MutableList<InterfaceNodeSymbol>,
     override val span: SourceSpan
-) : NodeSymbol
+) : NodeSymbol {
+    // a node is declared once; `parents` grows after the symbol is used as a key, so it must not be hashed
+    override fun equals(other: Any?): Boolean = this === other
+    override fun hashCode(): Int = System.identityHashCode(this)
+}
 
 data class EnumSymbol(
     override val name: String,

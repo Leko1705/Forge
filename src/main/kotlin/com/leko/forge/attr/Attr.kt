@@ -150,6 +150,11 @@ class Attr private constructor(context: Context) {
             this.env = env
         }
 
+        /** Whether a receiver is a value or a type (`Type.INT`); a call, also of a constructor, is a value. */
+        private fun ForgeParser.ExpressionContext.receiverKind(): Kind =
+            if (this is ForgeParser.FunctionCallContext) Kind.VAL
+            else symbol?.kind?.takeIf { it != Kind.MTH } ?: Kind.VAL
+
         private fun resolveMember(owner: Type, member: String, receiverKind: Kind, memberKind: Kind): Symbol? {
             val owner = if (owner is OptionalType) {
                 chk.checkAssignable(owner.elem, owner)  // trigger type error
@@ -667,10 +672,9 @@ class Attr private constructor(context: Context) {
             val recvTy = recv.attribOwner(setOf(Kind.VAL, Kind.TYP))
             if (recvTy == ErrorType) return ctx.setType(ErrorType)
 
-            val recvSym = recv.symbol
             val fieldName = ctx.name.text
 
-            val sym = resolveMember(recvTy, fieldName, recvSym?.kind?.takeIf { it != Kind.MTH } ?: Kind.VAL, Kind.VAL)
+            val sym = resolveMember(recvTy, fieldName, recv.receiverKind(), Kind.VAL)
 
             if (sym is InhSymbol && recv !is ForgeParser.ThisExprContext) {
                 log.diag(invalidExternalInhAttribAccess(ctx.span))
@@ -769,9 +773,8 @@ class Attr private constructor(context: Context) {
 
             if (recvTy == ErrorType) return ctx.setType(ErrorType)
 
-            val recvSym = recv.symbol
             val methodName = ctx.name.text
-            val sym = resolveMember(recvTy, methodName, recvSym?.kind?.takeIf { it != Kind.MTH } ?: Kind.VAL, Kind.MTH)
+            val sym = resolveMember(recvTy, methodName, recv.receiverKind(), Kind.MTH)
 
             if (sym == null) {
                 log.diag(methodNotFound(ctx.name.span, recvTy.toString(), methodName))

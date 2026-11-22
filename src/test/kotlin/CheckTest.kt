@@ -1,10 +1,14 @@
 import com.leko.forge.analysis.Analyzer
 import com.leko.forge.context.Context
+import com.leko.forge.parse.ImportException
 import com.leko.forge.parse.parseForge
 import com.leko.forge.util.Log
 import com.leko.forge.util.Severity
+import java.io.File
+import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 /** Static checks of the new declarations. */
@@ -115,5 +119,56 @@ class CheckTest {
         assertError("too few arguments", "parser P binary\nrule P.x: int -> @uint")
         assertEquals(emptyList(), errors("parser P binary\nrule P.x: List<int> -> n:@u1 xs:@uint(3)[n] { xs }"))
         assertEquals(emptyList(), errors("parser P skip '' keywords 'if' 'else'\nrule P.x: str -> '[a-z]+'"))
+    }
+
+    @Test
+    fun nodesShareTheirMostSpecificSuperType() {
+        val nodes = "node Insn\nnode Push(v: int): Insn\nnode Label(name: str): Insn\nnode Jump(target: str): Insn\nnode Ref\nfor Push impl Ref\nfor Jump impl Ref\n"
+        assertEquals(emptyList(), errors(nodes + """
+            fun code(): List<Insn> = [Push(1), Label("end")] ++ [Jump("end")]
+            fun more(xs: List<Insn>): List<Insn> = xs ++ [Push(2)]
+            fun refs(): List<Ref> = [Push(1), Jump("x")]
+            fun pick(b: bool): Insn = if b then Push(1) else Label("l")
+        """))
+        assertError("but got List<Insn>", nodes + "fun f(): List<Ref> = [Push(1), Label(\"x\")]")
+    }
+
+    @Test
+    fun attributesOfInterfacesAreMembersOfTheirNodes() {
+        assertEquals(emptyList(), errors("node I\nnode A(v: int): I\nsyn I.d: int = 1\nsyn I.e: int\nsyn A.e: int = this.d\nfun f(a: A): int = a.d + a.e"))
+        assertEquals(emptyList(), errors("node I\nnode A(v: int)\nfor A impl I\nsyn I.d: int = 1\nfun f(a: A): int = a.d"))
+    }
+
+    @Test
+    fun membersOfConstructedValues() {
+        assertEquals(emptyList(), errors("node A(v: int)\nsyn A.d: int = this.v\nfun f(): int = A(1).d + A(2).v"))
+        assertEquals(emptyList(), errors("record R { x: int }\nfun f(): int = R(1).x"))
+    }
+
+    @Test
+    fun importsJoinFiles() {
+        val dir = createTempDirectory("forge-import").toFile()
+        try {
+            File(dir, "base.forge").writeText("node Expr\nnode Num(v: int): Expr\nsyn Expr.size: int = 1")
+            File(dir, "lib").mkdirs()
+            File(dir, "lib/more.forge").writeText("import \"../base.forge\"\nfun two(): Num = Num(2)")
+            val main = File(dir, "main.forge")
+            main.writeText("import \"base.forge\"\nimport \"lib/more.forge\"\nnode Neg(e: Expr): Expr\nsyn Neg.size: int = 1 + this.e.size\nfun f(): int = Neg(two()).size")
+            val context = Context()
+            Analyzer.instance(context).analyze(main.parseForge())
+            assertEquals(emptyList(), Log.instance(context).diagnostics.filter { it.severity == Severity.ERROR }.map { it.message })
+
+            // a diagnostic names the file it is in
+            File(dir, "bad.forge").writeText("node A(v: int)\nnode A(v: int)")
+            main.writeText("import \"bad.forge\"\nfun f(): int = 1")
+            val badContext = Context()
+            Analyzer.instance(badContext).analyze(main.parseForge())
+            assertTrue(Log.instance(badContext).diagnostics.any { it.span.toString().startsWith("bad.forge:2:") })
+
+            main.writeText("import \"missing.forge\"")
+            assertFailsWith<ImportException> { main.parseForge() }
+        } finally {
+            dir.deleteRecursively()
+        }
     }
 }
