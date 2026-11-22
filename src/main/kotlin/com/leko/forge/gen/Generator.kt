@@ -28,7 +28,8 @@ class Generator private constructor(private val context: Context) {
 
     fun generate(module: LLIRModule) {
         val targetName = options.get("-t")?.first() ?: "kotlin"
-        val target = targets[targetName]!!
+        val target = targets[targetName]
+            ?: throw IllegalArgumentException("unknown target '$targetName'; the targets are ${targets.names.joinToString(", ")}")
         val bytes = target.generate(module, context)
 
         val sourceName = options.get("-o")?.first() ?: module.sourceName ?: "out"

@@ -2,7 +2,7 @@
 mod kiln;
 mod kiln_externals;
 
-use kiln::rt::{self, V};
+use kiln::rt;
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();

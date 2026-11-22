@@ -1,4 +1,5 @@
 // The externals of kiln.forge and jvm.forge.
+#![allow(non_snake_case)]
 use super::kiln::rt::{self, V};
 
 pub fn str_utf8(this: V) -> V { rt::list(rt::str_of(&this).bytes().map(|b| V::Int(b as i32)).collect()) }

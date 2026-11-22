@@ -9,7 +9,8 @@ the tree, and functions. Forge checks it and generates Kotlin.
 build/install/forge/bin/forge -f lang.forge -d out -p my.lang     # writes out/lang.kt in package my.lang
 ```
 
-Options: `-f` files, `-d` output directory, `-o` output name, `-p` package, `-t` target (`kotlin`), `-opt`.
+Options: `-f` files, `-d` output directory, `-o` output name, `-p` package (namespace for C++), `-t` target
+(`kotlin`, `java`, `python`, `cpp`, `rust`, `ocaml`; default `kotlin`), `-opt`.
 
 A file can use the declarations of others: `import "jvm.forge"` (relative to the importing file) at the top
 makes the declarations of the imported file part of this one, which is then compiled to one Kotlin file.
@@ -179,8 +180,40 @@ children), interface nodes interfaces, enums sealed classes, records data classe
 graph definitions `__FlowGraph` values, parsers objects with one function per rule. Names starting with
 `__` are reserved.
 
+## Targets
+
+Every target generates one file that contains the whole compiler with a small runtime and needs nothing but the
+language's standard library. All targets compute the same results: a conformance program
+(`src/test/forge/conformance.forge`) that uses every feature, and the Kiln compiler (`examples/kiln`), produce
+identical output in each of them.
+
+| Target   | File                     | Values                                                         | Externals                                         |
+|----------|--------------------------|----------------------------------------------------------------|---------------------------------------------------|
+| `kotlin` | `name.kt`                | Kotlin classes, `Int`, `String`, `List`, ...                   | extension functions in the same package           |
+| `java`   | `Name.java` (one class)  | nested classes with typed fields and attribute accessors (`num.type()`); `Integer`, `String`, `java.util.List<Object>`, ... | static methods of `NameExternals`: `public static String int_text(Integer self)` |
+| `python` | `name.py`                | classes with attributes as properties (`num.type`); `int`, `str`, `list`, `dict`, ... | functions in `name_externals.py`: `def int_text(self)` |
+| `cpp`    | `name.hpp` (C++17)       | `rt::V`: `rt::I(1)`, `rt::S("x")`, `rt::L({...})`; attributes are functions: `attr_type(node)` | functions declared in the namespace, defined by the program: `rt::V name::int_text(rt::V self)` |
+| `rust`   | `name.rs` (a module)     | `rt::V`: `V::Int(1)`, `rt::s("x")`, `rt::list(vec![...])`; attributes are functions | functions of the sibling module `name_externals`: `pub fn int_text(this: V) -> V` |
+| `ocaml`  | `name.ml` (OCaml 4.14+)  | `Rt.v`: `Int 1`, `Str "x"`, `List [| ... |]`; attributes are functions | references to set: `Name.ext_int_text := (fun v -> ...)` |
+
+- Functions keep their names; methods are named after their receiver: `fun Type.repr()` is `Type_repr`
+  (`f_Type_repr` in OCaml), an external `fun int.text()` is `int_text`. Names that are keywords of the target
+  get a `_` appended.
+- A parser rule `P.rule` is `P.rule(source)` in Kotlin, Java and Python, `parse_P_rule(input)` elsewhere. A
+  failed parse throws `ParseException` (`rt::ParseException` in C++, `Rt.Parse_error` in OCaml); in Rust it
+  panics with an `rt::ParseError`, which `rt::catch_parse(|| ...)` returns as an `Err`.
+- Attribute evaluation recurses deeply; the C++ and Rust runtimes have `rt::with_stack(megabytes, f)` to run
+  on a thread with a large stack.
+- Regular expressions are Java's. The C++, Rust and OCaml targets compile them at generation time into a program
+  for a small backtracking matcher of their runtime (all of Java's syntax except lookbehind, Unicode classes
+  and flags); they match bytes of UTF-8 text.
+
 ## Building and testing
 
 ```
 ./gradlew test        # compiles src/test/forge/*.forge to Kotlin and runs the tests on the generated code
 ```
+
+`TargetsTest` also generates the conformance program and the Kiln compiler for every other target, builds them
+with `python3`, `javac`, `g++`, `rustc` and `ocamlopt` and compares what they compute with the Kotlin target; a
+target whose toolchain is not installed is skipped.

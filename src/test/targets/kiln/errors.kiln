@@ -1,0 +1,15 @@
+// errors and warnings: the generated compilers must report the same diagnostics
+fun half(n: int): int {
+    if n > 0 {
+        return n / 2
+    }
+}
+fun main() {
+    var x = 1
+    var y = "a" - 2
+    x = "str"
+    z = 3
+    print(half(1, 2))
+    while true { }
+    print("dead")
+}

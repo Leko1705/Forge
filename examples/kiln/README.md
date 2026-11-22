@@ -29,6 +29,33 @@ fun main() {
 java -cp build/kiln Fib
 ```
 
+## The compiler in other languages
+
+Forge generates the Kiln compiler in every target; `java`, `python`, `cpp`, `rust` and `ocaml` contain a
+command line driver and the externals for each, and all of them write the same class files:
+
+```bash
+build/install/forge/bin/forge -f examples/kiln/kiln.forge -t rust -d build/kiln-rust
+```
+
+```bash
+cp examples/kiln/rust/*.rs build/kiln-rust/ && rustc -O build/kiln-rust/kilnc.rs -o build/kiln-rust/kilnc
+```
+
+```bash
+build/kiln-rust/kilnc examples/kiln/programs/fib.kiln -d build/kiln && java -cp build/kiln Fib
+```
+
+| Target   | Build and run                                                                        |
+|----------|--------------------------------------------------------------------------------------|
+| `python` | `python3 kilnc.py fib.kiln -d out`                                                   |
+| `java`   | `javac -d classes *.java && java -Xss512m -cp classes Kilnc fib.kiln -d out`         |
+| `cpp`    | `g++ -std=c++17 -O1 -pthread kilnc.cpp -o kilnc && ./kilnc fib.kiln -d out`          |
+| `rust`   | `rustc -O kilnc.rs -o kilnc && ./kilnc fib.kiln -d out`                              |
+| `ocaml`  | `ocamlopt kiln.ml kilnc.ml -o kilnc && ./kilnc fib.kiln -d out`                      |
+
+## The Kotlin driver
+
 `kilnc <file.kiln> [-d <dir>] [--listing] [--cfg] [--run]` writes `<File>.class`, named after the file.
 `--listing` prints the JVM code, `--cfg` the control flow graph of every function (Graphviz dot), and
 `--run` runs the class in the compiler's own JVM. `./gradlew test` compiles and runs Kiln programs

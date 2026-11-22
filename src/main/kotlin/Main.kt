@@ -12,7 +12,7 @@ import java.io.File
 import kotlin.system.exitProcess
 
 /**
- * `forge -f file.forge... [-t kotlin] [-d outDir] [-o outName] [-p package] [-opt]`
+ * `forge -f file.forge... [-t kotlin|java|python|cpp|rust|ocaml] [-d outDir] [-o outName] [-p package] [-opt]`
  */
 fun main(args: Array<String>) {
     val argParser = ArgumentParser(args)
@@ -21,7 +21,7 @@ fun main(args: Array<String>) {
 
     if (files.isEmpty()) {
         println("ERROR: Missing files")
-        println("usage: forge -f file.forge... [-t kotlin] [-d outDir] [-o outName] [-p package] [-opt]")
+        println("usage: forge -f file.forge... [-t kotlin|java|python|cpp|rust|ocaml] [-d outDir] [-o outName] [-p package] [-opt]")
         exitProcess(1)
     }
 
@@ -53,7 +53,17 @@ fun main(args: Array<String>) {
             module = Optimizer.instance(context).optimize(module)
         }
 
-        Generator.instance(context).generate(module)
+        try {
+            Generator.instance(context).generate(module)
+        } catch (e: IllegalArgumentException) {
+            println("ERROR: " + e.message)
+            failed = true
+            continue
+        } catch (e: com.leko.forge.gen.UnsupportedRegexException) {
+            println("ERROR: " + e.message)
+            failed = true
+            continue
+        }
         log.diagnostics.lastOrNull()?.let { println(it.message) }
     }
     if (failed) exitProcess(1)

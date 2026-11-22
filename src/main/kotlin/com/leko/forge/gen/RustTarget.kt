@@ -620,7 +620,7 @@ private class RustGeneration(private val module: LLIRModule, private val moduleN
                         }
                     }
                     case.guard?.let { sb.append("if !${b(it)} { break $caseLabel; } ") }
-                    sb.append("break $label ${expr(case.body)}; } ")
+                    sb.append("break $label (${expr(case.body)}); } ")
                 }
             }
             val alt = m.alt
