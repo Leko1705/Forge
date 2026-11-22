@@ -8,46 +8,45 @@ import com.leko.forge.llir.Optimizer
 import com.leko.forge.utils.Options
 import com.leko.forge.util.Log
 import java.io.File
-import kotlin.reflect.KClass
 import kotlin.system.exitProcess
 
-
+/**
+ * `forge -f file.forge... [-t kotlin] [-d outDir] [-o outName] [-p package] [-opt]`
+ */
 fun main(args: Array<String>) {
-
-    val args = arrayOf("-f", "/home/kali/IdeaProjects/Forge/new.forge", "-opt")
-
     val argParser = ArgumentParser(args)
 
     val files = argParser.unbound("-f", "--f").map { File(it) }
 
     if (files.isEmpty()) {
-        println("ERROR: Mising files")
+        println("ERROR: Missing files")
+        println("usage: forge -f file.forge... [-t kotlin] [-d outDir] [-o outName] [-p package] [-opt]")
         exitProcess(1)
     }
 
-    val context = Context()
-
-    val options = Options.instance(context)
-    options.set(args)
-
-    val log = Log.instance(context)
-
+    var failed = false
     for (file in files) {
+        // every file is compiled on its own
+        val context = Context()
+        Options.instance(context).set(args)
+        val options = Options.instance(context)
+        val log = Log.instance(context)
+
         val ast = file.parseForge()
 
-        val analyzer = Analyzer.instance(context)
-        val generator = Generator.instance(context)
-        val llir = LLIR.instance(context)
+        Analyzer.instance(context).analyze(ast)
+        if (log.hasErrors()) {
+            failed = true
+            continue
+        }
 
-        analyzer.analyze(ast)
-        if (log.hasErrors()) exitProcess(1)
-
-        var module = llir.transform(ast)
+        var module = LLIR.instance(context).transform(ast)
         if (options.isSet("-opt") || options.isSet("--optimized")) {
             module = Optimizer.instance(context).optimize(module)
         }
 
-        generator.generate(module)
+        Generator.instance(context).generate(module)
+        log.diagnostics.lastOrNull()?.let { println(it.message) }
     }
-
+    if (failed) exitProcess(1)
 }

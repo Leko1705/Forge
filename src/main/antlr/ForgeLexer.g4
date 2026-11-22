@@ -28,6 +28,12 @@ COLL: 'coll';
 CONTRIB: 'contrib';
 AS: 'as';
 NULL: 'null';
+CIRCULAR: 'circular';
+GRAPH: 'graph';
+FLOW: 'flow';
+PORT: 'port';
+VERTEX: 'vertex';
+IS: 'is';
 
 AT: '@';
 
@@ -91,3 +97,5 @@ IDENT: [a-zA-Z_][a-zA-Z_0-9]* ;
 FLOAT : [0-9]+[.][0-9];
 INT : [0-9]+ ;
 WS  : [ \t\r\n]+ -> skip ;
+LINE_COMMENT: '//' ~[\r\n]* -> skip ;
+BLOCK_COMMENT: '/*' .*? '*/' -> skip ;

@@ -20,9 +20,9 @@ val ParserRuleContext.span: SourceSpan get() = SourceSpan(
 )
 
 val Token.span: SourceSpan get() = SourceSpan(
-    this.charPositionInLine, this.charPositionInLine,
+    this.line, this.charPositionInLine,
     this.line,
-    this.charPositionInLine
+    this.charPositionInLine + (this.text?.length ?: 0)
 )
 
 val TerminalNode.span: SourceSpan get() = this.symbol.span

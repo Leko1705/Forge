@@ -369,3 +369,72 @@ fun parseError(span: SourceSpan?, message: String): Diagnostic =
         "E008",
         message
     )
+
+fun portAlreadyExist(span: SourceSpan?, name: String): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E010", "port '$name' already exist")
+
+fun graphAlreadyExist(span: SourceSpan?, name: String): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E010", "graph '$name' already exist")
+
+fun graphNotFound(span: SourceSpan?, name: String): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E011", "graph '$name' not found")
+
+fun flowAlreadyDefined(span: SourceSpan?, graph: String, node: String): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E011", "flow of '$node' in graph '$graph' already defined")
+
+fun tooManyFlowBinders(span: SourceSpan?, node: String, fields: Int): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E011", "too many names; node '$node' has $fields field(s)")
+
+fun notAFlowTarget(span: SourceSpan?, type: Type): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E012", "'$type' can not be used in a flow; expected a node, a vertex or a port")
+
+fun portOfChildNotATarget(span: SourceSpan?): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E012", "the port of a child can not be a target; connect it instead: port(child) -> ...")
+
+fun ownPortNotASource(span: SourceSpan?): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E012", "a port of the node itself can not be connected; only ports of children: port(child) -> ...")
+
+fun invalidFlowStatement(span: SourceSpan?): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E012", "invalid flow statement; expected entry(..), sequence(..), a -> b, vertex, if or for")
+
+fun portOnlyInFlows(span: SourceSpan?, name: String): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E012", "port '$name' can only be used inside flows")
+
+fun opaqueType(span: SourceSpan?, name: String): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E013", "values of '$name' can not be created directly")
+
+fun invalidCast(span: SourceSpan?, from: Type, to: Type): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E009", "can not cast '$from' to '$to'")
+
+fun inhOnVertex(span: SourceSpan?, name: String): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E008", "inherited attribute '$name' is not available on 'Vertex', only on nodes")
+
+fun circularAndSynDefined(span: SourceSpan?, owner: String, name: String): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E007", "attribute '$owner.$name' is defined as circular and as synthesized")
+
+fun fieldClashesWithAttribute(span: SourceSpan?, node: String, name: String, what: String): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E007", "field '$node.$name' has the same name as the $what '$name'")
+
+fun invalidParserOption(span: SourceSpan?, message: String): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E014", message)
+
+fun invalidRegex(span: SourceSpan?, regex: String, message: String): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E014", "invalid regular expression '$regex': $message")
+
+fun invalidOperator(span: SourceSpan?, message: String): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E015", message)
+
+fun binaryOnly(span: SourceSpan?, what: String): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E015", "$what can only be used in binary parsers (parser P binary)")
+
+fun unknownPrimitive(span: SourceSpan?, name: String): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E015", "unknown primitive '@$name'; expected @u1, @u2, @u4, @bit, @uint(n), @sint(n) or @bytes(n)")
+
+fun abstractRuleWithoutAlternatives(span: SourceSpan?, name: String): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E015", "abstract rule '$name' has no alternatives")
+
+fun alternativeTypeMismatch(span: SourceSpan?, rule: String, expected: Type, got: Type): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E009", "alternative of '$rule' returns '$got', which is not a '$expected'")
+
+fun regexMatchedLiterally(span: SourceSpan?, regex: String, message: String): Diagnostic =
+    Diagnostic(Severity.WARNING, span, "W002", "'$regex' is not a valid regular expression ($message); it is matched literally")

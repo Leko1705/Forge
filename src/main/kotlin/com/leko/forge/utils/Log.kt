@@ -63,7 +63,7 @@ class Log private constructor() {
             println("$ANSI_RED${diagnostics.count { it.severity == Severity.ERROR }} error(s).$ANSI_RESET")
         }
         if (hasWarning()) {
-            println("$ANSI_YELLOW${diagnostics.count { it.severity == Severity.ERROR }} error(s).$ANSI_RESET")
+            println("$ANSI_YELLOW${diagnostics.count { it.severity == Severity.WARNING }} warning(s).$ANSI_RESET")
         }
     }
 }

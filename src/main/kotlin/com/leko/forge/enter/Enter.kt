@@ -2,7 +2,9 @@ package com.leko.forge.enter
 
 import ForgeParser
 import com.leko.forge.analysis.*
+import com.leko.forge.attr.Builtins
 import com.leko.forge.attr.SymTab
+import com.leko.forge.attr.TypeMap
 import com.leko.forge.attr.setSym
 import com.leko.forge.context.Context
 import com.leko.forge.model.*
@@ -20,7 +22,10 @@ class Enter private constructor(context: Context) {
 
     private val log = Log.instance(context)
 
+    private val typeMap = TypeMap.instance(context)
+
     fun enter(root: ForgeParser.RootContext) {
+        Builtins.enter(symTab, typeMap)
         for (node in root.nodeDef()) {
             if (node.LPAREN() == null) {
                 if (node.name.text in symTab) {
@@ -96,7 +101,7 @@ class Enter private constructor(context: Context) {
                 func.ty.toType(),
                 func.name.span,
             )
-            symTab[sym.type] = sym
+            symTab.functions[sym.name] = sym
             func.setSym(sym)
         }
         for (inhDef in root.inhDef()) {
@@ -116,9 +121,63 @@ class Enter private constructor(context: Context) {
                 log.diag(parserAlreadyExist(parser.name.span, name))
                 continue
             }
-            val sym = ParserSymbol(name, parser.name.span)
+            var binary = false
+            var skip: String? = null
+            var skipSet = false
+            val keywords = mutableListOf<String>()
+            for (option in parser.parserOption()) {
+                val values = option.REGEX_STRING().map { it.text.substring(1, it.text.length - 1) }
+                when (option.key.text) {
+                    "binary" -> {
+                        if (values.isNotEmpty()) log.diag(invalidParserOption(option.key.span, "'binary' takes no value"))
+                        binary = true
+                    }
+                    "skip" -> {
+                        if (values.size != 1) log.diag(invalidParserOption(option.key.span, "'skip' takes one regular expression, '' to skip nothing"))
+                        skip = values.firstOrNull()?.takeIf { it.isNotEmpty() }
+                        skipSet = true
+                    }
+                    "keywords" -> keywords += values
+                    else -> log.diag(invalidParserOption(option.key.span, "unknown option '${option.key.text}'; expected binary, skip or keywords"))
+                }
+            }
+            for (regex in listOfNotNull(skip)) {
+                try { java.util.regex.Pattern.compile(regex) } catch (e: java.util.regex.PatternSyntaxException) {
+                    log.diag(invalidRegex(parser.name.span, regex, e.description))
+                }
+            }
+            val sym = ParserSymbol(
+                name, parser.name.span, binary,
+                if (skipSet) skip else if (binary) null else "\\s+",
+                keywords,
+            )
             symTab[sym.type] = sym
             parser.setSym(sym)
+        }
+        for (portDef in root.portDef()) {
+            for (ident in portDef.IDENT()) {
+                val name = ident.text
+                if (name in symTab.ports) {
+                    log.diag(portAlreadyExist(ident.span, name))
+                    continue
+                }
+                symTab.ports[name] = PortSymbol(name, portDef.inherited != null, ident.span)
+            }
+        }
+        for (graph in root.graphDef()) {
+            val name = graph.name.text
+            if (name in symTab) {
+                log.diag(graphAlreadyExist(graph.name.span, name))
+                continue
+            }
+            val rootSym = symTab[graph.rootNode.text] as? NodeSymbol
+            if (rootSym == null) {
+                log.diag(nodeNotFound(graph.rootNode.span, graph.rootNode.text))
+                continue
+            }
+            val sym = FlowGraphSymbol(name, rootSym, graph.name.span)
+            symTab[sym.type] = sym
+            graph.setSym(sym)
         }
     }
 }

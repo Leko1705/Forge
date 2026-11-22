@@ -2,6 +2,7 @@ package com.leko.forge.attr
 
 import ForgeParser
 import com.leko.forge.attr.TreeAttributes.attributes
+import com.leko.forge.model.*
 import com.leko.forge.model.CallableSymbol
 import com.leko.forge.model.CollSymbol
 import com.leko.forge.model.EnumSymbol
@@ -125,3 +126,25 @@ val ForgeParser.TypePatternContext.symbol: Symbol? get() {
     val attrs = attributes[this]
     return attrs?.get("symbol") as? Symbol
 }
+
+val ForgeParser.CircularDefContext.symbol: CircularSymbol? get() = attributes[this]?.get("symbol") as? CircularSymbol
+
+val ForgeParser.GraphDefContext.symbol: FlowGraphSymbol? get() = attributes[this]?.get("symbol") as? FlowGraphSymbol
+
+val ForgeParser.FlowDefContext.symbol: FlowSymbol? get() = attributes[this]?.get("symbol") as? FlowSymbol
+
+val ForgeParser.InhImplContext.symbol: InhSymbol? get() = attributes[this]?.get("symbol") as? InhSymbol
+
+/** The index variable introduced by the key of an inh delegate (`decls[i] <- ...`), if any. */
+val ForgeParser.InhDelegateContext.binder: VarSymbol? get() = attributes[this]?.get("binder") as? VarSymbol
+
+/** Local variables declared by flow statements (`vertex v`, `for x in xs`) and flow binders. */
+val ParserRuleContext.local: VarSymbol? get() = attributes[this]?.get("local") as? VarSymbol
+
+/** The ports (`next`, `onTrue`, ...) an expression inside a flow refers to. */
+val ParserRuleContext.port: PortSymbol? get() = attributes[this]?.get("port") as? PortSymbol
+
+/** The built-in flow operation (`entry`, `sequence`, `bound`) a function call inside a flow refers to. */
+val ParserRuleContext.flowBuiltin: String? get() = attributes[this]?.get("flowBuiltin") as? String
+
+val ParserRuleContext.typeOrNull: Type? get() = attributes[this]?.get("type") as? Type

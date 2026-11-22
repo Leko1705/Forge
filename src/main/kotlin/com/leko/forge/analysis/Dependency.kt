@@ -5,6 +5,7 @@ import com.leko.forge.attr.SymTab
 import com.leko.forge.attr.TypeMap
 import com.leko.forge.attr.symbol
 import com.leko.forge.context.Context
+import com.leko.forge.model.*
 import com.leko.forge.model.CollSymbol
 import com.leko.forge.model.FunctionSymbol
 import com.leko.forge.model.Symbol
@@ -37,22 +38,25 @@ class Dependency private constructor(context: Context) {
     private fun checkAllInterfaceSynsAreImplemented() {
         for (concreteNode in symTab.concreteNodes.values) {
             val parents = typeMap.allParentsOf(concreteNode)
+            // equations: on the node itself, or a default on one of its interfaces (also circular ones)
+            val implementations = (listOf(concreteNode) + parents).flatMap { owner ->
+                typeMap.nodeAttributes[owner].orEmpty().filter { (it is SynSymbol && it.hasBody) || it is CircularSymbol }
+            }
             for (parent in parents) {
                 val ifaceSyns = typeMap.nodeAttributes[parent]?.filterIsInstance<SynSymbol>()?.filter { it.isDefinition } ?: emptyList()
-                val concreteSyns = typeMap.nodeAttributes[concreteNode]?.filterIsInstance<SynSymbol>()?.filter { it.isImplementation } ?: emptyList()
-                for ((_, name, type) in ifaceSyns) {
-                    val found = concreteSyns.find { name == it.name }
+                for (decl in ifaceSyns) {
+                    val found = implementations.find { decl.name == it.name }
                     if (found == null) {
                         log.diag(
                             missingSynAttributeImplementationFor(
-                                null,
+                                decl.span,
                                 concreteNode.name,
-                                "${parent.name}.$name"
+                                "${parent.name}.${decl.name}"
                             )
                         )
                     }
                     else {
-                        chk.checkAssignable(type, found.type)
+                        chk.checkAssignable(decl.type, found.type)
                     }
                 }
             }
@@ -60,39 +64,45 @@ class Dependency private constructor(context: Context) {
     }
 
 
+    /**
+     * Reports attributes and functions that depend on themselves. Cycles through a circular attribute are
+     * allowed: they are what circular attributes are for.
+     */
     private fun checkCyclicDependencies(root: ForgeParser.RootContext) {
-        val references = mutableMapOf<Symbol, Set<Symbol>>()
+        val references = mutableMapOf<Symbol, MutableSet<Symbol>>()
+
+        fun add(sym: Symbol, tree: ParseTree) {
+            references.getOrPut(sym) { mutableSetOf() } += collectReferences(tree)
+        }
 
         for (synImpl in root.synDef()) {
             if (synImpl.syn == null) continue
-            val sym = synImpl.symbol ?: continue
-            val refs = collectReferences(synImpl)
-            references[sym] = refs
+            add(synImpl.symbol ?: continue, synImpl)
+        }
+        for (circular in root.circularDef()) {
+            add(circular.symbol ?: continue, circular)
         }
         for (func in root.function()) {
-            val sym = func.symbol ?: continue
-            val refs = collectReferences(func)
-            references[sym] = refs
+            add(func.symbol ?: continue, func)
         }
         for (coll in root.coll()) {
-            val sym = coll.symbol ?: continue
-            val refs = collectReferences(coll)
-            val refsSoFar = references.getOrPut(sym) { mutableSetOf() } as MutableSet
-            refsSoFar.addAll(refs)
+            add(coll.symbol ?: continue, coll)
         }
         for (contrib in root.contrib()) {
-            val sym = contrib.symbol ?: continue
-            val refs = collectReferences(contrib)
-            val refsSoFar = references.getOrPut(sym) { mutableSetOf() } as MutableSet
-            refsSoFar.addAll(refs)
+            add(contrib.symbol ?: continue, contrib)
         }
 
         val visited = mutableSetOf<Symbol>()
-        val stack = mutableSetOf<Symbol>()
+        val stack = mutableListOf<Symbol>()
+        val reported = mutableSetOf<Symbol>()
 
         fun visit(sym: Symbol) {
-            if (sym in stack) {
-                log.diag(cyclicDependencyDetected(null, sym.name))
+            val index = stack.indexOf(sym)
+            if (index >= 0) {
+                val cycle = stack.subList(index, stack.size)
+                if (cycle.none { it is CircularSymbol } && reported.add(sym)) {
+                    log.diag(cyclicDependencyDetected(sym.span, cycle.joinToString(" -> ") { it.name } + " -> " + sym.name))
+                }
                 return
             }
             if (sym in visited) return
@@ -101,10 +111,10 @@ class Dependency private constructor(context: Context) {
             for (ref in references[sym] ?: emptySet()) {
                 visit(ref)
             }
-            stack.remove(sym)
+            stack.removeAt(stack.size - 1)
         }
 
-        for (sym in references.keys) {
+        for (sym in references.keys.toList()) {
             visit(sym)
         }
     }
