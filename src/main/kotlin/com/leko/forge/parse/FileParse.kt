@@ -20,8 +20,13 @@ const val STD_SOURCE = "std.forge"
  * standard library and imported files first; each file is read once, even if it is imported several times.
  * `import "std"` is allowed, but the standard library is always there.
  */
-fun File.parseForge(): ForgeParser.RootContext {
-    val main = parseChecked(this)
+fun File.parseForge(): ForgeParser.RootContext = parseForgeImports(parseChecked(this))
+
+/**
+ * Like [File.parseForge], for [main], the already parsed text of this file (e.g. the unsaved text of an editor):
+ * the imported files and the standard library are added. The imported files are read from disk.
+ */
+fun File.parseForgeImports(main: ForgeParser.RootContext): ForgeParser.RootContext {
     val seen = mutableSetOf(this.canonicalFile)
     val imported = mutableListOf(parseStd())
 

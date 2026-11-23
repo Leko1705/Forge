@@ -24,6 +24,12 @@ internal object TreeAttributes {
     val attributes = mutableMapOf<ParserRuleContext, MutableMap<String, Any?>>()
 }
 
+/**
+ * Forgets the attributes of all trees. They are kept until then, so a long running process that analyzes many
+ * trees, like an IDE, calls this after each analysis.
+ */
+fun clearTreeAttributes() = TreeAttributes.attributes.clear()
+
 inline fun <reified T> ParserRuleContext.attach(name: String, value: T) {
     attributes.getOrPut(this) { mutableMapOf() }[name] = value
 }

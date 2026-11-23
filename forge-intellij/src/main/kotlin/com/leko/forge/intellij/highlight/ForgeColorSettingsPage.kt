@@ -1,0 +1,139 @@
+package com.leko.forge.intellij.highlight
+
+import com.intellij.openapi.editor.colors.TextAttributesKey
+import com.intellij.openapi.fileTypes.SyntaxHighlighter
+import com.intellij.openapi.options.colors.AttributesDescriptor
+import com.intellij.openapi.options.colors.ColorDescriptor
+import com.intellij.openapi.options.colors.ColorSettingsPage
+import com.leko.forge.intellij.ForgeIcons
+import com.leko.forge.intellij.parser.ForgeNameRole
+import com.leko.forge.intellij.parser.ForgePsiParser
+import com.leko.forge.intellij.parser.nameRole
+import org.antlr.v4.runtime.ParserRuleContext
+import org.antlr.v4.runtime.tree.ParseTree
+import org.antlr.v4.runtime.tree.TerminalNode
+import javax.swing.Icon
+
+class ForgeColorSettingsPage : ColorSettingsPage {
+
+    private val descriptors = arrayOf(
+        AttributesDescriptor("Keyword", ForgeColors.KEYWORD),
+        AttributesDescriptor("Soft keyword (op, parser options)", ForgeColors.SOFT_KEYWORD),
+        AttributesDescriptor("String", ForgeColors.STRING),
+        AttributesDescriptor("Regular expression", ForgeColors.REGEX),
+        AttributesDescriptor("Number", ForgeColors.NUMBER),
+        AttributesDescriptor("Comments//Line comment", ForgeColors.LINE_COMMENT),
+        AttributesDescriptor("Comments//Block comment", ForgeColors.BLOCK_COMMENT),
+        AttributesDescriptor("Operators and punctuation//Operator", ForgeColors.OPERATOR),
+        AttributesDescriptor("Operators and punctuation//Braces", ForgeColors.BRACES),
+        AttributesDescriptor("Operators and punctuation//Brackets", ForgeColors.BRACKETS),
+        AttributesDescriptor("Operators and punctuation//Parentheses", ForgeColors.PARENTHESES),
+        AttributesDescriptor("Operators and punctuation//Dot", ForgeColors.DOT),
+        AttributesDescriptor("Operators and punctuation//Comma", ForgeColors.COMMA),
+        AttributesDescriptor("Operators and punctuation//Semicolon", ForgeColors.SEMICOLON),
+        AttributesDescriptor("Identifier", ForgeColors.IDENTIFIER),
+        AttributesDescriptor("Bad character", ForgeColors.BAD_CHARACTER),
+        AttributesDescriptor("Types//Node", ForgeColors.NODE),
+        AttributesDescriptor("Types//Record or enum declaration", ForgeColors.TYPE_DECLARATION),
+        AttributesDescriptor("Types//Type reference", ForgeColors.TYPE_REFERENCE),
+        AttributesDescriptor("Types//Builtin type", ForgeColors.BUILTIN_TYPE),
+        AttributesDescriptor("Types//Type parameter", ForgeColors.TYPE_PARAMETER),
+        AttributesDescriptor("Enum constant", ForgeColors.ENUM_CONSTANT),
+        AttributesDescriptor("Functions//Function declaration", ForgeColors.FUNCTION_DECLARATION),
+        AttributesDescriptor("Functions//Function call", ForgeColors.FUNCTION_CALL),
+        AttributesDescriptor("Functions//Method call", ForgeColors.METHOD_CALL),
+        AttributesDescriptor("Property (val)", ForgeColors.PROPERTY),
+        AttributesDescriptor("Constant", ForgeColors.CONSTANT),
+        AttributesDescriptor("Field or child", ForgeColors.FIELD),
+        AttributesDescriptor("Parameter", ForgeColors.PARAMETER),
+        AttributesDescriptor("Local variable", ForgeColors.LOCAL_VARIABLE),
+        AttributesDescriptor("Attribute (syn, inh, circular, coll)", ForgeColors.ATTRIBUTE),
+        AttributesDescriptor("Graphs//Port", ForgeColors.PORT),
+        AttributesDescriptor("Graphs//Graph", ForgeColors.GRAPH),
+        AttributesDescriptor("Parsers//Parser", ForgeColors.PARSER),
+        AttributesDescriptor("Parsers//Parser rule", ForgeColors.PARSER_RULE),
+        AttributesDescriptor("Parsers//Annotation (@u1, @infixLeft)", ForgeColors.ANNOTATION),
+    )
+
+    override fun getIcon(): Icon = ForgeIcons.FILE
+    override fun getHighlighter(): SyntaxHighlighter = ForgeSyntaxHighlighter()
+    override fun getDisplayName(): String = "Forge"
+    override fun getAttributeDescriptors(): Array<AttributesDescriptor> = descriptors
+    override fun getColorDescriptors(): Array<ColorDescriptor> = ColorDescriptor.EMPTY_ARRAY
+
+    override fun getAdditionalHighlightingTagToDescriptorMap(): Map<String, TextAttributesKey> =
+        ForgeNameRole.entries.associate { tag(it) to ForgeColors.of(it) }
+
+    /** The demo, with the names tagged by their role as the parser finds them, as the annotator colors them. */
+    override fun getDemoText(): String = tagNames(DEMO)
+
+    private fun tag(role: ForgeNameRole) = "forge_" + role.name.lowercase()
+
+    private fun tagNames(text: String): String {
+        val (tree, _) = ForgePsiParser.parseAntlr(text)
+        val names = mutableListOf<Pair<IntRange, ForgeNameRole>>()
+        fun visit(node: ParseTree) {
+            if (node is TerminalNode) {
+                val role = (node.parent as? ParserRuleContext)?.let { nameRole(it, node.symbol) } ?: return
+                names += node.symbol.startIndex..node.symbol.stopIndex to role
+                return
+            }
+            for (i in 0 until node.childCount) visit(node.getChild(i))
+        }
+        visit(tree)
+        val result = StringBuilder()
+        var position = 0
+        for ((range, role) in names.sortedBy { it.first.first }) {
+            result.append(text, position, range.first)
+            result.append("<${tag(role)}>").append(text, range.first, range.last + 1).append("</${tag(role)}>")
+            position = range.last + 1
+        }
+        return result.append(text, position, text.length).toString()
+    }
+
+    private companion object {
+        val DEMO = """
+            import "jvm.forge"
+
+            /* The tree of a small language. */
+            node Program(decls: List<Decl>)
+            node Decl
+            node Function(name: str, body: Expr): Decl
+            node Expr
+            node Num(value: int): Expr
+            node Add(left: Expr, right: Expr): Expr
+            for Function impl Named
+
+            enum Type { INT, ERROR(msg: str) }
+            record Diagnostic { msg: str, line: int }
+            const limit: int = 4 * 3 + 1
+
+            // attributes
+            syn Expr.type: Type
+            syn Num.type: Type = Type.INT
+            syn Add.type: Type = if left.type == right.type then left.type else Type.ERROR("mismatch")
+            inh depth: int = 0
+            inh Add.depth { left <- depth + 1  right <- depth + 1 }
+            circular(false) Expr.reachable: bool = this.reachable
+            coll Program.errors: List<Diagnostic> = []
+            contrib Add -> this.root.errors as e = Diagnostic("bad", 1)
+
+            fun Type.repr(): str = match this { Type.INT -> "int"  Type.ERROR(m) -> m  _ -> "?" }
+            fun <T> List<T>.second(): T? = this[1]
+            op fun Diagnostic.plus(other: Diagnostic): Diagnostic = other
+            val Type.isError: bool = match this { Type.ERROR(_) -> true  _ -> false }
+            ext fun str.int(): int
+
+            // graphs
+            port onTrue, onFalse
+            graph cfg: Function
+            flow cfg: Add(left, right) { entry(left); left -> right; right -> next with "done" }
+
+            // parsers
+            parser Lang skip '\s+' keywords 'if'
+            rule Lang.expr: Expr @infixLeft(10) -> l: expr '\+' r: expr { Add(l, r) } | n: '[0-9]+' { Num(n.toInt()) }
+            parser ClassFile binary
+            rule ClassFile.magic: int -> 0xCAFEBABE @u2[2]
+        """.trimIndent()
+    }
+}

@@ -12,6 +12,7 @@ import com.leko.forge.util.Log
 import com.leko.forge.util.Severity
 import org.antlr.v4.runtime.ParserRuleContext
 import org.antlr.v4.runtime.tree.ErrorNode
+import org.antlr.v4.runtime.tree.RuleNode
 
 class Attr private constructor(context: Context) {
     companion object {
@@ -59,7 +60,20 @@ class Attr private constructor(context: Context) {
         private var env: Env<AttributeContext> = Env(AttributeContext(Scope()))
 
         private fun ParserRuleContext.attribType(): Type {
-            return accept(this@TypeAttrib)!!
+            val span = span
+            return log.at(span) { accept(this@TypeAttrib)!! }.also { log.lastAnalyzed = span }
+        }
+
+        /** The declarations: their diagnostics without a span of their own are reported at them. */
+        override fun visitChildren(node: RuleNode): Type? {
+            var result = defaultResult()
+            for (i in 0 until node.childCount) {
+                if (!shouldVisitNextChild(node, result)) break
+                val child = node.getChild(i)
+                val childResult = if (child is ParserRuleContext) log.at(child.span) { child.accept(this) } else child.accept(this)
+                result = aggregateResult(result, childResult)
+            }
+            return result
         }
 
         private fun attribIdent(ctx: ForgeParser.IdentifierContext, accepted: Set<Kind>): Type {
@@ -498,7 +512,7 @@ class Attr private constructor(context: Context) {
         }
 
         override fun visitCast(ctx: ForgeParser.CastContext): Type {
-            val type = chk.checkExists(ctx.ty.toType())
+            val type = chk.checkExists(ctx.ty.toType(), ctx.ty)
             val valueType = withExpected(type) { ctx.value.attribType() }
             if (type != ErrorType && valueType != ErrorType && !castable(valueType, type)) {
                 log.diag(invalidCast(ctx.span, valueType, type))
@@ -561,7 +575,7 @@ class Attr private constructor(context: Context) {
         }
 
         override fun visitInstanceOf(ctx: ForgeParser.InstanceOfContext): Type {
-            val type = chk.checkExists(ctx.ty.toType())
+            val type = chk.checkExists(ctx.ty.toType(), ctx.ty)
             val valueType = ctx.value.attribType()
             if (type != ErrorType && valueType != ErrorType && !castable(valueType, type)) {
                 log.diag(invalidCast(ctx.span, valueType, type))
@@ -989,10 +1003,10 @@ class Attr private constructor(context: Context) {
             }
 
             if (argTypes.size < symType.parameters.size) {
-                log.diag(tooFewArguments(null))
+                log.diag(tooFewArguments(ctx.span))
             }
             if (argTypes.size > symType.parameters.size) {
-                log.diag(tooManyArguments(null))
+                log.diag(tooManyArguments(ctx.span))
             }
             for ((got, expected) in argTypes.zip(symType.parameters)) {
                 withExpected(expected) {

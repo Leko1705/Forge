@@ -125,7 +125,7 @@ class MemberEnter private constructor(context: Context) {
         for (synDef in root.synDef()) {
             val nodeName = synDef.node.text
             val attrName = synDef.attrName.text
-            val type = chk.checkExists(synDef.attrType.toType())
+            val type = chk.checkExists(synDef.attrType.toType(), synDef.attrType)
 
             // an equation can be given on any node (on an interface, it is the default of its subtypes);
             // a declaration without equation only on interfaces
@@ -156,7 +156,7 @@ class MemberEnter private constructor(context: Context) {
         for (circular in root.circularDef()) {
             val nodeName = circular.node.text
             val attrName = circular.attrName.text
-            val type = chk.checkExists(circular.attrType.toType())
+            val type = chk.checkExists(circular.attrType.toType(), circular.attrType)
             val nodeSym = findNode(nodeName)
 
             if (nodeSym == null) {
@@ -228,7 +228,7 @@ class MemberEnter private constructor(context: Context) {
         for (coll in root.coll()) {
             val nodeName = coll.node.text
             val collName = coll.collName.text
-            val type = chk.checkExists(coll.collType.toType())
+            val type = chk.checkExists(coll.collType.toType(), coll.collType)
             val nodeSym = symTab.concreteNodes.values.find { it.name == nodeName }
 
             if (nodeSym == null) {
@@ -238,7 +238,7 @@ class MemberEnter private constructor(context: Context) {
 
             val collAttrsPerNode = typeMap.nodeAttributes.getOrPut(nodeSym) { mutableListOf() } as MutableList
             if (collAttrsPerNode.any { it.name == collName }) {
-                log.diag(attributeAlreadyDefined(null, nodeName, collName))
+                log.diag(attributeAlreadyDefined(coll.collName.span, nodeName, collName))
                 continue
             }
             val sym = CollSymbol(nodeSym, collName, type, coll.collName.span)
@@ -300,7 +300,7 @@ class MemberEnter private constructor(context: Context) {
                 log.diag(invalidProperty(func.name.span, "a val needs a receiver: val T.${func.name.text}: ${func.ty.text}"))
             }
             val typeParams = func.typeParams.map { it.text }
-            fun type(t: ForgeParser.TypeContext) = chk.checkExists(t.toType().withTypeParams(typeParams))
+            fun type(t: ForgeParser.TypeContext) = chk.checkExists(t.toType().withTypeParams(typeParams), t)
             val receiver = if (func.receiver != null) type(func.receiver!!) else continue
             val receiverSym = resolve.resolve(receiver)
             if (property && receiverSym is NodeSymbol) {
@@ -317,7 +317,7 @@ class MemberEnter private constructor(context: Context) {
                     else typeMap.genericMethods
                 val hidden = methods.any { it.name == func.name.text && (typeParams.isEmpty() || it.receiver?.type == receiver) }
                 if (hidden && !func.isStd()) {
-                    log.diag(methodAlreadyExist(null, "$receiver.${func.name.text}"))
+                    log.diag(methodAlreadyExist(func.name.span, "$receiver.${func.name.text}"))
                     continue
                 }
                 val sym = FunctionSymbol(
@@ -351,17 +351,17 @@ class MemberEnter private constructor(context: Context) {
 
             val parserName = rule.parserName.text
             val ruleName = rule.ruleName.text
-            val returnType = chk.checkExists(rule.returnType.toType())
+            val returnType = chk.checkExists(rule.returnType.toType(), rule.returnType)
 
             val parser = symTab.parsers.values.firstOrNull { it.name == parserName }
             if (parser == null) {
-                log.diag(parserNotFound(null, parserName))
+                log.diag(parserNotFound(rule.parserName.span, parserName))
                 continue
             }
 
             val rules = typeMap.parserRuleDefs.getOrPut(parser) { mutableListOf() } as MutableList
             if (rules.any { it.name == ruleName }) {
-                log.diag(abstractParseRuleAlreadyExist(null, "$parserName.$ruleName"))
+                log.diag(abstractParseRuleAlreadyExist(rule.ruleName.span, "$parserName.$ruleName"))
                 continue
             }
             val sym = InterfaceParserRuleSymbol(parser, ruleName, returnType, rule.ruleName.span)
@@ -374,18 +374,18 @@ class MemberEnter private constructor(context: Context) {
 
             val parserName = rule.parserName.text
             val ruleName = rule.ruleName.text
-            val returnType = chk.checkExists(rule.returnType.toType())
+            val returnType = chk.checkExists(rule.returnType.toType(), rule.returnType)
 
             val parser = symTab.parsers.values.find { it.name == parserName }
             if (parser == null) {
-                log.diag(parserNotFound(null, parserName))
+                log.diag(parserNotFound(rule.parserName.span, parserName))
                 continue
             }
 
             val rules = typeMap.parserRuleImpls.getOrPut(parser) { mutableListOf() } as MutableList
             if (!typeMap.parserRuleDefs.getOrDefault(parser, listOf()).any { it.name == ruleName }) {
                 if (rules.any { it.name == ruleName }) {
-                    log.diag(parseRuleAlreadyExist(null, "$parserName.$ruleName"))
+                    log.diag(parseRuleAlreadyExist(rule.ruleName.span, "$parserName.$ruleName"))
                     continue
                 }
             }

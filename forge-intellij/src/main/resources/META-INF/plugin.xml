@@ -1,0 +1,34 @@
+<idea-plugin>
+    <id>com.leko.forge</id>
+    <name>Forge</name>
+    <vendor>Leko</vendor>
+    <description><![CDATA[
+    Support for Forge, the compiler definition language (<code>.forge</code> files):
+    <ul>
+        <li>highlighting with the compiler's own lexer and parser: keywords, strings, regular expressions, numbers,
+            comments, and names by their role (nodes, types, attributes, functions, parsers and rules, ...);</li>
+        <li>the syntax errors of the compiler's parser while typing;</li>
+        <li>the errors and warnings of the compiler's analysis (types, attributes, cycles, flows, imports, ...)
+            where the compiler reports them;</li>
+        <li>brace matching, commenting and quote pairing.</li>
+    </ul>
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <fileType name="Forge" language="Forge" extensions="forge" fieldName="INSTANCE"
+                  implementationClass="com.leko.forge.intellij.ForgeFileType"/>
+        <lang.parserDefinition language="Forge"
+                               implementationClass="com.leko.forge.intellij.parser.ForgeParserDefinition"/>
+        <lang.syntaxHighlighterFactory language="Forge"
+                                       implementationClass="com.leko.forge.intellij.highlight.ForgeSyntaxHighlighterFactory"/>
+        <colorSettingsPage implementation="com.leko.forge.intellij.highlight.ForgeColorSettingsPage"/>
+        <annotator language="Forge" implementationClass="com.leko.forge.intellij.highlight.ForgeAnnotator"/>
+        <externalAnnotator language="Forge"
+                           implementationClass="com.leko.forge.intellij.annotator.ForgeCompilerAnnotator"/>
+        <lang.braceMatcher language="Forge" implementationClass="com.leko.forge.intellij.editor.ForgeBraceMatcher"/>
+        <lang.commenter language="Forge" implementationClass="com.leko.forge.intellij.editor.ForgeCommenter"/>
+        <lang.quoteHandler language="Forge" implementationClass="com.leko.forge.intellij.editor.ForgeQuoteHandler"/>
+    </extensions>
+</idea-plugin>

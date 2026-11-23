@@ -316,3 +316,26 @@ identical output in each of them.
 `TargetsTest` also generates the conformance program and the Kiln compiler for every other target, builds them
 with `python3`, `javac`, `g++`, `rustc` and `ocamlopt` and compares what they compute with the Kotlin target; a
 target whose toolchain is not installed is skipped.
+
+## IntelliJ plugin
+
+[forge-intellij](forge-intellij) is a plugin for IntelliJ-based IDEs (2026.2 or newer) for `.forge` files. It uses
+the compiler itself, so the editor sees what `forge -f` sees:
+
+- **Highlighting** with the compiler's lexer (keywords, strings, regular expressions, numbers, comments) and
+  parser: names are colored by their role in the grammar (nodes, records and enums, type references, builtin types,
+  attributes, functions and calls, constants, ports and graphs, parsers, rules and `@` annotations, ...). The colors
+  are in Settings | Editor | Color Scheme | Forge.
+- **Syntax errors** of the compiler's parser while typing.
+- **Errors and warnings of the analysis** (Enter, MemberEnter, Attr, Dependency, with the imported files and the
+  standard library) where the compiler reports them; an error in an imported file is shown on its `import`.
+- Brace matching, commenting (`Ctrl+/`) and quote pairing.
+
+```
+./gradlew :forge-intellij:buildPlugin   # forge-intellij/build/distributions/forge-intellij-<version>.zip
+./gradlew :forge-intellij:runIde        # starts an IDE with the plugin
+./gradlew :forge-intellij:test
+```
+
+Install the zip with Settings | Plugins | ⚙ | Install Plugin from Disk. The build downloads the IntelliJ Platform
+from JetBrains.

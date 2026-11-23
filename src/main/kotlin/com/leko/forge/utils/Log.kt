@@ -34,8 +34,43 @@ class Log private constructor() {
     val diagnostics: List<Diagnostic>
         field = mutableListOf<Diagnostic>()
 
+    /** The spans of the constructs being analyzed, innermost last; see [at]. */
+    private val enclosing = ArrayDeque<SourceSpan>()
+
+    /** The span of the expression analyzed last; a type mismatch is usually reported right after it. */
+    var lastAnalyzed: SourceSpan? = null
+
+    /**
+     * Runs [block] for the construct at [span]: a diagnostic without a span reported meanwhile gets the span of
+     * the innermost such construct, so that every diagnostic has a position (the IDE plugin shows them there).
+     */
+    fun <T> at(span: SourceSpan?, block: () -> T): T {
+        if (span == null) return block()
+        enclosing.addLast(span)
+        try {
+            return block()
+        } finally {
+            enclosing.removeLast()
+        }
+    }
+
+    /** The span of the innermost construct being analyzed, see [at]. */
+    val current: SourceSpan? get() = enclosing.lastOrNull()
+
+    /** [lastAnalyzed], if it is within the construct being analyzed; [current] otherwise. */
+    val lastAnalyzedOrCurrent: SourceSpan?
+        get() {
+            val last = lastAnalyzed ?: return current
+            val outer = current ?: return last
+            fun key(line: Int, col: Int) = line.toLong() shl 32 or col.toLong()
+            val inside = last.source == outer.source &&
+                key(last.startLine, last.startCol) >= key(outer.startLine, outer.startCol) &&
+                key(last.endLine, last.endCol) <= key(outer.endLine, outer.endCol)
+            return if (inside) last else outer
+        }
+
     fun diag(diagnostic: Diagnostic) {
-        diagnostics += diagnostic
+        diagnostics += if (diagnostic.span == null && current != null) diagnostic.copy(span = current) else diagnostic
     }
 
     fun hasErrors(): Boolean = diagnostics.any { it.severity == Severity.ERROR }
