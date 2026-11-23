@@ -1,0 +1,481 @@
+// kiln.forge: Kiln, a small imperative language compiled to JVM class files.
+//
+//   fun fib(n: int): int {
+//       if n < 2 { return n }
+//       return fib(n - 1) + fib(n - 2)
+//   }
+//   fun main() {
+//       var i = 0
+//       while i < 10 { print("fib(" + i + ") = " + fib(i))  i = i + 1 }
+//   }
+//
+// The front end: a parser, scopes and types as attributes, a control flow graph built by flows (for missing
+// returns and unreachable code), live variables as a fixpoint on it (for assignments that are never read),
+// diagnostics as a collection. The back end: synthesized attributes that build the JVM IR of jvm.forge,
+// which lowers it to a class file.
+
+import "jvm.forge"
+
+// ==== syntax tree ===============================================================================
+
+node Module(name: str, program: Program)                 // the class to generate, around a parsed program
+node Program(functions: List<Function>)
+node Function(name: str, params: List<Param>, returns: Type, body: Block)
+node Param(name: str, type: Type)
+
+node Stmt
+node Block(stmts: List<Stmt>): Stmt
+node VarDecl(name: str, value: Expr): Stmt
+node Assign(name: str, value: Expr): Stmt
+node If(cond: Expr, yes: Block, no: Stmt?): Stmt         // `no` is a Block or, for `else if`, an If
+node While(cond: Expr, body: Block): Stmt
+node Break(): Stmt
+node Return(value: Expr?): Stmt
+node Print(value: Expr): Stmt
+node ExprStmt(expr: Expr): Stmt
+
+node Expr
+node Num(value: int): Expr
+node Text(value: str): Expr
+node Bool(value: bool): Expr
+node Var(name: str): Expr
+node Call(name: str, args: List<Expr>): Expr
+node Unary(op: str, operand: Expr): Expr
+node Binary(op: str, left: Expr, right: Expr): Expr
+
+// nodes whose code needs labels; a label is derived from where the node is in the source
+node Labeled
+for If impl Labeled
+for While impl Labeled
+for Binary impl Labeled
+
+enum Type { INT, BOOL, STR, VOID, ERROR }
+
+// ==== parser ====================================================================================
+
+parser Kiln skip '(\s|//[^\n]*)+'
+    keywords 'fun' 'var' 'if' 'else' 'while' 'break' 'return' 'print' 'true' 'false' 'int' 'bool' 'str'
+
+rule Kiln.program: Program -> functions:function* { Program(functions) }
+rule Kiln.function: Function ->
+    'fun' name:ident '\(' params:params? '\)' returns:(':' type)? body:block
+    { Function(name, params ?: [], returns ?: Type.VOID, body) }
+rule Kiln.params: List<Param> -> first:param rest:(',' param)* { [first] ++ rest }
+rule Kiln.param: Param -> name:ident ':' type:type { Param(name, type) }
+rule Kiln.type: Type -> 'int' { Type.INT } | 'bool' { Type.BOOL } | 'str' { Type.STR }
+rule Kiln.ident: str -> '[A-Za-z_]\w*'
+rule Kiln.number: str -> '\d+'
+rule Kiln.string: str -> '"(\\.|[^"\\])*"'
+
+rule Kiln.block: Block -> '\{' stmts:stmt* '\}' { Block(stmts) }
+rule Kiln.ifStmt: If -> 'if' cond:expr yes:block no:elseBranch? { If(cond, yes, no) }
+rule Kiln.elseBranch: Stmt -> 'else' s:ifStmt { s } | 'else' b:block { b }
+
+rule Kiln.stmt: Stmt
+rule Kiln.stmt: Block -> block
+rule Kiln.stmt: If -> ifStmt
+rule Kiln.stmt: VarDecl -> 'var' name:ident '=' value:expr { VarDecl(name, value) }
+rule Kiln.stmt: While -> 'while' cond:expr body:block { While(cond, body) }
+rule Kiln.stmt: Break -> 'break' { Break() }
+rule Kiln.stmt: Return -> 'return' value:(!'\}' expr)? { Return(value) }
+rule Kiln.stmt: Print -> 'print' '\(' value:expr '\)' { Print(value) }
+rule Kiln.stmt: Assign -> name:ident '=(?!=)' value:expr { Assign(name, value) }
+rule Kiln.stmt: ExprStmt -> expr:expr { ExprStmt(expr) }
+
+rule Kiln.expr: Expr
+rule Kiln.expr: Num -> digits:number { Num(digits.toInt()) }
+rule Kiln.expr: Text -> literal:string { Text(literal[1:-1].unescape()) }
+rule Kiln.expr: Bool -> 'true' { Bool(true) } | 'false' { Bool(false) }
+rule Kiln.expr: Call -> name:ident '\(' args:args? '\)' { Call(name, args ?: []) }
+rule Kiln.expr: Var -> name:ident { Var(name) }
+rule Kiln.expr: Expr -> '\(' e:expr '\)' { e }
+rule Kiln.expr: Expr @prefix(60) -> op:('-' | '!') e:expr { Unary(op, e) }
+rule Kiln.expr: Expr @infixLeft(50) -> l:expr op:('\*' | '/' | '%') r:expr { Binary(op, l, r) }
+rule Kiln.expr: Expr @infixLeft(40) -> l:expr op:('\+' | '-') r:expr { Binary(op, l, r) }
+rule Kiln.expr: Expr @infixLeft(30) -> l:expr op:('<=' | '>=' | '<' | '>') r:expr { Binary(op, l, r) }
+rule Kiln.expr: Expr @infixLeft(20) -> l:expr op:('==' | '!=') r:expr { Binary(op, l, r) }
+rule Kiln.expr: Expr @infixLeft(10) -> l:expr '&&' r:expr { Binary("&&", l, r) }
+rule Kiln.expr: Expr @infixLeft(5) -> l:expr '\|\|' r:expr { Binary("||", l, r) }
+rule Kiln.args: List<Expr> -> first:expr rest:(',' expr)* { [first] ++ rest }
+
+
+// ==== names and scopes ==========================================================================
+
+record Local { type: Type, slot: int }
+record Scope { vars: Map<str, Local>, next: int }     // the visible variables, and the next free slot
+
+inh module: Module? = null
+inh Module.module { program <- this }
+
+inh prog: Program? = null
+inh Program.prog { functions[i] <- this }
+
+inh function: Function? = null
+inh Function.function { body <- this }
+
+inh signatures: Map<str, Function> = {:}
+syn Program.byName: Map<str, Function> = (acc ++ {f.name: f}) for f in this.functions with acc = {:}
+inh Program.signatures { functions[i] <- this.byName }
+
+// a block passes the scope after each statement to the next one; `main` keeps slot 0 for its String[]
+inh scope: Scope = Scope({:}, 0)
+inh Function.scope {
+    body <- Scope(acc.vars ++ {p.name: Local(p.type, acc.next)}, acc.next + 1) for p in this.params
+                with acc = Scope({:}, if this.name == "main" then 1 else 0)
+}
+inh Block.scope {
+    stmts[i] <- if i == 0 then this.scope else this.stmts[i - 1].after
+}
+
+syn Stmt.after: Scope = this.scope
+syn VarDecl.after: Scope = Scope(this.scope.vars ++ {this.name: Local(this.value.type, this.scope.next)}, this.scope.next + 1)
+syn VarDecl.slot: int = this.scope.next
+
+syn Var.local: Local? = if this.name in this.scope.vars then this.scope.vars[this.name] else null
+syn Assign.local: Local? = if this.name in this.scope.vars then this.scope.vars[this.name] else null
+
+// the number of local variable slots a function needs, collected from its declarations
+coll Function.slots: int = 0
+contrib VarDecl -> this.function!!.slots = slots.max(this.scope.next + 1)
+contrib Function -> this.slots as n = n.max(this.params.size + (if this.name == "main" then 1 else 0))
+
+inh returnType: Type = Type.VOID
+inh Function.returnType { body <- this.returns }
+
+inh loopEnd: str? = null
+inh While.loopEnd { body <- this.label + "_end" }
+
+syn Labeled.label: str = if spanOf(this) == null then "L" else "L" + (spanOf(this)!!).offset.str() + "_" + (spanOf(this)!!).length.str()
+
+// ==== types =====================================================================================
+
+syn Expr.type: Type
+syn Num.type: Type = Type.INT
+syn Text.type: Type = Type.STR
+syn Bool.type: Type = Type.BOOL
+syn Var.type: Type = if this.local == null then Type.ERROR else this.local!!.type
+syn Call.type: Type = if this.name in this.signatures then this.signatures[this.name].returns else Type.ERROR
+syn Unary.type: Type = match this.operand.type {
+    Type.INT if this.op == "-" -> Type.INT
+    Type.BOOL if this.op == "!" -> Type.BOOL
+    _ -> Type.ERROR
+}
+syn Binary.type: Type = match [this.left.type, this.right.type] {
+    [Type.ERROR, _] -> Type.ERROR
+    [_, Type.ERROR] -> Type.ERROR
+    [Type.STR, t] if this.op == "+" && t != Type.VOID -> Type.STR
+    [t, Type.STR] if this.op == "+" && t != Type.VOID -> Type.STR
+    [Type.INT, Type.INT] if this.op in ["+", "-", "*", "/", "%"] -> Type.INT
+    [Type.INT, Type.INT] if this.op in ["<", "<=", ">", ">="] -> Type.BOOL
+    [a, b] if this.op in ["==", "!="] && a == b && a != Type.VOID -> Type.BOOL
+    [Type.BOOL, Type.BOOL] if this.op in ["&&", "||"] -> Type.BOOL
+    _ -> Type.ERROR
+}
+
+val Type.repr: str = match this {
+    Type.INT -> "int"
+    Type.BOOL -> "bool"
+    Type.STR -> "str"
+    Type.VOID -> "void"
+    Type.ERROR -> "<error>"
+}
+
+// ==== control flow ==============================================================================
+
+port onTrue, onFalse
+inh port break, return
+
+graph cfg: Function
+
+flow cfg: Function(_, _, _, body) { entry(body); body -> next }
+flow cfg: Block(stmts) { sequence(stmts) }
+flow cfg: Stmt { entry(this); this -> next }               // simple statements: one step
+flow cfg: If(cond, yes, no) {
+    entry(cond)
+    onTrue(cond) -> yes
+    yes -> next
+    if no == null {
+        onFalse(cond) -> next
+    } else {
+        onFalse(cond) -> no!!
+        no!! -> next
+    }
+}
+flow cfg: While(cond, body) {
+    entry(cond)
+    onTrue(cond) -> body
+    onFalse(cond) -> next
+    body -> cond
+    break(body) -> next
+}
+flow cfg: Break { entry(this); this -> break }
+flow cfg: Return { entry(this); this -> return }
+flow cfg: Expr {
+    entry(this)
+    if bound(onTrue) {
+        this -> onTrue with "true"
+        this -> onFalse with "false"
+    } else {
+        this -> next
+    }
+}
+// a constant condition takes one branch only: `while true { }` does not end without `break`
+flow cfg: Bool(value) {
+    entry(this)
+    if bound(onTrue) {
+        if value { this -> onTrue with "always" } else { this -> onFalse with "never" }
+    } else {
+        this -> next
+    }
+}
+
+syn Function.flowGraph: Graph = cfg.get(this)
+syn Function.reach: List<Vertex> = this.flowGraph.reachable()
+
+// whether control can reach a statement; a statement that is not a vertex is reached through its first one
+syn Stmt.reachable: bool = this in (this.function!!.reach)
+syn Block.reachable: bool = match this.stmts {
+    [] -> true
+    first :: _ -> first.reachable
+}
+syn If.reachable: bool = this.cond in (this.function!!.reach)
+syn While.reachable: bool = this.cond in (this.function!!.reach)
+
+// whether the statement before was reachable: only the first statement of dead code is reported
+inh previousReachable: bool = true
+inh Block.previousReachable {
+    stmts[i] <- if i == 0 then this.previousReachable && this.reachable else this.stmts[i - 1].reachable
+}
+syn Stmt.startsDeadCode: bool = !this.reachable && this.previousReachable
+
+syn Function.fallsOff: bool = this.flowGraph.exit("next") != null && (this.flowGraph.exit("next")!!) in this.reach
+
+// ==== live variables ============================================================================
+
+// the slots an expression reads
+syn Expr.reads: List<int> = []
+syn Var.reads: List<int> = if this.local == null then [] else [this.local!!.slot]
+syn Call.reads: List<int> = acc.union(a.reads) for a in this.args with acc = []
+syn Unary.reads: List<int> = this.operand.reads
+syn Binary.reads: List<int> = this.left.reads.union(this.right.reads)
+
+syn Vertex.uses: List<int> = []
+syn Vertex.defs: List<int> = []
+syn Expr.uses: List<int> = this.reads
+syn VarDecl.uses: List<int> = this.value.reads
+syn VarDecl.defs: List<int> = [this.slot]
+syn Assign.uses: List<int> = this.value.reads
+syn Assign.defs: List<int> = if this.local == null then [] else [this.local!!.slot]
+syn Print.uses: List<int> = this.value.reads
+syn ExprStmt.uses: List<int> = this.expr.reads
+syn Return.uses: List<int> = if this.value == null then [] else this.value!!.reads
+
+circular([]) Vertex.liveOut: List<int> = acc.union(s.liveIn) for s in cfg.succ(this) with acc = []
+circular([]) Vertex.liveIn: List<int> = this.uses.union(this.liveOut - this.defs)
+
+syn Stmt.deadStore: bool = false
+syn VarDecl.deadStore: bool = this.reachable && !(this.slot in this.liveOut)
+syn Assign.deadStore: bool = this.reachable && this.local != null && !(this.local!!.slot in this.liveOut)
+
+// ==== diagnostics ===============================================================================
+
+enum Severity { ERROR, WARNING }
+record Diagnostic { severity: Severity, line: int, column: int, message: str }
+
+val Diagnostic.repr: str =
+    (match this.severity { Severity.ERROR -> "error"  Severity.WARNING -> "warning" })
+    + " at " + this.line.str() + ":" + this.column.str() + ": " + this.message
+
+fun report(at: Vertex, severity: Severity, message: str): Diagnostic =
+    if spanOf(at) == null then Diagnostic(severity, 0, 0, message)
+    else Diagnostic(severity, (spanOf(at)!!).line, (spanOf(at)!!).column, message)
+
+// an error is reported where it starts: operands with errors were reported themselves
+syn Expr.problem: str? = null
+syn Var.problem: str? = if this.local == null then "unknown variable '" + this.name + "'" else null
+syn Call.problem: str? =
+    if !(this.name in this.signatures) then "unknown function '" + this.name + "'"
+    else if this.signatures[this.name].name == "main" then "'main' can not be called"
+    else if (a.type for a in this.args) == (p.type for p in this.signatures[this.name].params) then null
+    else if Type.ERROR in (a.type for a in this.args) then null
+    else "'" + this.name + "' takes (" + typeList(p.type for p in this.signatures[this.name].params)
+        + "), not (" + typeList(a.type for a in this.args) + ")"
+syn Unary.problem: str? =
+    if this.type == Type.ERROR && this.operand.type != Type.ERROR then "can not apply '" + this.op + "' to " + this.operand.type.repr else null
+syn Binary.problem: str? =
+    if this.type == Type.ERROR && this.left.type != Type.ERROR && this.right.type != Type.ERROR
+    then "can not apply '" + this.op + "' to " + this.left.type.repr + " and " + this.right.type.repr else null
+
+fun typeList(ts: List<Type>): str = (t.repr for t in ts).join(", ")
+
+syn Stmt.problem: str? = null
+syn VarDecl.problem: str? = if this.value.type == Type.VOID then "'" + this.name + "' can not be void" else null
+syn Assign.problem: str? =
+    if this.local == null then "unknown variable '" + this.name + "'"
+    else if this.local!!.type == this.value.type || this.value.type == Type.ERROR then null
+    else "can not assign " + this.value.type.repr + " to '" + this.name + "' of type " + (this.local!!.type).repr
+syn If.problem: str? = condition(this.cond)
+syn While.problem: str? = condition(this.cond)
+syn Break.problem: str? = if this.loopEnd == null then "'break' outside of a loop" else null
+syn Return.problem: str? = match [this.returnType, if this.value == null then Type.VOID else this.value!!.type] {
+    [_, Type.ERROR] -> null
+    [expected, got] if expected == got -> null
+    [expected, got] -> "can not return " + got.repr + " from a function returning " + expected.repr
+}
+syn Print.problem: str? = if this.value.type == Type.VOID then "can not print void" else null
+syn ExprStmt.problem: str? = if this.expr is Call then null else "an expression statement must be a call"
+
+fun condition(cond: Expr): str? =
+    if cond.type == Type.BOOL || cond.type == Type.ERROR then null else "a condition must be bool, not " + cond.type.repr
+
+coll Program.diagnostics: List<Diagnostic> = []
+contrib Expr -> this.prog!!.diagnostics = diagnostics ++
+    (if this.problem == null then [] else [report(this, Severity.ERROR, this.problem!!)])
+contrib Stmt -> this.prog!!.diagnostics = diagnostics ++
+    (if this.problem == null then [] else [report(this, Severity.ERROR, this.problem!!)])
+contrib Stmt -> this.prog!!.diagnostics as found = found ++
+    (if this.startsDeadCode then [report(this, Severity.WARNING, "unreachable code")] else [])
+contrib VarDecl -> this.prog!!.diagnostics = diagnostics ++
+    (if this.deadStore then [report(this, Severity.WARNING, "'" + this.name + "' is never read")] else [])
+contrib Assign -> this.prog!!.diagnostics = diagnostics ++
+    (if this.deadStore then [report(this, Severity.WARNING, "the value assigned to '" + this.name + "' is never read")] else [])
+contrib Function -> this.prog!!.diagnostics = diagnostics ++
+    (if this.returns != Type.VOID && this.fallsOff then [report(this, Severity.ERROR, "'" + this.name + "' must return a value")] else [])
+contrib Function -> this.prog!!.diagnostics as found = found ++
+    (if (acc + (if f.name == this.name then 1 else 0) for f in this.prog!!.functions with acc = 0) > 1
+     then [report(this, Severity.ERROR, "'" + this.name + "' is defined more than once")] else [])
+contrib Function -> this.prog!!.diagnostics as found = found ++
+    (if this.name == "main" && (this.params.size > 0 || this.returns != Type.VOID)
+     then [report(this, Severity.ERROR, "'main' takes no parameters and returns nothing")] else [])
+contrib Program -> this.diagnostics as found = found ++
+    (if "main" in this.byName then [] else [Diagnostic(Severity.ERROR, 1, 1, "a program needs a function 'main'")])
+
+syn Program.errors: List<Diagnostic> = (if d.severity == Severity.ERROR then acc ++ [d] else acc) for d in this.diagnostics with acc = []
+
+// ==== code generation: Kiln -> JVM IR ===========================================================
+
+val Type.descriptor: str = match this {
+    Type.INT -> "I"
+    Type.BOOL -> "Z"
+    Type.STR -> "Ljava/lang/String;"
+    _ -> "V"
+}
+val Type.slot: Slot = if this == Type.STR then Slot.REF else Slot.INT
+
+syn Function.descriptor: str =
+    if this.name == "main" then "([Ljava/lang/String;)V"
+    else (acc + p.type.descriptor for p in this.params with acc = "(") + ")" + this.returns.descriptor
+
+syn Module.jvm: JClass = JClass(this.name, "java/lang/Object", (f.jvm for f in this.program.functions))
+
+// public static; code that falls off the end returns a default value (only reachable for void)
+syn Function.jvm: JMethod = JMethod(9, this.name, this.descriptor, this.slots, this.body.code ++ match this.returns {
+    Type.VOID -> [JOp(Op.RETURN)]
+    Type.STR -> [JOp(Op.ACONST_NULL), JOp(Op.ARETURN)]
+    _ -> [JPush(0), JOp(Op.IRETURN)]
+})
+
+syn Stmt.code: List<JInsn>
+syn Block.code: List<JInsn> = acc ++ s.code for s in this.stmts with acc = []
+syn VarDecl.code: List<JInsn> = this.value.code ++ [JStore(this.value.type.slot, this.slot)]
+syn Assign.code: List<JInsn> = this.value.code ++ [JStore(this.local!!.type.slot, this.local!!.slot)]
+syn If.code: List<JInsn> =
+    this.cond.jumpUnless(this.label + "_else") ++ this.yes.code
+    ++ [JJump(Cond.GOTO, this.label + "_end"), JLabel(this.label + "_else")]
+    ++ (if this.no == null then [] else this.no!!.code)
+    ++ [JLabel(this.label + "_end")]
+syn While.code: List<JInsn> =
+    [JLabel(this.label + "_top")] ++ this.cond.jumpUnless(this.label + "_end")
+    ++ this.body.code ++ [JJump(Cond.GOTO, this.label + "_top"), JLabel(this.label + "_end")]
+syn Break.code: List<JInsn> = [JJump(Cond.GOTO, this.loopEnd!!)]
+syn Return.code: List<JInsn> =
+    if this.value == null then [JOp(Op.RETURN)]
+    else this.value!!.code ++ [JOp(if this.value!!.type == Type.STR then Op.ARETURN else Op.IRETURN)]
+syn Print.code: List<JInsn> =
+    [JGetStatic("java/lang/System", "out", "Ljava/io/PrintStream;")] ++ this.value.code
+    ++ [JInvoke(Invoke.VIRTUAL, "java/io/PrintStream", "println", "(" + this.value.type.descriptor + ")V")]
+syn ExprStmt.code: List<JInsn> = this.expr.code ++ (if this.expr.type == Type.VOID then [] else [JOp(Op.POP)])
+
+syn Expr.code: List<JInsn>
+syn Num.code: List<JInsn> = [JPush(this.value)]
+syn Text.code: List<JInsn> = [JLdc(this.value)]
+syn Bool.code: List<JInsn> = [JPush(if this.value then 1 else 0)]
+syn Var.code: List<JInsn> = [JLoad(this.type.slot, this.local!!.slot)]
+syn Call.code: List<JInsn> =
+    (acc ++ a.code for a in this.args with acc = [])
+    ++ [JInvoke(Invoke.STATIC, this.module!!.name, this.name, this.signatures[this.name].descriptor)]
+syn Unary.code: List<JInsn> = this.operand.code ++ match this.op {
+    "-" -> [JOp(Op.INEG)]
+    _ -> [JPush(1), JOp(Op.IXOR)]
+}
+syn Binary.code: List<JInsn> = match this.op {
+    "+" if this.type == Type.STR ->
+        this.left.text ++ this.right.text
+        ++ [JInvoke(Invoke.VIRTUAL, "java/lang/String", "concat", "(Ljava/lang/String;)Ljava/lang/String;")]
+    "==" if this.left.type == Type.STR -> this.left.code ++ this.right.code ++ [this.stringEquals]
+    "!=" if this.left.type == Type.STR -> this.left.code ++ this.right.code ++ [this.stringEquals, JPush(1), JOp(Op.IXOR)]
+    "&&" -> this.left.code ++ [JJump(Cond.IFEQ, this.label + "_no")] ++ this.right.code ++ this.boolean(Cond.IFEQ)
+    "||" -> this.left.code ++ [JJump(Cond.IFNE, this.label + "_yes")] ++ this.right.code ++ this.boolean(Cond.IFNE)
+    _ -> if this.op in ["<", "<=", ">", ">=", "==", "!="] then this.left.code ++ this.right.code ++ this.compare(this.op)
+         else this.left.code ++ this.right.code ++ [JOp(match this.op {
+        "+" -> Op.IADD
+        "-" -> Op.ISUB
+        "*" -> Op.IMUL
+        "/" -> Op.IDIV
+        _ -> Op.IREM
+    })]
+}
+syn Binary.stringEquals: JInsn = JInvoke(Invoke.VIRTUAL, "java/lang/String", "equals", "(Ljava/lang/Object;)Z")
+
+// 1 if the comparison holds, else 0
+fun Binary.compare(op: str): List<JInsn> = this.boolean(comparison(op))
+fun comparison(op: str): Cond = match op {
+    "<" -> Cond.IF_ICMPLT
+    "<=" -> Cond.IF_ICMPLE
+    ">" -> Cond.IF_ICMPGT
+    ">=" -> Cond.IF_ICMPGE
+    "==" -> Cond.IF_ICMPEQ
+    _ -> Cond.IF_ICMPNE
+}
+
+// the code of a condition that jumps to `target` if it is false; a comparison of ints jumps itself
+fun Expr.jumpUnless(target: str): List<JInsn> =
+    if this is Binary && (this as Binary).op in ["<", "<=", ">", ">=", "==", "!="] && (this as Binary).left.type != Type.STR
+    then (this as Binary).left.code ++ (this as Binary).right.code ++ [JJump(comparison((this as Binary).op).negate(), target)]
+    else this.code ++ [JJump(Cond.IFEQ, target)]
+// `cond` jumps to `_yes` (push 1), else to `_no` (push 0); && and || jump there early
+fun Binary.boolean(cond: Cond): List<JInsn> = match cond {
+    Cond.IFEQ -> [JJump(Cond.IFEQ, this.label + "_no")]
+    Cond.IFNE -> [JJump(Cond.IFNE, this.label + "_yes"), JJump(Cond.GOTO, this.label + "_no")]
+    _ -> [JJump(cond, this.label + "_yes"), JJump(Cond.GOTO, this.label + "_no")]
+} ++ [
+    JLabel(this.label + "_yes"), JPush(1), JJump(Cond.GOTO, this.label + "_end"),
+    JLabel(this.label + "_no"), JPush(0),
+    JLabel(this.label + "_end")
+]
+
+// the code of an operand of a string concatenation: its value as a string
+syn Expr.text: List<JInsn> = this.code ++ match this.type {
+    Type.INT -> [JInvoke(Invoke.STATIC, "java/lang/String", "valueOf", "(I)Ljava/lang/String;")]
+    Type.BOOL -> [JInvoke(Invoke.STATIC, "java/lang/String", "valueOf", "(Z)Ljava/lang/String;")]
+    _ -> []
+}
+
+// ==== the compiler ==============================================================================
+
+record Compiled {
+    diagnostics: List<Diagnostic>,
+    bytes: List<int>?,             // the class file, if there are no errors
+    listing: str?,                 // its code, like javap -c
+    graphs: str                    // the control flow graph of every function, in Graphviz' dot
+}
+
+/** Compiles a Kiln program to the class `name`. Throws a ParseException for a syntax error. */
+fun compile(name: str, source: str): Compiled = Module(name, Kiln.program(source)).compiled
+
+syn Module.compiled: Compiled =
+    if this.program.errors.size > 0 then Compiled(this.program.diagnostics, null, null, this.program.graphs)
+    else if this.jvm.problems.size > 0 then Compiled(this.program.diagnostics ++ (Diagnostic(Severity.ERROR, 0, 0, "internal: " + p) for p in this.jvm.problems), null, null, this.program.graphs)
+    else Compiled(this.program.diagnostics, this.jvm.bytes, this.jvm.listing, this.program.graphs)
+
+syn Program.graphs: str = acc + "// " + f.name + "\n" + f.flowGraph.toDot() + "\n" for f in this.functions with acc = ""

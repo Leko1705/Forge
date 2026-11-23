@@ -1,0 +1,56 @@
+// nested loops, break, else if, booleans, && and ||, % and large constants
+
+fun isPrime(n: int): bool {
+    if n < 2 {
+        return false
+    }
+    var d = 2
+    while d * d <= n {
+        if n % d == 0 {
+            return false
+        }
+        d = d + 1
+    }
+    return true
+}
+
+fun classify(n: int): str {
+    if n % 15 == 0 {
+        return "FizzBuzz"
+    } else if n % 3 == 0 {
+        return "Fizz"
+    } else if n % 5 == 0 {
+        return "Buzz"
+    }
+    return "" + n
+}
+
+fun main() {
+    var count = 0
+    var n = 0
+    var line = "primes:"
+    while true {
+        n = n + 1
+        if isPrime(n) {
+            line = line + " " + n
+            count = count + 1
+        }
+        if count == 10 || n > 1000 {
+            break
+        }
+    }
+    print(line)
+
+    var fizz = ""
+    var i = 1
+    while i <= 15 {
+        fizz = fizz + classify(i) + " "
+        i = i + 1
+    }
+    print(fizz)
+
+    var big = 1000000
+    var neg = -40000
+    print("big * 3 = " + big * 3 + ", neg / 7 = " + neg / 7 + ", 17 is prime: " + isPrime(17))
+    print(!isPrime(21) && (big > neg || false))
+}

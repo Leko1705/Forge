@@ -46,6 +46,8 @@ fun ParserRuleContext.setSym(sym: Symbol): Symbol {
     return sym
 }
 
+val ForgeParser.ConstDefContext.symbol: ConstSymbol? get() = attributes[this]?.get("symbol") as? ConstSymbol
+
 val ForgeParser.EnumContext.symbol: EnumSymbol? get() {
     val attrs = attributes[this]
     return attrs?.get("symbol") as? EnumSymbol
@@ -143,6 +145,9 @@ val ParserRuleContext.local: VarSymbol? get() = attributes[this]?.get("local") a
 
 /** The ports (`next`, `onTrue`, ...) an expression inside a flow refers to. */
 val ParserRuleContext.port: PortSymbol? get() = attributes[this]?.get("port") as? PortSymbol
+
+/** The `op fun` an operator expression calls, if its operand is not of a builtin type. */
+val ParserRuleContext.operator: FunctionSymbol? get() = attributes[this]?.get("operator") as? FunctionSymbol
 
 /** The built-in flow operation (`entry`, `sequence`, `bound`) a function call inside a flow refers to. */
 val ParserRuleContext.flowBuiltin: String? get() = attributes[this]?.get("flowBuiltin") as? String

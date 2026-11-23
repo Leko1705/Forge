@@ -133,7 +133,7 @@ class __ParseScope(
         val literal = terminal.literal
         if (literal != null) {
             // a literal ending in a letter or digit must not be followed by one (`fun` is not `funny`)
-            if (literal.isNotEmpty() && isWordChar(literal.last()) && end < text.length && isWordChar(text[end])) __fail(terminal.display)
+            if (literal.isNotEmpty() && isWordChar(literal[literal.length - 1]) && end < text.length && isWordChar(text[end])) __fail(terminal.display)
         } else if (value in keywords) {
             __fail(terminal.display)
         }

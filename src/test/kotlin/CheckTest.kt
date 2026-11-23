@@ -1,10 +1,14 @@
 import com.leko.forge.analysis.Analyzer
 import com.leko.forge.context.Context
+import com.leko.forge.parse.ImportException
 import com.leko.forge.parse.parseForge
 import com.leko.forge.util.Log
 import com.leko.forge.util.Severity
+import java.io.File
+import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 /** Static checks of the new declarations. */
@@ -115,5 +119,151 @@ class CheckTest {
         assertError("too few arguments", "parser P binary\nrule P.x: int -> @uint")
         assertEquals(emptyList(), errors("parser P binary\nrule P.x: List<int> -> n:@u1 xs:@uint(3)[n] { xs }"))
         assertEquals(emptyList(), errors("parser P skip '' keywords 'if' 'else'\nrule P.x: str -> '[a-z]+'"))
+    }
+
+    @Test
+    fun constantsAreChecked() {
+        assertEquals(emptyList(), errors("const a = b + 1\nconst b: int = 2\nconst s: str? = null\nfun f(): int = a"))
+        assertError("expected type 'int' but got str", "const c: int = \"x\"")
+        assertError("depends on itself", "const a = b\nconst b = a")
+        assertError("depends on itself", "const a: int = a")
+        assertError("already defined", "const d = 1\nconst d = 2")
+        assertError("already defined", "fun d(): int = 1\nconst d = 2")
+        assertError("can not use 'this'", "const g = this")
+        assertError("cyclic dependency", "const e = f()\nfun f(): int = e")
+        assertError("can not find 'x'", "fun f(x: int): int = c\nconst c = x")
+    }
+
+    @Test
+    fun operatorsAreChecked() {
+        val vec = "record V { x: int }\n"
+        assertEquals(emptyList(), errors(vec + "op fun V.plus(o: V): V = V(this.x + o.x)\nop fun V.get(i: int): int = this.x\nfun f(a: V): int = (a + a)[0]"))
+        assertError("is no operator", vec + "op fun V.add(o: V): V = o")
+        assertError("takes 1 parameter", vec + "op fun V.plus(): V = this")
+        assertError("returns an int", vec + "op fun V.compareTo(o: V): bool = true")
+        assertError("two int?", vec + "op fun V.slice(a: int, b: int): V = this")
+        assertError("needs a receiver", "op fun plus(a: int): int = a")
+        assertError("can not apply '+'", vec + "fun f(a: V): V = a + a")
+        // a function that is no operator does not define one
+        assertError("can not apply '+'", vec + "fun V.plus(o: V): V = o\nfun f(a: V): V = a + a")
+    }
+
+    @Test
+    fun collectionsAndBuiltinsAreChecked() {
+        assertEquals(emptyList(), errors("fun f(): Set<int> = {1, 2} ++ {}\nfun g(): Map<str, int> = {:}\nfun h(): str = \"abc\"[1:].upper() + (1 << 2 >> 1 >>> 1).str()"))
+        assertError("an empty map is {:}", "fun f(): Map<str, int> = {}")
+        assertError("without spaces", "fun f(a: int): int = a < < 2")
+        assertError("expected type 'int' but got str", "fun f(): List<int> = [1, 2][\"a\":]")
+        assertError("not found", "fun f(): int = \"x\".nope()")
+        assertError("not found", "fun f(): str = [1].join(\",\")")
+        // fail fits wherever a value is expected
+        assertEquals(emptyList(), errors("fun f(x: int?): int = x ?: fail(\"none\")\nfun g(b: bool): str = if b then \"x\" else fail(\"no\")\nfun h(): List<str> = fail(\"never\")"))
+        assertError("expected type 'str' but got int", "fun f(): int = fail(1)")
+        // functions and attributes can be of type Nothing; then they must not return
+        assertEquals(emptyList(), errors(
+            "node A(v: int)\nfun stop(m: str): Nothing = fail(\"stop: \" + m)\nfun again(): Nothing = stop(\"again\")\n" +
+                "fun both(b: bool): Nothing = if b then stop(\"a\") else again()\nfun use(b: bool): int = if b then 1 else stop(\"no\")\n" +
+                "syn A.never: Nothing = fail(\"never\")\nfun v(a: A): str = a.never"))
+        assertError("expected type 'Nothing' but got int", "fun f(): Nothing = 1")
+        assertError("expected type 'Nothing' but got str", "fun f(b: bool): Nothing = if b then fail(\"x\") else \"y\"")
+        assertError("expected type 'Nothing' but got int", "node A(v: int)\nsyn A.never: Nothing = this.v")
+        // methods of the program come before builtins
+        assertEquals(emptyList(), errors("fun str.upper(): int = 1\nfun f(): int = \"a\".upper()"))
+    }
+
+    @Test
+    fun genericFunctionsInferTheirTypeParameters() {
+        val generic = "fun <T> first(xs: List<T>, d: T): T = match xs { x :: _ -> x  _ -> d }\nfun <T> List<T>.second(): T? = if this.size > 1 then this[1] else null\n"
+        assertEquals(emptyList(), errors(generic + "fun f(): str = first([], \"y\")\nfun g(): int = [1, 2].second() ?: 0\nfun h(): List<int> = [[1]].second() ?: []"))
+        assertError("expected type 'int' but got str", generic + "fun f(): int = first([\"a\"], \"b\")")
+        assertError("expected type 'str' but got int", generic + "fun f(): str = first([\"a\"], 1)")
+        assertError("expected type 'int?' but got str?", generic + "fun f(): int? = [\"a\"].second()")
+        // a method for a specific receiver comes first
+        assertEquals(emptyList(), errors(generic + "fun List<int>.second(): str = \"own\"\nfun f(): str = [1].second()\nfun g(): str? = [\"a\"].second()"))
+    }
+
+    @Test
+    fun propertiesAreChecked() {
+        assertEquals(emptyList(), errors("record P { x: int }\nenum E { A, B(n: int) }\nval P.double: int = this.x * 2\nval E.isA: bool = match this { E.A -> true  _ -> false }\n" +
+            "val <T> List<T>.head: T? = if this.size > 0 then this[0] else null\nfun f(): int = P(1).double + ([3].head ?: 0) + (if E.A.isA then 1 else 0) + \"ab\".size"))
+        assertError("a node has attributes instead of vals", "node N(x: int)\nval N.y: int = 1")
+        assertError("a node has attributes instead of vals", "node N\nval N.y: int = 1")
+        assertError("a val has no parameters", "record P { x: int }\nval P.y(): int = 1")
+        assertError("a fun needs parameters", "record P { x: int }\nfun P.y: int = 1")
+        assertError("a val needs a receiver", "val y: int = 1")
+        assertError("is a field of", "record P { x: int }\nval P.x: int = 1")
+        assertError("already", "record P { x: int }\nval P.y: int = 1\nfun P.y(): int = 2")
+        // read like fields, not called
+        assertError("not found", "record P { x: int }\nval P.y: int = 1\nfun f(): int = P(1).y()")
+        assertError("not found", "record P { x: int }\nfun P.y(): int = 1\nfun f(): int = P(1).y")
+        assertError("missing", "record P { x: int }\nval P.y: int")
+    }
+
+    @Test
+    fun theStandardLibraryIsPartOfEveryProgram() {
+        assertEquals(emptyList(), errors("fun f(): int = [1, 2].sum() + [3].max() + ([1] - [1]).size + [1].union([2]).size + 1.max(2) + \"a\".upper().size\n" +
+            "fun g(): float = [1.5].sum()\nfun h(): List<str> = {\"k\": 1}.keys().reversed()"))
+        // the program's own declarations come first, without being duplicates
+        assertEquals(emptyList(), errors("fun List<int>.sum(): str = \"own\"\nfun f(): str = [1].sum()\nfun fail(m: int): int = m\nfun g(): int = fail(1)" +
+            "\nfun <T> List<T>.reversed(): int = 0\nfun h(): int = [1].reversed()"))
+        assertError("already", "fun List<int>.sum(): str = \"a\"\nfun List<int>.sum(): str = \"b\"")
+        // the file that is compiled may import std, it changes nothing
+        val dir = createTempDirectory("std").toFile()
+        val main = File(dir, "main.forge")
+        main.writeText("import \"std\"\nfun f(): int = [1, 2].sum()")
+        val context = Context()
+        Analyzer.instance(context).analyze(main.parseForge())
+        assertEquals(emptyList(), Log.instance(context).diagnostics.filter { it.severity == Severity.ERROR }.map { it.message })
+    }
+
+    @Test
+    fun nodesShareTheirMostSpecificSuperType() {
+        val nodes = "node Insn\nnode Push(v: int): Insn\nnode Label(name: str): Insn\nnode Jump(target: str): Insn\nnode Ref\nfor Push impl Ref\nfor Jump impl Ref\n"
+        assertEquals(emptyList(), errors(nodes + """
+            fun code(): List<Insn> = [Push(1), Label("end")] ++ [Jump("end")]
+            fun more(xs: List<Insn>): List<Insn> = xs ++ [Push(2)]
+            fun refs(): List<Ref> = [Push(1), Jump("x")]
+            fun pick(b: bool): Insn = if b then Push(1) else Label("l")
+        """))
+        assertError("but got List<Insn>", nodes + "fun f(): List<Ref> = [Push(1), Label(\"x\")]")
+    }
+
+    @Test
+    fun attributesOfInterfacesAreMembersOfTheirNodes() {
+        assertEquals(emptyList(), errors("node I\nnode A(v: int): I\nsyn I.d: int = 1\nsyn I.e: int\nsyn A.e: int = this.d\nfun f(a: A): int = a.d + a.e"))
+        assertEquals(emptyList(), errors("node I\nnode A(v: int)\nfor A impl I\nsyn I.d: int = 1\nfun f(a: A): int = a.d"))
+    }
+
+    @Test
+    fun membersOfConstructedValues() {
+        assertEquals(emptyList(), errors("node A(v: int)\nsyn A.d: int = this.v\nfun f(): int = A(1).d + A(2).v"))
+        assertEquals(emptyList(), errors("record R { x: int }\nfun f(): int = R(1).x"))
+    }
+
+    @Test
+    fun importsJoinFiles() {
+        val dir = createTempDirectory("forge-import").toFile()
+        try {
+            File(dir, "base.forge").writeText("node Expr\nnode Num(v: int): Expr\nsyn Expr.size: int = 1")
+            File(dir, "lib").mkdirs()
+            File(dir, "lib/more.forge").writeText("import \"../base.forge\"\nfun two(): Num = Num(2)")
+            val main = File(dir, "main.forge")
+            main.writeText("import \"base.forge\"\nimport \"lib/more.forge\"\nnode Neg(e: Expr): Expr\nsyn Neg.size: int = 1 + this.e.size\nfun f(): int = Neg(two()).size")
+            val context = Context()
+            Analyzer.instance(context).analyze(main.parseForge())
+            assertEquals(emptyList(), Log.instance(context).diagnostics.filter { it.severity == Severity.ERROR }.map { it.message })
+
+            // a diagnostic names the file it is in
+            File(dir, "bad.forge").writeText("node A(v: int)\nnode A(v: int)")
+            main.writeText("import \"bad.forge\"\nfun f(): int = 1")
+            val badContext = Context()
+            Analyzer.instance(badContext).analyze(main.parseForge())
+            assertTrue(Log.instance(badContext).diagnostics.any { it.span.toString().startsWith("bad.forge:2:") })
+
+            main.writeText("import \"missing.forge\"")
+            assertFailsWith<ImportException> { main.parseForge() }
+        } finally {
+            dir.deleteRecursively()
+        }
     }
 }

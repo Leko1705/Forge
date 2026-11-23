@@ -16,6 +16,19 @@ sealed interface Symbol {
     val span: SourceSpan?
 }
 
+/**
+ * `const name: T = value`: a value known when Forge runs, inlined wherever it is used. The type is the declared
+ * one, or the one of the value, which is attributed on first use (constants may be used before their definition).
+ */
+class ConstSymbol(override val name: String, val declared: Type?, override val span: SourceSpan?) : Symbol {
+    enum class State { NEW, IN_PROGRESS, DONE }
+
+    var state: State = State.NEW
+    var inferred: Type? = null
+    override val type: Type get() = declared ?: inferred ?: ErrorType
+    override val kind: Kind get() = Kind.VAL
+}
+
 sealed interface CallableSymbol : Symbol {
     val params: List<VarSymbol>
     val returnType: Type
@@ -45,13 +58,11 @@ val boolSymbol = primitive("bool", BoolType)
 
 val strSymbol = primitive("str", StrType)
 
-fun listSymbol(listType: ListType) = primitive("List", listType) {
-    add(VarSymbol("size", IntType, null, VarSymbol.VarKind.RECORD_FIELD))
-}
+fun setSymbol(setType: SetType) = primitive("Set", setType)
 
-fun mapSymbol(mapType: MapType) = primitive("Map", mapType) {
-    add(VarSymbol("size", IntType, null, VarSymbol.VarKind.RECORD_FIELD))
-}
+fun listSymbol(listType: ListType) = primitive("List", listType)
+
+fun mapSymbol(mapType: MapType) = primitive("Map", mapType)
 
 class VarSymbol(
     override val name: String,
@@ -90,13 +101,21 @@ data class ConcreteNodeSymbol(
 ) : NodeSymbol, CallableSymbol {
     override val params: List<VarSymbol> get() = fields
     override val returnType: Type get() = ComplexType(name)
+
+    // a node is declared once; `parents` grows after the symbol is used as a key, so it must not be hashed
+    override fun equals(other: Any?): Boolean = this === other
+    override fun hashCode(): Int = System.identityHashCode(this)
 }
 
 data class InterfaceNodeSymbol(
     override val name: String,
     override val parents: MutableList<InterfaceNodeSymbol>,
     override val span: SourceSpan
-) : NodeSymbol
+) : NodeSymbol {
+    // a node is declared once; `parents` grows after the symbol is used as a key, so it must not be hashed
+    override fun equals(other: Any?): Boolean = this === other
+    override fun hashCode(): Int = System.identityHashCode(this)
+}
 
 data class EnumSymbol(
     override val name: String,
@@ -142,8 +161,28 @@ data class FunctionSymbol(
     override val name: String,
     override val params: List<VarSymbol>,
     override val returnType: Type,
-    override val span: SourceSpan
+    override val span: SourceSpan,
+    /** `op fun`: called for an operator applied to its receiver, e.g. `plus` for `a + b`. */
+    val isOperator: Boolean = false,
+    /** For builtin functions: the operation of the runtimes it is, e.g. `str.upper`. */
+    val builtin: String? = null,
+    /** The type parameters of a generic function: `T` in `fun <T> List<T>.distinct()`. */
+    val typeParams: List<String> = emptyList(),
+    /** For a use of a generic function with some types known: the declaration. */
+    val generic: FunctionSymbol? = null,
+    /** `val T.name: R`: read like a field, `x.name`; a method without parameters otherwise. */
+    val isProperty: Boolean = false,
 ) : CallableSymbol {
+    /** The declaration, also for a use of a generic function. */
+    val declaration: FunctionSymbol get() = generic ?: this
+
+    /** This function with type variables replaced: a use of a generic function. */
+    fun instantiate(bindings: Map<String, Type>): FunctionSymbol = if (typeParams.isEmpty()) this else copy(
+        params = params.map { VarSymbol(it.name, it.type.substitute(bindings), it.span, it.varKind) },
+        returnType = returnType.substitute(bindings),
+        generic = declaration,
+    )
+
     override val type: Type get() = FunctionType(params.map { it.type }, returnType)
     override val kind: Kind = Kind.MTH
 }

@@ -12,6 +12,8 @@ import com.leko.forge.types.*
  * - `Graph`: a directed graph (`entry`, `vertices`, `edges`, `root`, `succ(v)`, `pred(v)`, `reachable()`, ...)
  * - `graphOf(entry: Vertex, edges: List<Edge>): Graph` builds a graph from edges, e.g. a call graph
  * - `Span(source, line, column, offset, length, text)` and `spanOf(node): Span?`: where a parser read a node
+ *
+ * The builtin functions (`str.upper()`, `fail(message)`, ...) are `ext fun`s of the standard library, std.forge.
  */
 object Builtins {
 

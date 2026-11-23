@@ -40,6 +40,24 @@ fun recordAlreadyExist(span: SourceSpan?, recordName: String): Diagnostic =
         "record '$recordName' already exist"
     )
 
+fun constantAlreadyExist(span: SourceSpan?, name: String): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E008", "'$name' is already defined; a constant needs a name of its own")
+
+fun invalidOperatorFunction(span: SourceSpan?, message: String): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E008", message)
+
+fun invalidProperty(span: SourceSpan?, message: String): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E008", message)
+
+fun emptyMapIsColon(span: SourceSpan?): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E009", "{} is an empty set; an empty map is {:}")
+
+fun constantUsesThis(span: SourceSpan?, name: String): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E008", "the value of constant '$name' can not use 'this'")
+
+fun constantDependsOnItself(span: SourceSpan?, name: String): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E008", "the value of constant '$name' depends on itself")
+
 fun functionAlreadyExist(span: SourceSpan?, functionName: String): Diagnostic =
     Diagnostic(
         Severity.ERROR,
@@ -182,7 +200,7 @@ fun externalFunctionMustHaveNoBody(span: SourceSpan?): Diagnostic =
         Severity.ERROR,
         span,
         "E008",
-        "external function must not have a body"
+        "ext function must not have a body"
     )
 
 fun missingSynAttributeImplementationFor(span: SourceSpan?, owner: String, attrName: String): Diagnostic =

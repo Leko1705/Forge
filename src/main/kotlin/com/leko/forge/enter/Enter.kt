@@ -9,6 +9,8 @@ import com.leko.forge.attr.setSym
 import com.leko.forge.context.Context
 import com.leko.forge.model.*
 import com.leko.forge.types.toType
+import com.leko.forge.types.withTypeParams
+import com.leko.forge.parse.isStd
 import com.leko.forge.util.Log
 
 
@@ -88,20 +90,26 @@ class Enter private constructor(context: Context) {
             symTab[sym.type] = sym
             record.setSym(sym)
         }
-        for (func in root.function()) {
-            if (func.receiver != null) continue
-            if (func.name.text in symTab) {
+        // the program's functions first: a function of the standard library with the same name gives way
+        for (func in root.function().sortedBy { it.isStd() }) {
+            if (func.receiver != null || func.property != null) continue
+            val hidden = func.name.text in symTab
+            if (hidden && !func.isStd()) {
                 log.diag(functionAlreadyExist(func.name.span, func.name.text))
                 continue
             }
+            val typeParams = func.typeParams.map { it.text }
             val sym = FunctionSymbol(
                 null,
                 func.name.text,
-                func.parameter().map { VarSymbol(it.name.text, it.ty.toType(), it.name.span, VarSymbol.VarKind.PARAMETER) },
-                func.ty.toType(),
+                func.parameter().map { VarSymbol(it.name.text, it.ty.toType().withTypeParams(typeParams), it.name.span, VarSymbol.VarKind.PARAMETER) },
+                func.ty.toType().withTypeParams(typeParams),
                 func.name.span,
+                typeParams = typeParams,
+                builtin = if (func.EXT() != null && func.isStd()) func.name.text else null,
             )
-            symTab.functions[sym.name] = sym
+            // hidden by one of the program: only the standard library itself uses it
+            if (hidden) symTab.stdFunctions[sym.name] = sym else symTab.functions[sym.name] = sym
             func.setSym(sym)
         }
         for (inhDef in root.inhDef()) {
@@ -163,6 +171,16 @@ class Enter private constructor(context: Context) {
                 }
                 symTab.ports[name] = PortSymbol(name, portDef.inherited != null, ident.span)
             }
+        }
+        for (const in root.constDef()) {
+            val name = const.name.text
+            if (name in symTab || name in symTab.constants || name in symTab.ports || name in symTab.inheritedAttributes) {
+                log.diag(constantAlreadyExist(const.name.span, name))
+                continue
+            }
+            val sym = ConstSymbol(name, const.ty?.toType(), const.name.span)
+            symTab.constants[name] = sym
+            const.setSym(sym)
         }
         for (graph in root.graphDef()) {
             val name = graph.name.text

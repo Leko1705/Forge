@@ -6,6 +6,7 @@ import com.leko.forge.analysis.*
 import com.leko.forge.context.Context
 import com.leko.forge.model.*
 import com.leko.forge.types.*
+import com.leko.forge.parse.isStd
 import com.leko.forge.util.Diagnostic
 import com.leko.forge.util.Log
 import com.leko.forge.util.Severity
@@ -45,7 +46,11 @@ class Attr private constructor(context: Context) {
     private enum class FlowRole { SOURCE, TARGET, CHILD }
 
 
+    /** The definitions of the constants, attributed when they are first used. */
+    private var constants: Map<ConstSymbol, ForgeParser.ConstDefContext> = emptyMap()
+
     fun attr(root: ForgeParser.RootContext) {
+        constants = root.constDef().mapNotNull { def -> def.symbol?.let { it to def } }.toMap()
         root.accept(TypeAttrib())
     }
 
@@ -72,6 +77,7 @@ class Attr private constructor(context: Context) {
                     return ctx.setType(PortType)
                 }
             }
+            if (sym == null) sym = symTab.constants[name]?.also { attribConst(it) }
             if (sym == null) sym = resolve.resolve(name)
             if (sym == null && env.value.delegateIndexVarEnabled) {
                 sym = VarSymbol(name, IntType, ctx.IDENT().span)
@@ -90,6 +96,49 @@ class Attr private constructor(context: Context) {
                 return ctx.setType(ErrorType)
             }
             return ctx.setType(sym.type)
+        }
+
+        /**
+         * The type of a constant: its value is attributed on its own (no locals, no `this`), the first time the
+         * constant is used or defined. A constant whose value uses itself is an error.
+         */
+        private fun attribConst(sym: ConstSymbol) {
+            when (sym.state) {
+                ConstSymbol.State.DONE -> return
+                ConstSymbol.State.IN_PROGRESS -> {
+                    log.diag(constantDependsOnItself(sym.span, sym.name))
+                    sym.inferred = ErrorType
+                    sym.state = ConstSymbol.State.DONE
+                    return
+                }
+                ConstSymbol.State.NEW -> {}
+            }
+            val def = constants[sym] ?: return
+            sym.state = ConstSymbol.State.IN_PROGRESS
+            val outer = env
+            env = Env(AttributeContext(Scope(), expected = sym.declared))
+            try {
+                val type = def.value.attribType()
+                findThis(def.value)?.let { log.diag(constantUsesThis(it.span, sym.name)) }
+                if (sym.state == ConstSymbol.State.IN_PROGRESS) {
+                    sym.declared?.let { chk.checkAssignable(it, type) }
+                    sym.inferred = type
+                }
+            } finally {
+                env = outer
+                sym.state = ConstSymbol.State.DONE
+            }
+        }
+
+        private fun findThis(tree: org.antlr.v4.runtime.tree.ParseTree): ForgeParser.ThisExprContext? {
+            if (tree is ForgeParser.ThisExprContext) return tree
+            for (i in 0 until tree.childCount) findThis(tree.getChild(i))?.let { return it }
+            return null
+        }
+
+        override fun visitConstDef(ctx: ForgeParser.ConstDefContext): Type? {
+            ctx.symbol?.let { attribConst(it) }
+            return null
         }
 
         /** Variables of the enclosing scopes, innermost first. */
@@ -149,6 +198,11 @@ class Attr private constructor(context: Context) {
             block()
             this.env = env
         }
+
+        /** Whether a receiver is a value or a type (`Type.INT`); a call, also of a constructor, is a value. */
+        private fun ForgeParser.ExpressionContext.receiverKind(): Kind =
+            if (this is ForgeParser.FunctionCallContext) Kind.VAL
+            else symbol?.kind?.takeIf { it != Kind.MTH } ?: Kind.VAL
 
         private fun resolveMember(owner: Type, member: String, receiverKind: Kind, memberKind: Kind): Symbol? {
             val owner = if (owner is OptionalType) {
@@ -307,13 +361,14 @@ class Attr private constructor(context: Context) {
             val expr = ctx.expression()
 
             val sym = ctx.symbol ?: return null
+            resolve.inStd = ctx.isStd()
 
             if (expr != null) {
                 withChildScope {
 
                     sym.params.forEach { env.value.scope.enter(it) }
 
-                    if (ctx.EXTERNAL() != null) {
+                    if (ctx.EXT() != null) {
                         log.diag(externalFunctionMustHaveNoBody(ctx.expression().span))
                     }
                     if (ctx.receiver == null) {
@@ -333,10 +388,11 @@ class Attr private constructor(context: Context) {
                 }
             }
             else {
-                if (ctx.EXTERNAL() == null) {
+                if (ctx.EXT() == null) {
                     log.diag(missingFunctionBody(ctx.name.span))
                 }
             }
+            resolve.inStd = false
 
             return null
         }
@@ -459,9 +515,29 @@ class Attr private constructor(context: Context) {
             return ctx.setType(ctx.expression().attribType())
         }
 
+        // ---- operators: the builtin meaning for builtin types, else an `op fun` of the receiver ----------
+
+        private fun numeric(t: Type) = t == IntType || t == FloatType
+
+        /**
+         * Attributes [ctx] as a call of the operator function [name] of [receiver] with arguments of [args]
+         * types, if there is one; returns its result type, or null if there is none.
+         */
+        private fun operator(ctx: ParserRuleContext, receiver: Type, name: String, args: List<Type>): Type? {
+            if (receiver == ErrorType || receiver is OptionalType || receiver == NullType || args.any { it == ErrorType }) return null
+            val fn = resolve.resolve(receiver, name, Kind.VAL, Kind.MTH) as? FunctionSymbol ?: return null
+            if (!fn.isOperator) return null
+            for ((param, arg) in fn.params.zip(args)) chk.checkAssignable(param.type, arg)
+            ctx.attach("operator", fn)
+            return fn.returnType
+        }
+
         override fun visitRelational(ctx: ForgeParser.RelationalContext): Type {
             val lhsTy = ctx.left.attribType()
             val rhsTy = ctx.right.attribType()
+            if (!(numeric(lhsTy) && numeric(rhsTy))) {
+                operator(ctx, lhsTy, "compareTo", listOf(rhsTy))?.let { return ctx.setType(BoolType) }
+            }
             chk.checkNumericOp(lhsTy, rhsTy, ctx.op.text)
             return ctx.setType(BoolType)
         }
@@ -470,11 +546,15 @@ class Attr private constructor(context: Context) {
             val container = ctx.right.attribType()
             when (container) {
                 is ListType -> withExpected(container.elem) { chk.checkAssignable(container.elem, ctx.left.attribType()) }
+                is SetType -> withExpected(container.elem) { chk.checkAssignable(container.elem, ctx.left.attribType()) }
                 is MapType -> withExpected(container.key) { chk.checkAssignable(container.key, ctx.left.attribType()) }
+                StrType -> chk.checkAssignable(StrType, ctx.left.attribType())
                 ErrorType -> ctx.left.attribType()
                 else -> {
-                    ctx.left.attribType()
-                    log.diag(typeMismatch(ctx.right.span, listOf(ListType(ArbitraryType), MapType(ArbitraryType, ArbitraryType)), container))
+                    val element = ctx.left.attribType()
+                    if (operator(ctx, container, "contains", listOf(element)) == null) {
+                        log.diag(typeMismatch(ctx.right.span, listOf(ListType(ArbitraryType), SetType(ArbitraryType), MapType(ArbitraryType, ArbitraryType), StrType), container))
+                    }
                 }
             }
             return ctx.setType(BoolType)
@@ -505,8 +585,12 @@ class Attr private constructor(context: Context) {
 
         override fun visitListComprehension(ctx: ForgeParser.ListComprehensionContext): Type {
             val iterable = ctx.iterable.attribType()
-            chk.checkAssignable(ListType(ArbitraryType), iterable)
-            val iterType = if (iterable is ListType) iterable.elem else ErrorType
+            if (iterable !is SetType) chk.checkAssignable(ListType(ArbitraryType), iterable)
+            val iterType = when (iterable) {
+                is ListType -> iterable.elem
+                is SetType -> iterable.elem
+                else -> ErrorType
+            }
 
             if (ctx.acc == null) {
                 withChildScope {
@@ -548,10 +632,38 @@ class Attr private constructor(context: Context) {
             return ctx.setType(MapType(keyRes, valueRes))
         }
 
+        override fun visitSetLiteral(ctx: ForgeParser.SetLiteralContext): Type {
+            val expected = env.value.expected
+            if (ctx.expression().isEmpty() && expected is MapType) {
+                log.diag(emptyMapIsColon(ctx.span))
+                return ctx.setType(ErrorType)
+            }
+            val elemTypes = ctx.expression().map { it.attribType() }
+            val res = chk.checkAllAssignable(elemTypes, (expected as? SetType)?.elem)
+            return ctx.setType(SetType(res))
+        }
+
+        override fun visitEmptyMapLiteral(ctx: ForgeParser.EmptyMapLiteralContext): Type {
+            val expected = env.value.expected
+            if (expected is MapType) return ctx.setType(expected)
+            log.diag(listTypeIsAmbiguous(ctx.span))
+            return ctx.setType(MapType(ArbitraryType, ArbitraryType))
+        }
+
+        override fun visitRangeLiteral(ctx: ForgeParser.RangeLiteralContext): Type {
+            withExpected(IntType) {
+                chk.checkAssignable(IntType, ctx.lo.attribType())
+                chk.checkAssignable(IntType, ctx.hi.attribType())
+            }
+            return ctx.setType(ListType(IntType))
+        }
+
         override fun visitAddSub(ctx: ForgeParser.AddSubContext): Type {
             val lhsTy = ctx.left.attribType()
             val rhsTy = ctx.right.attribType()
             val isAdd = ctx.PLUS() != null
+            val builtin = (numeric(lhsTy) && numeric(rhsTy)) || (isAdd && lhsTy == StrType && rhsTy == StrType)
+            if (!builtin) operator(ctx, lhsTy, if (isAdd) "plus" else "minus", listOf(rhsTy))?.let { return ctx.setType(it) }
             return ctx.setType(if (isAdd) {
                 chk.checkAdditive(lhsTy, rhsTy)
             } else {
@@ -563,6 +675,9 @@ class Attr private constructor(context: Context) {
             val lhsTy = ctx.left.attribType()
             val rhsTy = ctx.right.attribType()
             val isMod = ctx.PERCENT() != null
+            val name = if (isMod) "rem" else if (ctx.STAR() != null) "times" else "div"
+            val builtin = if (isMod) lhsTy == IntType && rhsTy == IntType else numeric(lhsTy) && numeric(rhsTy)
+            if (!builtin) operator(ctx, lhsTy, name, listOf(rhsTy))?.let { return ctx.setType(it) }
             return ctx.setType(if (isMod) {
                 chk.checkAssignable(IntType, lhsTy)
                 chk.checkAssignable(IntType, rhsTy)
@@ -572,9 +687,31 @@ class Attr private constructor(context: Context) {
             })
         }
 
+        override fun visitShift(ctx: ForgeParser.ShiftContext): Type {
+            // the operator is made of adjacent tokens: `a > > b` is no shift
+            val tokens = ctx.LT() + ctx.GT()
+            val sorted = tokens.map { it.symbol }.sortedBy { it.startIndex }
+            if (sorted.zipWithNext().any { (a, b) -> a.stopIndex + 1 != b.startIndex }) {
+                log.diag(invalidOperatorFunction(ctx.span, "a shift operator is written without spaces: << >> >>>"))
+            }
+            val lhsTy = ctx.left.attribType()
+            val rhsTy = ctx.right.attribType()
+            val name = when {
+                ctx.LT().isNotEmpty() -> "shl"
+                ctx.GT().size == 3 -> "ushr"
+                else -> "shr"
+            }
+            if (!(lhsTy == IntType && rhsTy == IntType)) operator(ctx, lhsTy, name, listOf(rhsTy))?.let { return ctx.setType(it) }
+            chk.checkAssignable(IntType, lhsTy)
+            chk.checkAssignable(IntType, rhsTy)
+            return ctx.setType(IntType)
+        }
+
         override fun visitConcat(ctx: ForgeParser.ConcatContext): Type {
             val lhsTy = ctx.left.attribType()
             val rhsTy = withExpected(lhsTy) { ctx.right.attribType() }
+            val builtin = (lhsTy is ListType && rhsTy is ListType) || (lhsTy is MapType && rhsTy is MapType) || (lhsTy is SetType && rhsTy is SetType)
+            if (!builtin) operator(ctx, lhsTy, "concat", listOf(rhsTy))?.let { return ctx.setType(it) }
             return ctx.setType(chk.checkConcatOp(lhsTy, rhsTy))
         }
 
@@ -584,7 +721,24 @@ class Attr private constructor(context: Context) {
             if (lhsTy is MapType) env = env.copy(value = env.value.copy(expected = lhsTy.key))
             val rhsTy = ctx.key.attribType()
             this.env = prevEnv
+            if (!(lhsTy is ListType || lhsTy is MapType || lhsTy == StrType)) {
+                operator(ctx, lhsTy, "get", listOf(rhsTy))?.let { return ctx.setType(it) }
+            }
             return ctx.setType(chk.checkContainerAccess(lhsTy, rhsTy))
+        }
+
+        override fun visitSliceAccess(ctx: ForgeParser.SliceAccessContext): Type {
+            val lhsTy = ctx.container.attribType()
+            val bounds = listOfNotNull(ctx.lo, ctx.hi).map { withExpected(IntType) { it.attribType() } }
+            if (lhsTy is ListType || lhsTy == StrType) {
+                bounds.forEach { chk.checkAssignable(IntType, it) }
+                return ctx.setType(lhsTy)
+            }
+            // an omitted bound is null
+            val args = listOf(ctx.lo, ctx.hi).map { it?.type ?: NullType }
+            operator(ctx, lhsTy, "slice", args)?.let { return ctx.setType(it) }
+            if (lhsTy != ErrorType) log.diag(typeMismatch(ctx.container.span, listOf(ListType(ArbitraryType), StrType), lhsTy))
+            return ctx.setType(ErrorType)
         }
 
         override fun visitContextualized(ctx: ForgeParser.ContextualizedContext): Type {
@@ -601,11 +755,13 @@ class Attr private constructor(context: Context) {
 
         override fun visitNegation(ctx: ForgeParser.NegationContext): Type {
             val exprTy = ctx.expression().attribType()
+            if (!numeric(exprTy)) operator(ctx, exprTy, "neg", emptyList())?.let { return ctx.setType(it) }
             return ctx.setType(chk.checkNegation(exprTy))
         }
 
         override fun visitInversion(ctx: ForgeParser.InversionContext): Type {
             val exprTy = ctx.expression().attribType()
+            if (exprTy != IntType && exprTy != BoolType) operator(ctx, exprTy, "not", emptyList())?.let { return ctx.setType(it) }
             return ctx.setType(chk.checkInversion(exprTy))
         }
 
@@ -667,10 +823,9 @@ class Attr private constructor(context: Context) {
             val recvTy = recv.attribOwner(setOf(Kind.VAL, Kind.TYP))
             if (recvTy == ErrorType) return ctx.setType(ErrorType)
 
-            val recvSym = recv.symbol
             val fieldName = ctx.name.text
 
-            val sym = resolveMember(recvTy, fieldName, recvSym?.kind?.takeIf { it != Kind.MTH } ?: Kind.VAL, Kind.VAL)
+            val sym = resolveMember(recvTy, fieldName, recv.receiverKind(), Kind.VAL)
 
             if (sym is InhSymbol && recv !is ForgeParser.ThisExprContext) {
                 log.diag(invalidExternalInhAttribAccess(ctx.span))
@@ -684,7 +839,8 @@ class Attr private constructor(context: Context) {
                 return ctx.setType(ErrorType)
             }
             ctx.setSym(sym)
-            return ctx.setType(sym.type)
+            // a property (`val`) is read like a field: its value is what it returns
+            return ctx.setType(if (sym is FunctionSymbol) sym.returnType else sym.type)
         }
 
         override fun visitFunctionCall(ctx: ForgeParser.FunctionCallContext): Type {
@@ -692,9 +848,20 @@ class Attr private constructor(context: Context) {
             if (env.value.inFlow && lookupLocal(name) == null) {
                 attribFlowCall(ctx)?.let { return it }
             }
-            val sym = chk.resolveFunction(name) ?: run {
+            var sym = chk.resolveFunction(name) ?: run {
                 ctx.expression().forEach { it.attribType() }
                 return ctx.setType(ErrorType)
+            }
+            // a generic function: its type parameters are what the arguments are
+            if (sym is FunctionSymbol && sym.typeParams.isNotEmpty()) {
+                val bindings = mutableMapOf<String, Type>()
+                val argTypes = attribGenericArgs(ctx.expression(), sym.params.map { it.type }, bindings)
+                val use = sym.instantiate(bindings)
+                ctx.setSym(use)
+                if (argTypes.size < use.params.size) log.diag(tooFewArguments(ctx.span))
+                if (argTypes.size > use.params.size) log.diag(tooManyArguments(ctx.span))
+                use.params.zip(argTypes).forEach { (p, t) -> chk.checkAssignable(p.type, t) }
+                return ctx.setType(use.returnType)
             }
             ctx.setSym(sym)
             if (sym is RecordSymbol && sym.opaque) {
@@ -719,6 +886,24 @@ class Attr private constructor(context: Context) {
                 }
             }
             return ctx.setType(sym.returnType)
+        }
+
+        /**
+         * The arguments of a call of a generic function, binding its type parameters. Arguments whose type
+         * comes from what is expected (`[]`, `{}`, `{:}`, `null`) are attributed last, once the others bound
+         * what they can.
+         */
+        private fun attribGenericArgs(args: List<ForgeParser.ExpressionContext>, params: List<Type>, bindings: MutableMap<String, Type>): List<Type> {
+            val types = arrayOfNulls<Type>(args.size)
+            fun attrib(i: Int) {
+                val param = params.getOrNull(i)?.substitute(bindings)
+                types[i] = if (param == null || param.hasTypeVars()) args[i].attribType() else withExpected(param) { args[i].attribType() }
+                params.getOrNull(i)?.let { unify(it, types[i]!!, bindings) }
+            }
+            val late = args.indices.filter { args[it].text in setOf("[]", "{}", "{:}", "null") }
+            args.indices.filter { it !in late }.forEach(::attrib)
+            late.forEach(::attrib)
+            return types.map { it!! }
         }
 
         /** `entry(x)`, `sequence(xs)`, `bound(port)` and `port(child)` inside flows; `null` for other calls. */
@@ -765,17 +950,35 @@ class Attr private constructor(context: Context) {
         override fun visitMethodCall(ctx: ForgeParser.MethodCallContext): Type {
             val recv = ctx.receiver
             val recvTy = recv.attribOwner(setOf(Kind.VAL, Kind.TYP))
-            val argTypes = ctx.expression().drop(1).map { it.attribType() }   // whatever the grammar actually names these
+            val args = ctx.expression().drop(1)
 
-            if (recvTy == ErrorType) return ctx.setType(ErrorType)
+            if (recvTy == ErrorType) {
+                args.forEach { it.attribType() }
+                return ctx.setType(ErrorType)
+            }
 
-            val recvSym = recv.symbol
             val methodName = ctx.name.text
-            val sym = resolveMember(recvTy, methodName, recvSym?.kind?.takeIf { it != Kind.MTH } ?: Kind.VAL, Kind.MTH)
+            var sym = resolveMember(recvTy, methodName, recv.receiverKind(), Kind.MTH)
 
             if (sym == null) {
+                args.forEach { it.attribType() }
                 log.diag(methodNotFound(ctx.name.span, recvTy.toString(), methodName))
                 return ctx.setType(ErrorType)
+            }
+            val argTypes: List<Type>
+            if (sym is FunctionSymbol && sym.declaration.typeParams.isNotEmpty()) {
+                // a generic method: what the receiver does not bind, the arguments do
+                val declaration = sym.declaration
+                val bindings = mutableMapOf<String, Type>()
+                unify(declaration.receiver!!.type, if (recvTy is OptionalType) recvTy.elem else recvTy, bindings)
+                argTypes = attribGenericArgs(args, declaration.params.map { it.type }, bindings)
+                sym = declaration.instantiate(bindings)
+            } else {
+                val expected = (sym.type as? CallableType)?.parameters.orEmpty()
+                argTypes = args.mapIndexed { i, arg ->
+                    val e = expected.getOrNull(i)
+                    if (e == null) arg.attribType() else withExpected(e) { arg.attribType() }
+                }
             }
             ctx.setSym(sym)
 

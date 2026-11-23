@@ -28,14 +28,15 @@ class Generator private constructor(private val context: Context) {
 
     fun generate(module: LLIRModule) {
         val targetName = options.get("-t")?.first() ?: "kotlin"
-        val target = targets[targetName]!!
+        val target = targets[targetName]
+            ?: throw IllegalArgumentException("unknown target '$targetName'; the targets are ${targets.names.joinToString(", ")}")
         val bytes = target.generate(module, context)
 
         val sourceName = options.get("-o")?.first() ?: module.sourceName ?: "out"
 
         val dir = options.get("-d")?.first()?.ifBlank { "." } ?: "."
 
-        val outFile = File(dir, File(sourceName).nameWithoutExtension + target.extension)
+        val outFile = File(dir, target.outputName(module, File(sourceName).nameWithoutExtension) + target.extension)
         outFile.parentFile.mkdirs()
         outFile.writeBytes(bytes)
         log.diag(targetWrittenSuccessfully(null, targetName, outFile.absolutePath))

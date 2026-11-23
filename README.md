@@ -9,7 +9,25 @@ the tree, and functions. Forge checks it and generates Kotlin.
 build/install/forge/bin/forge -f lang.forge -d out -p my.lang     # writes out/lang.kt in package my.lang
 ```
 
-Options: `-f` files, `-d` output directory, `-o` output name, `-p` package, `-t` target (`kotlin`), `-opt`.
+Options: `-f` files, `-d` output directory, `-o` output name, `-p` package (namespace for C++), `-t` target
+(`kotlin`, `java`, `python`, `cpp`, `rust`, `ocaml`; default `kotlin`), `-opt` optimize, `-keep` names to keep.
+
+`-opt` optimizes before code is generated, for every target:
+
+- **Constant folding**: arithmetic, comparisons and logic on literals, string concatenation, `if` with a known
+  condition, `?:`, `!!` and `== null` on literals, `size`, `[i]` and `in` on lists of literals, so
+  `const limit = 4 * 3 + 1` becomes `13` where it is used. Nothing that fails at run time (a division by zero, an
+  index out of bounds) is folded.
+- **Dead code elimination**: everything the compiled file declares is kept; of the files it imports, only what is
+  used: functions, attributes with their equations, graphs and parser rules. `-keep f,Recv.g,attr,P,P.rule` keeps
+  more, e.g. a parser the program around the generated code uses (`-keep ClassFile` for the Kiln driver).
+
+A file can use the declarations of others: `import "jvm.forge"` (relative to the importing file) at the top
+makes the declarations of the imported file part of this one, which is then compiled to one Kotlin file.
+The [standard library](#the-standard-library) is part of every program, without an import.
+
+For a complete example, see [examples/kiln](examples/kiln): a small language whose compiler is written in
+Forge and generates JVM class files, using a reusable JVM backend (`jvm.forge`).
 
 ## The language
 
@@ -22,13 +40,103 @@ for Function impl Named                  // more interfaces
 enum Type { INT, STR, ERROR(msg: str) }
 record Diagnostic { msg: str, line: int }
 fun Type.repr(): str = match this { Type.INT -> "int"  Type.STR -> "str"  Type.ERROR(m) -> m }
-external fun str.int(): int              // implemented in Kotlin
+ext fun str.int(): int                   // implemented in the target language
+val Type.isError: bool = match this { Type.ERROR(_) -> true  _ -> false }   // a property: t.isError
+const greeting = "hello"                 // a constant, with an inferred type
+const limit: int = 2 * width             // or a declared one; constants may use each other in any order
 ```
 
-Types: `int`, `float`, `bool`, `str`, `List<T>`, `Map<K, V>`, `T?`, nodes, enums, records, `Vertex`, `Graph`, `Edge`.
-Expressions: arithmetic, `++` (lists, maps), `x in xs`, `a ?: b`, `x!!`, `v as T`, `v is T`, `if .. then .. else`,
-`match` (enum variants, lists `[a, b]`, `head :: tail`, values, guards `p if cond`), comprehensions
-(`f(x) for x in xs`, folds `acc + x for x in xs with acc = 0`). Comments: `//` and `/* */`.
+A `val` is a property of a record, an enum or a builtin type (`val <T> List<T>.last: T?`), read like a field
+(`t.isError`); its value is computed at each use. Nodes have attributes instead: `syn N.name`, which are cached. An
+`ext val` is implemented like an `ext fun` without parameters (`int_text` for `fun int.text()`).
+
+Constants are inlined: the generated code has no variable for a constant, every use of it is its value. The value
+can not use `this` or local variables, and a constant whose value depends on itself is an error.
+
+Types: `int`, `float`, `bool`, `str`, `List<T>`, `Set<T>`, `Map<K, V>`, `T?`, nodes, enums, records, `Vertex`,
+`Graph`, `Edge`. A list of different nodes has their most specific common interface as element type, e.g.
+`[Push(1), Label("end")]` is a `List<Insn>` if both are `Insn`s.
+Expressions: arithmetic, shifts `<<`, `>>` (keeps the sign) and `>>>`, `++` (lists, sets, maps), `x in xs`, `a ?: b`,
+`x!!`, `v as T`, `v is T`, `if .. then .. else`, `match` (enum variants, lists `[a, b]`, `head :: tail`, values, guards
+`p if cond`), comprehensions (`f(x) for x in xs`, folds `acc + x for x in xs with acc = 0`, also over sets).
+Comments: `//` and `/* */`.
+
+| Literal or access     | Meaning                                                                                 |
+|-----------------------|-----------------------------------------------------------------------------------------|
+| `[1, 2]`, `[0:n]`     | a list; the ints `0` to `n - 1`                                                         |
+| `{1, 2}`, `{}`        | a set (no element twice, in the order they were added); the empty set                  |
+| `{"a": 1}`, `{:}`     | a map; the empty map                                                                    |
+| `xs[i]`, `s[i]`       | an element, a character of a str; below 0 counts from the end (`xs[-1]` is the last)    |
+| `xs[a:b]`, `s[a:b]`   | elements (characters) `a` to `b - 1`; a bound may be omitted (`xs[1:]`), below 0 counts from the end, bounds out of range are clamped |
+| `t in s`              | also for strs: whether `t` is part of `s`                                               |
+
+### Operator functions
+
+`op fun` makes an operator work for a type, Kotlin style; the builtin meaning comes first, so they are for the
+types that have none (records, nodes, enums) and for builtin types an operator does not apply to:
+
+```
+record Vec { x: int, y: int }
+op fun Vec.plus(o: Vec): Vec = Vec(this.x + o.x, this.y + o.y)      // a + b
+op fun Vec.get(i: int): int = if i == 0 then this.x else this.y     // v[i]
+op fun Vec.compareTo(o: Vec): int = this.x - o.x                     // a < b is a.compareTo(b) < 0
+op fun str.times(n: int): str = acc + this for _i in [0:n] with acc = ""  // "ab" * 3
+```
+
+| Operator               | Function                                  |
+|------------------------|-------------------------------------------|
+| `+ - * / % ++`         | `plus minus times div rem concat`         |
+| `<< >> >>>`            | `shl shr ushr`                            |
+| `< > <= >=`            | `compareTo(other): int`                   |
+| `-x`, `!x`             | `neg()`, `not()`                          |
+| `x[i]`, `x[a:b]`       | `get(i)`, `slice(lo: int?, hi: int?)` (an omitted bound is `null`) |
+| `e in x`, `e !in x`    | `x.contains(e): bool`                     |
+
+### The standard library
+
+[std.forge](src/main/resources/forge/std.forge) is bundled with Forge and part of every program, like Kotlin's
+`kotlin` package (`import "std"` is allowed but changes nothing). Its `ext fun`s are implemented by the runtime of
+every target; the rest is Forge code, which a generated compiler contains only if it uses it, also without `-opt`.
+A function or `val` the program declares with the same receiver and name (or the same name, for `char` and `fail`)
+comes first.
+
+| Of        | Functions and properties                                                                                       |
+|-----------|-------------------------------------------------------------------------------------------------------|
+| `int`, `float`, `bool` | `str()`: as text (floats like Kotlin's `Float.toString`)                                |
+| `int`, `float` | `max(other)`, `min(other)`; `int.abs()`                                                          |
+| `str`     | `size`, `toInt()`, `toFloat()` (fail unless the whole text is a number), `indexOf(t)` (-1 if absent), `startsWith(t)`, `endsWith(t)`, `replace(a, b)`, `upper()`, `lower()`, `trim()`, `split(separator)`, `code(i)`, `utf8()` (the bytes), `unescape()` (`\n \t \r \0`; `\x` is x) |
+| `List<T>` | `size`, `indexOf(x)`, `reversed()`, `toSet()`; `List<str>.join(separator)`; `union(other)`: the elements, then those of `other` not in it (no duplicates); `minus(other)`, also `xs - ys`; `distinct()` (first occurrences, in order); `disjoint(other)` |
+| `List<int>`, `List<float>` | `sum()`, `max()`, `min()` (fail for an empty list)                                   |
+| `Set<T>`  | `size`, `toList()`, `remove(x)`                                                                                |
+| `Map<K, V>` | `size`, `keys()`, `values()` (lists, in the order of the map), `remove(key)`                                 |
+| -         | `char(code)`: a character as a str; `fail(message)`: stops with an error (`ForgeError`, `IllegalStateException` in Kotlin, a panic in Rust). Its type is `Nothing`, which fits wherever a value is expected: `x ?: fail("missing")`, `if b == 0 then fail("division by zero") else a / b` |
+
+Part of the language rather than of std.forge: the operators and the graph declarations (`Graph`, `Edge`, `Vertex`, `graphOf`, `Span`, `spanOf`).
+
+`Nothing` can also be written: a function or attribute of type `Nothing` never returns, so its value must be of type
+`Nothing` too (a `fail`, or a call of another such function), and a call of it fits wherever a value is expected:
+
+```
+fun impossible(what: str): Nothing = fail("impossible: " + what)
+fun checked(n: int): int = if n >= 0 then n else impossible("negative")
+fun wrong(): Nothing = 1      // error: expected type 'Nothing' but got int
+```
+
+### Generic functions
+
+Type parameters come after `fun`; they are inferred at every call, from the receiver and the arguments:
+
+```
+fun <T> firstOf(xs: List<T>, otherwise: T): T = match xs { first :: _ -> first  _ -> otherwise }
+fun <T> List<T>.second(): T? = if this.size > 1 then this[1] else null
+firstOf([], "y")              // a str: the empty list is a List<str>, as "y" says
+```
+
+A generic method applies to every receiver it fits: `List<T>.second()` to a `List<int>` as to a `List<Expr>`.
+A method declared for a specific receiver (`List<int>.second()`) comes first.
+
+Strings are UTF-16 in Kotlin and Java, code points in Python and bytes of UTF-8 in C++, Rust and OCaml: sizes,
+indexes, `code`, `upper`, `lower` and `trim` agree for ASCII text.
 
 ### Attributes
 
@@ -171,8 +279,40 @@ children), interface nodes interfaces, enums sealed classes, records data classe
 graph definitions `__FlowGraph` values, parsers objects with one function per rule. Names starting with
 `__` are reserved.
 
+## Targets
+
+Every target generates one file that contains the whole compiler with a small runtime and needs nothing but the
+language's standard library. All targets compute the same results: a conformance program
+(`src/test/forge/conformance.forge`) that uses every feature, and the Kiln compiler (`examples/kiln`), produce
+identical output in each of them.
+
+| Target   | File                     | Values                                                         | Externals                                         |
+|----------|--------------------------|----------------------------------------------------------------|---------------------------------------------------|
+| `kotlin` | `name.kt`                | Kotlin classes, `Int`, `String`, `List`, ...                   | extension functions in the same package           |
+| `java`   | `Name.java` (one class)  | nested classes with typed fields and attribute accessors (`num.type()`); `Integer`, `String`, `java.util.List<Object>`, ... | static methods of `NameExternals`: `public static String int_text(Integer self)` |
+| `python` | `name.py`                | classes with attributes as properties (`num.type`); `int`, `str`, `list`, `dict`, ... | functions in `name_externals.py`: `def int_text(self)` |
+| `cpp`    | `name.hpp` (C++17)       | `rt::V`: `rt::I(1)`, `rt::S("x")`, `rt::L({...})`; attributes are functions: `attr_type(node)` | functions declared in the namespace, defined by the program: `rt::V name::int_text(rt::V self)` |
+| `rust`   | `name.rs` (a module)     | `rt::V`: `V::Int(1)`, `rt::s("x")`, `rt::list(vec![...])`; attributes are functions | functions of the sibling module `name_externals`: `pub fn int_text(this: V) -> V` |
+| `ocaml`  | `name.ml` (OCaml 4.14+)  | `Rt.v`: `Int 1`, `Str "x"`, `List [| ... |]`; attributes are functions | references to set: `Name.ext_int_text := (fun v -> ...)` |
+
+- Functions keep their names; methods are named after their receiver: `fun Type.repr()` is `Type_repr`
+  (`f_Type_repr` in OCaml), an `ext fun int.text()` is `int_text`. Names that are keywords of the target
+  get a `_` appended.
+- A parser rule `P.rule` is `P.rule(source)` in Kotlin, Java and Python, `parse_P_rule(input)` elsewhere. A
+  failed parse throws `ParseException` (`rt::ParseException` in C++, `Rt.Parse_error` in OCaml); in Rust it
+  panics with an `rt::ParseError`, which `rt::catch_parse(|| ...)` returns as an `Err`.
+- Attribute evaluation recurses deeply; the C++ and Rust runtimes have `rt::with_stack(megabytes, f)` to run
+  on a thread with a large stack.
+- Regular expressions are Java's. The C++, Rust and OCaml targets compile them at generation time into a program
+  for a small backtracking matcher of their runtime (all of Java's syntax except lookbehind, Unicode classes
+  and flags); they match bytes of UTF-8 text.
+
 ## Building and testing
 
 ```
 ./gradlew test        # compiles src/test/forge/*.forge to Kotlin and runs the tests on the generated code
 ```
+
+`TargetsTest` also generates the conformance program and the Kiln compiler for every other target, builds them
+with `python3`, `javac`, `g++`, `rustc` and `ocamlopt` and compares what they compute with the Kotlin target; a
+target whose toolchain is not installed is skipped.

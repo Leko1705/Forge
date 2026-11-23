@@ -19,10 +19,16 @@ class Targets private constructor() {
 
     init {
         register(KotlinTarget)
-        // register(PythonTarget)
+        register(PythonTarget)
+        register(JavaTarget)
+        register(OcamlTarget)
+        register(CppTarget)
+        register(RustTarget)
     }
 
     operator fun get(name: String): Target? = _targets[name]
+
+    val names: Set<String> get() = _targets.keys
 
     private fun register(target: Target) {
         _targets[target.name] = target

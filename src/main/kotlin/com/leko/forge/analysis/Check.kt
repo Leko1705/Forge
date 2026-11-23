@@ -65,6 +65,8 @@ class Check private constructor(context: Context) {
     fun checkExists(type: Type): Type {
         return when (type) {
             ArbitraryType -> type
+            NothingType -> type
+            is TypeVar -> type
             BoolType -> type
             is FunctionType -> FunctionType(
                 type.parameters.map { checkExists(it) },
@@ -84,6 +86,7 @@ class Check private constructor(context: Context) {
             IntType -> type
             is ListType -> ListType(checkExists(type.elem))
             is MapType -> MapType(checkExists(type.key), checkExists(type.value))
+            is SetType -> SetType(checkExists(type.elem))
             is OptionalType -> OptionalType(checkExists(type.elem))
             is ParserType -> {
                 if (resolve.resolve(type) == null) {
@@ -100,7 +103,7 @@ class Check private constructor(context: Context) {
     }
 
     fun resolveFunction(name: String): CallableSymbol? {
-        val sym: CallableSymbol? = symTab.table.values
+        val sym: CallableSymbol? = (if (resolve.inStd) symTab.stdFunctions[name] else null) ?: symTab.table.values
             .filterIsInstance<CallableSymbol>()
             .find { it.name == name }
             ?: symTab.functions[name]
@@ -163,6 +166,12 @@ class Check private constructor(context: Context) {
                 return ListType(sharedSuperType)
             }
         }
+        if (t1 is SetType && t2 is SetType) {
+            val sharedSuperType = types.sharedSuperType(t1.elem, t2.elem)
+            if (sharedSuperType != null) {
+                return SetType(sharedSuperType)
+            }
+        }
         if (t1 is MapType && t2 is MapType) {
             val sharedSuperKeyType = types.sharedSuperType(t1.key, t2.key)
             val sharedSuperValueType = types.sharedSuperType(t1.value, t2.value)
@@ -184,7 +193,11 @@ class Check private constructor(context: Context) {
             checkAssignable(container.key, key)
             return container.value
         }
-        log.diag(typeMismatch(null, listOf(ListType(ArbitraryType), MapType(ArbitraryType, ArbitraryType)), container))
+        else if (container == StrType) {
+            checkAssignable(IntType, key)
+            return StrType
+        }
+        log.diag(typeMismatch(null, listOf(ListType(ArbitraryType), MapType(ArbitraryType, ArbitraryType), StrType), container))
         return ErrorType
     }
 

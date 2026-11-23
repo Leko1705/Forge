@@ -7,13 +7,15 @@ import com.leko.forge.context.Context
 import com.leko.forge.model.*
 import com.leko.forge.types.*
 import org.antlr.v4.runtime.ParserRuleContext
+import com.leko.forge.parse.isStd
+import com.leko.forge.utils.Options
 
 
 /**
  * Lowers an analyzed Forge file into the [LLIRModule], which the targets generate code from.
  * Runs only on files without errors, so it can rely on every expression being typed.
  */
-class LLIR private constructor(context: Context) {
+class LLIR private constructor(private val context: Context) {
 
     companion object {
         fun instance(context: Context): LLIR =
@@ -78,7 +80,9 @@ class LLIR private constructor(context: Context) {
     private fun enumItem(item: EnumItemSymbol): EnumItem =
         enum(resolve.resolve(item.enumType) as EnumSymbol).items.first { it.itemName == item.name }
 
-    private fun function(sym: CallableSymbol): Function {
+    private fun function(callable: CallableSymbol): Function {
+        // a use of a generic function is the function
+        val sym = (callable as? FunctionSymbol)?.declaration ?: callable
         functions[sym]?.let { return it }
         val receiver = when (sym) {
             is FunctionSymbol -> sym.receiver?.type
@@ -90,6 +94,7 @@ class LLIR private constructor(context: Context) {
             sym.name,
             sym.params.map { Parameter(it.name, it.type) },
             sym.returnType,
+            (sym as? FunctionSymbol)?.typeParams.orEmpty(),
         )
         functions[sym] = fn
         return fn
@@ -99,7 +104,11 @@ class LLIR private constructor(context: Context) {
 
     private fun graph(sym: FlowGraphSymbol): FlowGraphDecl = graphs.getOrPut(sym.name) { FlowGraphDecl(sym.name, node(sym.root)) }
 
+    /** The values of the constants; a use of a constant is replaced by its value. */
+    private var constants: Map<ConstSymbol, ForgeParser.ExpressionContext> = emptyMap()
+
     fun transform(ctx: ForgeParser.RootContext): LLIRModule {
+        constants = ctx.constDef().mapNotNull { def -> def.symbol?.let { it to def.value } }.toMap()
         node(symTab[VERTEX] as NodeSymbol)
         ctx.nodeDef().forEach { node(it.symbol ?: return@forEach) }
         ctx.enum_().forEach { enum(it.symbol ?: return@forEach) }
@@ -114,6 +123,22 @@ class LLIR private constructor(context: Context) {
         ctx.flowDef().forEach { transform(it) }
 
         val userFunctions = ctx.function().mapNotNull { transform(it) }
+
+        // what the compiled file declares, as opposed to the files it imports
+        val source = ctx.start?.tokenSource?.sourceName
+        fun ParserRuleContext.isMain() = start?.tokenSource?.sourceName == source
+        val main = MainDeclarations()
+        for (f in ctx.function()) if (f.isMain()) f.symbol?.let { main.functions += function(it) }
+        for (d in ctx.synDef()) if (d.isMain()) main.attributes += d.attrName.text
+        for (d in ctx.circularDef()) if (d.isMain()) main.attributes += d.attrName.text
+        for (d in ctx.coll()) if (d.isMain()) main.attributes += d.collName.text
+        for (d in ctx.contrib()) if (d.isMain()) main.attributes += d.collName.text
+        for (d in ctx.inhDef()) if (d.isMain()) main.attributes += d.attrName.text
+        for (d in ctx.inhImpl()) if (d.isMain()) main.attributes += d.attrName.text
+        for (d in ctx.graphDef()) if (d.isMain()) main.graphs += d.name.text
+        for (d in ctx.flowDef()) if (d.isMain()) main.graphs += d.graph.text
+        for (d in ctx.parserDef()) if (d.isMain()) main.parsers += d.name.text
+        for (d in ctx.parseRuleDef()) if (d.isMain()) main.parsers += d.parserName.text
         val inherited = linkedMapOf<String, InhAttribute>()
         for (inh in ctx.inhDef()) {
             val sym = inh.symbol ?: continue
@@ -140,7 +165,7 @@ class LLIR private constructor(context: Context) {
             grammarRule.alternatives += transform(rule, sym.name)
         }
 
-        return LLIRModule(
+        val module = LLIRModule(
             ctx.start.tokenSource?.sourceName?.takeIf { it != "<unknown>" },
             records.values.filter { !it.isBuiltin },
             enums.values.toList(),
@@ -150,7 +175,25 @@ class LLIR private constructor(context: Context) {
             parsers.values.toList(),
             symTab.ports.values.map { port(it) },
             graphs.values.toList(),
+            main,
         )
+        return withoutUnusedStd(module, ctx.function().filter { it.isStd() }.mapNotNull { f -> f.symbol?.let { function(it) } }.toSet())
+    }
+
+    /**
+     * The module without the functions of the standard library that the program does not use, also without
+     * `-opt`: everything else is kept as it is.
+     */
+    private fun withoutUnusedStd(module: LLIRModule, std: Set<Function>): LLIRModule {
+        if (std.isEmpty()) return module
+        val program = MainDeclarations()
+        program.functions += module.functions.filter { it !in std }
+        for (n in module.nodes) program.attributes += n.synthetics.keys + n.circulars.keys + n.collections.keys + n.inhEquations.keys
+        program.attributes += module.inherited.keys
+        program.graphs += module.graphs.map { it.name }
+        program.parsers += module.parsers.map { it.name }
+        val keep = Options.instance(context).get("-keep").orEmpty().flatMap { it.split(',') }.map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+        return DeadCodeElimination(keep).apply(module.copy(main = program)).first.copy(main = module.main)
     }
 
     private val ParserRuleContext.anySymbol: Symbol? get() = TreeAttributes.attributes[this]?.get("symbol") as? Symbol
@@ -207,6 +250,8 @@ class LLIR private constructor(context: Context) {
 
     private fun transform(ctx: ForgeParser.FunctionContext): Function? {
         val sym = ctx.symbol ?: return null
+        // an `ext fun` of the standard library: each use is a Builtin, which the runtime of the target implements
+        if ((sym as? FunctionSymbol)?.builtin != null) return null
         val fn = function(sym)
         fn.body = ctx.expression()?.transform()
         return fn
@@ -390,7 +435,41 @@ class LLIR private constructor(context: Context) {
             return MapLiteral(entries, ctx.type)
         }
 
+        override fun visitEmptyMapLiteral(ctx: ForgeParser.EmptyMapLiteralContext): Value = MapLiteral(emptyList(), ctx.type)
+
+        override fun visitSetLiteral(ctx: ForgeParser.SetLiteralContext): Value =
+            Builtin("Set.of", null, ctx.expression().map { it.transform() }, ctx.type)
+
+        override fun visitRangeLiteral(ctx: ForgeParser.RangeLiteralContext): Value =
+            Builtin("range", null, listOf(ctx.lo.transform(), ctx.hi.transform()), ctx.type)
+
+        /** An operator applied to a value of a type that defines it with `op fun`: a call of that function. */
+        private fun ParserRuleContext.operatorCall(receiver: ForgeParser.ExpressionContext, vararg args: Value): Value? {
+            val fn = operator ?: return null
+            return Call(function(fn), receiver.transform(), args.toList())
+        }
+
+        override fun visitShift(ctx: ForgeParser.ShiftContext): Value {
+            ctx.operatorCall(ctx.left, ctx.right.transform())?.let { return it }
+            val l = ctx.left.transform()
+            val r = ctx.right.transform()
+            return when {
+                ctx.LT().isNotEmpty() -> ShlInt(l, r)
+                ctx.GT().size == 3 -> UshrInt(l, r)
+                else -> ShrInt(l, r)
+            }
+        }
+
+        override fun visitSliceAccess(ctx: ForgeParser.SliceAccessContext): Value {
+            val lo = ctx.lo?.transform() ?: NullValue
+            val hi = ctx.hi?.transform() ?: NullValue
+            ctx.operatorCall(ctx.container, lo, hi)?.let { return it }
+            val name = if (ctx.container.type == StrType) "str.slice" else "List.slice"
+            return Builtin(name, ctx.container.transform(), listOf(lo, hi), ctx.type)
+        }
+
         override fun visitNegation(ctx: ForgeParser.NegationContext): Value {
+            ctx.operatorCall(ctx.expression())?.let { return it }
             return when (ctx.type) {
                 IntType -> NegateInt(ctx.expression().transform())
                 FloatType -> NegateFloat(ctx.expression().transform())
@@ -399,6 +478,7 @@ class LLIR private constructor(context: Context) {
         }
 
         override fun visitInversion(ctx: ForgeParser.InversionContext): Value {
+            ctx.operatorCall(ctx.expression())?.let { return it }
             return when (ctx.type) {
                 BoolType -> InvertBool(ctx.expression().transform())
                 IntType -> InvertInt(ctx.expression().transform())
@@ -426,12 +506,14 @@ class LLIR private constructor(context: Context) {
         }
 
         override fun visitMulDivMod(ctx: ForgeParser.MulDivModContext): Value = when {
+            ctx.operator != null -> ctx.operatorCall(ctx.left, ctx.right.transform())!!
             ctx.STAR() != null -> numeric(ctx, ctx.left, ctx.right, ::MulInt, ::MulFloat)
             ctx.SLASH() != null -> numeric(ctx, ctx.left, ctx.right, ::DivInt, ::DivFloat)
             else -> ModInt(ctx.left.transform(), ctx.right.transform())
         }
 
         override fun visitAddSub(ctx: ForgeParser.AddSubContext): Value {
+            ctx.operatorCall(ctx.left, ctx.right.transform())?.let { return it }
             if (ctx.PLUS() != null && ctx.left.type == StrType) {
                 return ConcatStr(ctx.left.transform(), ctx.right.transform())
             }
@@ -469,6 +551,16 @@ class LLIR private constructor(context: Context) {
         }
 
         override fun visitRelational(ctx: ForgeParser.RelationalContext): Value = when {
+            // a.compareTo(b) < 0, ...
+            ctx.operator != null -> {
+                val c = ctx.operatorCall(ctx.left, ctx.right.transform())!!
+                when {
+                    ctx.LT() != null -> LtInt(c, IntValue(0))
+                    ctx.GT() != null -> GtInt(c, IntValue(0))
+                    ctx.LEQ() != null -> LeqInt(c, IntValue(0))
+                    else -> GeqInt(c, IntValue(0))
+                }
+            }
             ctx.LT() != null -> numeric(ctx, ctx.left, ctx.right, ::LtInt, ::LtFloat)
             ctx.GT() != null -> numeric(ctx, ctx.left, ctx.right, ::GtInt, ::GtFloat)
             ctx.LEQ() != null -> numeric(ctx, ctx.left, ctx.right, ::LeqInt, ::LeqFloat)
@@ -476,9 +568,12 @@ class LLIR private constructor(context: Context) {
         }
 
         override fun visitConcat(ctx: ForgeParser.ConcatContext): Value {
-            val lhsTy = ctx.left.type
-            return if (lhsTy is MapType) MergeMaps(ctx.left.transform(), ctx.right.transform())
-            else MergeLists(ctx.left.transform(), ctx.right.transform())
+            ctx.operatorCall(ctx.left, ctx.right.transform())?.let { return it }
+            return when (ctx.left.type) {
+                is MapType -> MergeMaps(ctx.left.transform(), ctx.right.transform())
+                is SetType -> Builtin("Set.union", ctx.left.transform(), listOf(ctx.right.transform()), ctx.type)
+                else -> MergeLists(ctx.left.transform(), ctx.right.transform())
+            }
         }
 
         override fun visitIfElse(ctx: ForgeParser.IfElseContext): Value {
@@ -511,6 +606,7 @@ class LLIR private constructor(context: Context) {
                         lt == StrType -> StringEquals(l, r)
                         lt is ListType -> ListEquals(l, r)
                         lt is MapType -> MapEquals(l, r)
+                        lt is SetType -> SetEquals(l, r)
                         else -> {
                             val lhsSym = resolve.resolve(lt)
                             val rhsSym = resolve.resolve(rt)
@@ -528,11 +624,11 @@ class LLIR private constructor(context: Context) {
         }
 
         override fun visitInOp(ctx: ForgeParser.InOpContext): Value {
-            val op = if (ctx.right.type is MapType) {
-                InMapKeys(ctx.right.transform(), ctx.left.transform())
-            }
-            else {
-                InList(ctx.right.transform(), ctx.left.transform())
+            val op = ctx.operatorCall(ctx.right, ctx.left.transform()) ?: when (ctx.right.type) {
+                is MapType -> InMapKeys(ctx.right.transform(), ctx.left.transform())
+                is SetType -> Builtin("Set.contains", ctx.right.transform(), listOf(ctx.left.transform()), BoolType)
+                StrType -> Builtin("str.contains", ctx.right.transform(), listOf(ctx.left.transform()), BoolType)
+                else -> InList(ctx.right.transform(), ctx.left.transform())
             }
             return if (ctx.NOTIN() != null) InvertBool(op) else op
         }
@@ -554,6 +650,8 @@ class LLIR private constructor(context: Context) {
                     else -> LocalRef(sym.name, sym.type)
                 }
                 is FlowGraphSymbol -> FlowGraphRef(graph(sym))
+                // inlined: the generated code has no variable for the constant
+                is ConstSymbol -> constants.getValue(sym).transform()
                 else -> throw AssertionError("identifier ${ctx.text} resolves to $sym")
             }
         }
@@ -576,12 +674,21 @@ class LLIR private constructor(context: Context) {
                 }
                 is EnumItemSymbol -> CreateEnum(enumItem(sym), emptyList())
                 is AttributeSymbol -> AccessNodeAttr(ctx.receiver.transform(), sym.name, sym.type)
+                // a property: `size` of the builtin types as it always was, others are methods without parameters
+                is FunctionSymbol -> when {
+                    sym.builtin?.endsWith(".size") == true ->
+                        AccessRecordField(record(resolve.resolve(recvTy.nonNull()) as RecordSymbol), ctx.receiver.transform(), name, IntType)
+                    sym.builtin != null -> Builtin(sym.builtin, ctx.receiver.transform(), emptyList(), sym.returnType)
+                    else -> Call(function(sym), ctx.receiver.transform(), emptyList())
+                }
                 else -> throw AssertionError("field ${ctx.text} resolves to $sym")
             }
         }
 
         override fun visitContainerAccess(ctx: ForgeParser.ContainerAccessContext): Value {
+            ctx.operatorCall(ctx.container, ctx.key.transform())?.let { return it }
             return when (ctx.container.type) {
+                StrType -> Builtin("str.get", ctx.container.transform(), listOf(ctx.key.transform()), StrType)
                 is MapType -> AccessMapContainer(ctx.container.transform(), ctx.key.transform(), ctx.type)
                 else -> AccessListContainer(ctx.container.transform(), ctx.key.transform(), ctx.type)
             }
@@ -621,7 +728,7 @@ class LLIR private constructor(context: Context) {
             return when (sym) {
                 is ConcreteNodeSymbol -> CreateNode(node(sym), args)
                 is RecordSymbol -> CreateRecord(record(sym), args)
-                is FunctionSymbol -> Call(function(sym), null, args)
+                is FunctionSymbol -> sym.builtin?.let { Builtin(it, null, args, sym.returnType) } ?: Call(function(sym), null, args)
                 else -> throw AssertionError("call ${ctx.text} resolves to $sym")
             }
         }
@@ -630,7 +737,8 @@ class LLIR private constructor(context: Context) {
             val args = ctx.expression().drop(1).map { it.transform() }
             return when (val sym = ctx.symbol) {
                 is EnumItemSymbol -> CreateEnum(enumItem(sym), args)
-                is FunctionSymbol -> Call(function(sym), ctx.receiver.transform(), args)
+                is FunctionSymbol -> sym.builtin?.let { Builtin(it, ctx.receiver.transform(), args, sym.returnType) }
+                    ?: Call(function(sym), ctx.receiver.transform(), args)
                 is ParserRuleSymbol -> Call(function(sym), null, args)
                 else -> throw AssertionError("method ${ctx.text} resolves to $sym")
             }

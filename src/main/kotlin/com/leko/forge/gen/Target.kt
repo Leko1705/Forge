@@ -9,6 +9,9 @@ interface Target {
 
     val extension: String
 
+    /** The name of the generated file without extension; Java needs the name of its class. */
+    fun outputName(module: LLIRModule, base: String): String = base
+
     fun generate(module: LLIRModule, context: Context): ByteArray
 
 }

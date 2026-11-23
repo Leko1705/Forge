@@ -70,5 +70,51 @@ forgeTestFiles.files.sortedBy { it.name }.forEach { file ->
     }
     generateForgeTestSources { dependsOn(task) }
 }
+// the conformance program once more, optimized: it must compute the same
+val forgeTestOptimized = tasks.register<JavaExec>("forgeTest_conformanceOptimized") {
+    dependsOn(tasks.classes)
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("MainKt")
+    val file = file("src/test/forge/conformance.forge")
+    val outDir = forgeTestOutput.get().dir("conformanceOptimized").asFile
+    inputs.file(file)
+    inputs.files(sourceSets.main.get().runtimeClasspath)
+    outputs.dir(outDir)
+    args("-f", file.absolutePath, "-d", outDir.absolutePath, "-p", "forgetest.conformanceOptimized", "-opt")
+}
+generateForgeTestSources { dependsOn(forgeTestOptimized) }
 kotlin.sourceSets.test { kotlin.srcDir(forgeTestOutput) }
 tasks.named("compileTestKotlin") { dependsOn(generateForgeTestSources) }
+
+// ---- the Kiln example: a language compiled to JVM class files (examples/kiln) ------------------------------
+// kiln.forge (which imports jvm.forge) is compiled to Kotlin and built with the driver in examples/kiln/src:
+//   ./gradlew kilnc --args="examples/kiln/programs/fib.kiln -d build/kiln --run"
+val kilnOutput = layout.buildDirectory.dir("generated/kiln")
+val generateKiln by tasks.registering(JavaExec::class) {
+    group = "kiln"
+    description = "Compiles examples/kiln/kiln.forge to Kotlin"
+    dependsOn(tasks.classes)
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("MainKt")
+    val outDir = kilnOutput.get().asFile
+    inputs.files(fileTree("examples/kiln") { include("*.forge") })
+    inputs.files(sourceSets.main.get().runtimeClasspath)
+    outputs.dir(outDir)
+    // optimized; the driver reads class files back with ClassFile, which kiln.forge itself does not use
+    args("-f", file("examples/kiln/kiln.forge").absolutePath, "-d", outDir.absolutePath, "-p", "kiln", "-keep", "ClassFile", "-opt")
+}
+val kiln: SourceSet by sourceSets.creating
+kotlin.sourceSets.named("kiln") { kotlin.srcDirs("examples/kiln/src", kilnOutput) }
+tasks.named("compileKilnKotlin") { dependsOn(generateKiln) }
+dependencies { "kilnImplementation"(kotlin("stdlib")) }
+
+tasks.register<JavaExec>("kilnc") {
+    group = "kiln"
+    description = "Runs the Kiln compiler: --args=\"<file.kiln> [-d <dir>] [--listing] [--cfg] [--run]\""
+    classpath = kiln.runtimeClasspath
+    mainClass.set("kiln.MainKt")
+    workingDir = rootDir
+}
+
+// the tests compile Kiln programs and run the class files
+dependencies { testImplementation(kiln.output) }

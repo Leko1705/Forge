@@ -27,7 +27,8 @@ import com.leko.forge.model.InterfaceParserRuleSymbol
 import com.leko.forge.model.SynSymbol
 import com.leko.forge.model.VarSymbol
 import com.leko.forge.model.span
-import com.leko.forge.types.toType
+import com.leko.forge.types.*
+import com.leko.forge.parse.isStd
 import com.leko.forge.util.Log
 
 
@@ -247,24 +248,92 @@ class MemberEnter private constructor(context: Context) {
     }
 
 
-    private fun enterMethods(root: ForgeParser.RootContext) {
-        for (func in root.function()) {
-            val receiver = if (func.receiver != null) chk.checkExists(func.receiver!!.toType()) else continue
+    /** The operators functions can define: name to number of parameters. */
+    private val operators = mapOf(
+        "plus" to 1, "minus" to 1, "times" to 1, "div" to 1, "rem" to 1, "concat" to 1,
+        "shl" to 1, "shr" to 1, "ushr" to 1, "compareTo" to 1, "contains" to 1, "get" to 1, "slice" to 2,
+        "neg" to 0, "not" to 0,
+    )
+
+    private fun checkOperator(func: ForgeParser.FunctionContext, sym: FunctionSymbol) {
+        val arity = operators[sym.name]
+        when {
+            arity == null -> log.diag(invalidOperatorFunction(func.name.span,
+                "'${sym.name}' is no operator; operators are ${operators.keys.joinToString(", ")}"))
+            sym.params.size != arity -> log.diag(invalidOperatorFunction(func.name.span,
+                "operator '${sym.name}' takes $arity parameter${if (arity == 1) "" else "s"}"))
+            sym.name == "compareTo" && sym.returnType != IntType -> log.diag(invalidOperatorFunction(func.name.span, "operator 'compareTo' returns an int"))
+            sym.name == "contains" && sym.returnType != BoolType -> log.diag(invalidOperatorFunction(func.name.span, "operator 'contains' returns a bool"))
+            sym.name == "slice" && sym.params.any { it.type != OptionalType(IntType) && it.type !is TypeVar } ->
+                log.diag(invalidOperatorFunction(func.name.span, "operator 'slice' takes two int? (an omitted bound is null)"))
+        }
+    }
+
+/** How the targets name an `ext fun` of the standard library: `str.upper`, `List.indexOf`, `Map.keys`. */
+    private fun builtinKey(receiver: Type, name: String): String = when (receiver) {
+        is ListType -> "List"
+        is SetType -> "Set"
+        is MapType -> "Map"
+        else -> receiver.toString()
+    } + "." + name
+
+        private fun enterMethods(root: ForgeParser.RootContext) {
+        // the program's methods first: a method of the standard library with the same receiver and name gives way
+        for (func in root.function().sortedBy { it.isStd() }) {
+            if (func.op != null && func.op.text != "op") {
+                log.diag(invalidOperatorFunction(func.op.span, "unexpected '${func.op.text}' before 'fun'"))
+            }
+            if (func.op != null && func.receiver == null) {
+                log.diag(invalidOperatorFunction(func.name.span, "an operator function needs a receiver: op fun T.${func.name.text}(...)"))
+            }
+            val property = func.property != null
+            if (property && func.params != null) {
+                log.diag(invalidProperty(func.params.span, "a val has no parameters: val T.${func.name.text}: ${func.ty.text}"))
+            }
+            if (!property && func.params == null) {
+                log.diag(invalidProperty(func.name.span, "a fun needs parameters: fun ${func.name.text}(): ${func.ty.text}, or a val"))
+            }
+            if (property && func.op != null) {
+                log.diag(invalidOperatorFunction(func.op.span, "an operator is a fun, not a val"))
+            }
+            if (property && func.receiver == null) {
+                log.diag(invalidProperty(func.name.span, "a val needs a receiver: val T.${func.name.text}: ${func.ty.text}"))
+            }
+            val typeParams = func.typeParams.map { it.text }
+            fun type(t: ForgeParser.TypeContext) = chk.checkExists(t.toType().withTypeParams(typeParams))
+            val receiver = if (func.receiver != null) type(func.receiver!!) else continue
             val receiverSym = resolve.resolve(receiver)
+            if (property && receiverSym is NodeSymbol) {
+                log.diag(invalidProperty(func.name.span, "a node has attributes instead of vals: syn ${func.receiver.text}.${func.name.text}: ${func.ty.text}"))
+                continue
+            }
+            if (property && receiverSym is RecordSymbol && receiverSym.fields.any { it.name == func.name.text }) {
+                log.diag(invalidProperty(func.name.span, "'${func.name.text}' is a field of $receiver"))
+                continue
+            }
             if (receiverSym != null) {
-                val methods = typeMap.methods.getOrPut(receiverSym) { mutableListOf() } as MutableList
-                if (methods.any { it.name == func.name.text }) {
+                // a generic method belongs to no receiver symbol: List<T> stands for every list
+                val methods = if (typeParams.isEmpty()) typeMap.methods.getOrPut(receiverSym) { mutableListOf() } as MutableList
+                    else typeMap.genericMethods
+                val hidden = methods.any { it.name == func.name.text && (typeParams.isEmpty() || it.receiver?.type == receiver) }
+                if (hidden && !func.isStd()) {
                     log.diag(methodAlreadyExist(null, "$receiver.${func.name.text}"))
                     continue
                 }
                 val sym = FunctionSymbol(
                     receiverSym,
                     func.name.text,
-                    func.parameter().map { VarSymbol(it.name.text, chk.checkExists(it.ty.toType()), it.name.span, VarSymbol.VarKind.PARAMETER) },
-                    chk.checkExists(func.ty.toType()),
-                    func.name.span
+                    func.parameter().map { VarSymbol(it.name.text, type(it.ty), it.name.span, VarSymbol.VarKind.PARAMETER) },
+                    type(func.ty),
+                    func.name.span,
+                    isOperator = func.op != null,
+                    typeParams = typeParams,
+                    isProperty = property,
+                    builtin = if (func.EXT() != null && func.isStd()) builtinKey(receiver, func.name.text) else null,
                 )
-                methods += sym
+                if (func.op != null) checkOperator(func, sym)
+                // hidden by one of the program: only the standard library itself uses it
+                if (hidden) typeMap.stdMethods += sym else methods += sym
                 func.setSym(sym)
             }
             /*

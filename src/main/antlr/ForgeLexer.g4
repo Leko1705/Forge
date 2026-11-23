@@ -1,10 +1,13 @@
 lexer grammar ForgeLexer;
 
-EXTERNAL: 'external';
+EXT: 'ext';
+IMPORT: 'import';
+CONST: 'const';
 NODE: 'node';
 RECORD: 'record';
 ENUM: 'enum';
 FUN: 'fun';
+VAL: 'val';
 PARSER: 'parser';
 MATCH: 'match';
 RULE: 'rule';
@@ -19,6 +22,7 @@ THEN: 'then';
 THIS: 'this';
 ELSE: 'else';
 LIST: 'List';
+SET: 'Set';
 MAP: 'Map';
 TRUE: 'true';
 FALSE: 'false';

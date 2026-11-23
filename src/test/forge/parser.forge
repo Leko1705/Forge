@@ -15,7 +15,7 @@ node Fact(e: Expr): Expr
 node Cond(c: Expr, a: Expr, b: Expr): Expr
 node Call(name: str, args: List<Expr>): Expr
 
-external fun str.toInt(): int
+ext fun str.toInt(): int
 
 // comments are skipped like whitespace; identifiers never match a keyword
 parser Calc skip '(\s|//[^\n]*)+' keywords 'let' 'print' 'while' 'do' 'end'
