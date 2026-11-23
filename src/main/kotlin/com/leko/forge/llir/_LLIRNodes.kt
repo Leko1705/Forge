@@ -17,7 +17,24 @@ class LLIRModule(
     val parsers: List<ParserDecl> = emptyList(),
     val ports: List<Port> = emptyList(),
     val graphs: List<FlowGraphDecl> = emptyList(),
-)
+    /** What the compiled file itself declares (not the files it imports); the optimizer keeps all of it. */
+    val main: MainDeclarations = MainDeclarations(),
+) {
+    fun copy(
+        functions: List<Function> = this.functions,
+        inherited: Map<String, InhAttribute> = this.inherited,
+        parsers: List<ParserDecl> = this.parsers,
+        graphs: List<FlowGraphDecl> = this.graphs,
+    ) = LLIRModule(sourceName, records, enums, nodes, functions, inherited, parsers, ports, graphs, main)
+}
+
+/** Declarations of the compiled file: functions, attribute names, graph and parser names. */
+class MainDeclarations {
+    val functions: MutableSet<Function> = mutableSetOf()
+    val attributes: MutableSet<String> = mutableSetOf()
+    val graphs: MutableSet<String> = mutableSetOf()
+    val parsers: MutableSet<String> = mutableSetOf()
+}
 
 // ============================================================
 // Structures. Plain classes ON PURPOSE: declarations are referenced from

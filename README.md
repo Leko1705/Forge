@@ -10,7 +10,17 @@ build/install/forge/bin/forge -f lang.forge -d out -p my.lang     # writes out/l
 ```
 
 Options: `-f` files, `-d` output directory, `-o` output name, `-p` package (namespace for C++), `-t` target
-(`kotlin`, `java`, `python`, `cpp`, `rust`, `ocaml`; default `kotlin`), `-opt`.
+(`kotlin`, `java`, `python`, `cpp`, `rust`, `ocaml`; default `kotlin`), `-opt` optimize, `-keep` names to keep.
+
+`-opt` optimizes before code is generated, for every target:
+
+- **Constant folding**: arithmetic, comparisons and logic on literals, string concatenation, `if` with a known
+  condition, `?:`, `!!` and `== null` on literals, `size`, `[i]` and `in` on lists of literals, so
+  `const limit = 4 * 3 + 1` becomes `13` where it is used. Nothing that fails at run time (a division by zero, an
+  index out of bounds) is folded.
+- **Dead code elimination**: everything the compiled file declares is kept; of the files it imports, only what is
+  used: functions, attributes with their equations, graphs and parser rules. `-keep f,Recv.g,attr,P,P.rule` keeps
+  more, e.g. a parser the program around the generated code uses (`-keep ClassFile` for the Kiln driver).
 
 A file can use the declarations of others: `import "jvm.forge"` (relative to the importing file) at the top
 makes the declarations of the imported file part of this one, which is then compiled to one Kotlin file.

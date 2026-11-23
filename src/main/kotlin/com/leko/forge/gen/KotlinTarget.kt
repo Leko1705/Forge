@@ -681,7 +681,8 @@ object KotlinTarget : Target {
 
         private fun value(value: Value) {
             when (value) {
-                is IntValue -> sb.append(value.value)
+                // -2147483648 would be a Long literal
+                is IntValue -> if (value.value == Int.MIN_VALUE) sb.append("kotlin.Int.MIN_VALUE") else sb.append(value.value)
                 is FloatValue -> sb.append(value.value).append("f")
                 is BoolValue -> sb.append(value.value)
                 is StringValue -> sb.append(string(value.value))

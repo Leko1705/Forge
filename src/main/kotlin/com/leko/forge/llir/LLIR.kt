@@ -118,6 +118,22 @@ class LLIR private constructor(context: Context) {
         ctx.flowDef().forEach { transform(it) }
 
         val userFunctions = ctx.function().mapNotNull { transform(it) }
+
+        // what the compiled file declares, as opposed to the files it imports
+        val source = ctx.start?.tokenSource?.sourceName
+        fun ParserRuleContext.isMain() = start?.tokenSource?.sourceName == source
+        val main = MainDeclarations()
+        for (f in ctx.function()) if (f.isMain()) f.symbol?.let { main.functions += function(it) }
+        for (d in ctx.synDef()) if (d.isMain()) main.attributes += d.attrName.text
+        for (d in ctx.circularDef()) if (d.isMain()) main.attributes += d.attrName.text
+        for (d in ctx.coll()) if (d.isMain()) main.attributes += d.collName.text
+        for (d in ctx.contrib()) if (d.isMain()) main.attributes += d.collName.text
+        for (d in ctx.inhDef()) if (d.isMain()) main.attributes += d.attrName.text
+        for (d in ctx.inhImpl()) if (d.isMain()) main.attributes += d.attrName.text
+        for (d in ctx.graphDef()) if (d.isMain()) main.graphs += d.name.text
+        for (d in ctx.flowDef()) if (d.isMain()) main.graphs += d.graph.text
+        for (d in ctx.parserDef()) if (d.isMain()) main.parsers += d.name.text
+        for (d in ctx.parseRuleDef()) if (d.isMain()) main.parsers += d.parserName.text
         val inherited = linkedMapOf<String, InhAttribute>()
         for (inh in ctx.inhDef()) {
             val sym = inh.symbol ?: continue
@@ -154,6 +170,7 @@ class LLIR private constructor(context: Context) {
             parsers.values.toList(),
             symTab.ports.values.map { port(it) },
             graphs.values.toList(),
+            main,
         )
     }
 

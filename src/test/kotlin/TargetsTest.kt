@@ -66,39 +66,43 @@ class TargetsTest {
         return out
     }
 
-    /** Generates [forge] for [target] into [dir] with the Forge compiler. */
-    private fun generate(forge: File, target: String, dir: File) {
+    /** Generates [forge] for [target] into [dir] with the Forge compiler, optimized with -opt if [optimized]. */
+    private fun generate(forge: File, target: String, dir: File, optimized: Boolean) {
         dir.deleteRecursively()
         dir.mkdirs()
         val context = com.leko.forge.context.Context()
-        com.leko.forge.utils.Options.instance(context).set(arrayOf("-f", forge.path, "-t", target, "-d", dir.path))
+        val args = arrayOf("-f", forge.path, "-t", target, "-d", dir.path) + if (optimized) arrayOf("-opt") else emptyArray()
+        com.leko.forge.utils.Options.instance(context).set(args)
         val ast = forge.parseForge()
         com.leko.forge.analysis.Analyzer.instance(context).analyze(ast)
-        val module = com.leko.forge.llir.LLIR.instance(context).transform(ast)
+        var module = com.leko.forge.llir.LLIR.instance(context).transform(ast)
+        if (optimized) module = com.leko.forge.llir.Optimizer.instance(context).optimize(module)
         com.leko.forge.gen.Generator.instance(context).generate(module)
     }
+
+    private val variants = listOf(false to "", true to " optimized")
 
     private fun program(toolchain: Toolchain, dir: File, main: String): List<String> = toolchain.build(dir, main)
 
     @TestFactory
-    fun conformance(): List<DynamicTest> = toolchains.map { toolchain ->
-        DynamicTest.dynamicTest(toolchain.target) {
+    fun conformance(): List<DynamicTest> = toolchains.flatMap { toolchain -> variants.map { (optimized, label) ->
+        DynamicTest.dynamicTest(toolchain.target + label) {
             assumeTrue(toolchain.tools.all { available(it) }, "${toolchain.tools} not installed")
-            val dir = File("build/targets/${toolchain.target}/conformance")
-            generate(File("src/test/forge/conformance.forge"), toolchain.target, dir)
+            val dir = File("build/targets/${toolchain.target}/conformance$label".replace(" ", "-"))
+            generate(File("src/test/forge/conformance.forge"), toolchain.target, dir, optimized)
             File("src/test/targets/${toolchain.target}").listFiles()!!.forEach { it.copyTo(File(dir, it.name), overwrite = true) }
             val output = run(dir, program(toolchain, dir, "main"))
             val expected = forgetest.conformance.report().joinToString("") { it + "\n" }
             assertEquals(expected, output)
         }
-    }
+    } }
 
     @TestFactory
-    fun kiln(): List<DynamicTest> = toolchains.map { toolchain ->
-        DynamicTest.dynamicTest(toolchain.target) {
+    fun kiln(): List<DynamicTest> = toolchains.flatMap { toolchain -> variants.map { (optimized, label) ->
+        DynamicTest.dynamicTest(toolchain.target + label) {
             assumeTrue(toolchain.tools.all { available(it) }, "${toolchain.tools} not installed")
-            val dir = File("build/targets/${toolchain.target}/kiln")
-            generate(File("examples/kiln/kiln.forge"), toolchain.target, dir)
+            val dir = File("build/targets/${toolchain.target}/kiln$label".replace(" ", "-"))
+            generate(File("examples/kiln/kiln.forge"), toolchain.target, dir, optimized)
             File("examples/kiln/${toolchain.target}").listFiles()!!.forEach { it.copyTo(File(dir, it.name), overwrite = true) }
             val command = program(toolchain, dir, "kilnc")
             for (name in listOf("hello", "fib", "primes")) {
@@ -119,5 +123,5 @@ class TargetsTest {
             }
             assertEquals(expected, stderr)
         }
-    }
+    } }
 }

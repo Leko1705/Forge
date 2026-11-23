@@ -70,6 +70,19 @@ forgeTestFiles.files.sortedBy { it.name }.forEach { file ->
     }
     generateForgeTestSources { dependsOn(task) }
 }
+// the conformance program once more, optimized: it must compute the same
+val forgeTestOptimized = tasks.register<JavaExec>("forgeTest_conformanceOptimized") {
+    dependsOn(tasks.classes)
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("MainKt")
+    val file = file("src/test/forge/conformance.forge")
+    val outDir = forgeTestOutput.get().dir("conformanceOptimized").asFile
+    inputs.file(file)
+    inputs.files(sourceSets.main.get().runtimeClasspath)
+    outputs.dir(outDir)
+    args("-f", file.absolutePath, "-d", outDir.absolutePath, "-p", "forgetest.conformanceOptimized", "-opt")
+}
+generateForgeTestSources { dependsOn(forgeTestOptimized) }
 kotlin.sourceSets.test { kotlin.srcDir(forgeTestOutput) }
 tasks.named("compileTestKotlin") { dependsOn(generateForgeTestSources) }
 
@@ -87,7 +100,8 @@ val generateKiln by tasks.registering(JavaExec::class) {
     inputs.files(fileTree("examples/kiln") { include("*.forge") })
     inputs.files(sourceSets.main.get().runtimeClasspath)
     outputs.dir(outDir)
-    args("-f", file("examples/kiln/kiln.forge").absolutePath, "-d", outDir.absolutePath, "-p", "kiln")
+    // optimized; the driver reads class files back with ClassFile, which kiln.forge itself does not use
+    args("-f", file("examples/kiln/kiln.forge").absolutePath, "-d", outDir.absolutePath, "-p", "kiln", "-keep", "ClassFile", "-opt")
 }
 val kiln: SourceSet by sourceSets.creating
 kotlin.sourceSets.named("kiln") { kotlin.srcDirs("examples/kiln/src", kilnOutput) }
