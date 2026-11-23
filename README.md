@@ -24,8 +24,7 @@ Options: `-f` files, `-d` output directory, `-o` output name, `-p` package (name
 
 A file can use the declarations of others: `import "jvm.forge"` (relative to the importing file) at the top
 makes the declarations of the imported file part of this one, which is then compiled to one Kotlin file.
-`import "std"` imports the [standard library](#the-standard-library), which is bundled with Forge
-(`import "std.forge"` too, unless there is a `std.forge` next to the importing file).
+The [standard library](#the-standard-library) is part of every program, without an import.
 
 For a complete example, see [examples/kiln](examples/kiln): a small language whose compiler is written in
 Forge and generates JVM class files, using a reusable JVM backend (`jvm.forge`).
@@ -41,7 +40,7 @@ for Function impl Named                  // more interfaces
 enum Type { INT, STR, ERROR(msg: str) }
 record Diagnostic { msg: str, line: int }
 fun Type.repr(): str = match this { Type.INT -> "int"  Type.STR -> "str"  Type.ERROR(m) -> m }
-external fun str.int(): int              // implemented in Kotlin
+ext fun str.int(): int                   // implemented in the target language
 const greeting = "hello"                 // a constant, with an inferred type
 const limit: int = 2 * width             // or a declared one; constants may use each other in any order
 ```
@@ -88,18 +87,27 @@ op fun str.times(n: int): str = acc + this for _i in [0:n] with acc = ""  // "ab
 | `x[i]`, `x[a:b]`       | `get(i)`, `slice(lo: int?, hi: int?)` (an omitted bound is `null`) |
 | `e in x`, `e !in x`    | `x.contains(e): bool`                     |
 
-### Builtin functions
+### The standard library
 
-Every target implements these; a function the program defines with the same receiver and name comes first.
+[std.forge](src/main/resources/forge/std.forge) is bundled with Forge and part of every program, like Kotlin's
+`kotlin` package (`import "std"` is allowed but changes nothing). Its `ext fun`s are implemented by the runtime of
+every target; the rest is Forge code, which a generated compiler contains only if it uses it, also without `-opt`.
+A function the program declares with the same receiver and name (or the same name, for `char` and `fail`) comes
+first.
 
 | Of        | Functions                                                                                             |
 |-----------|-------------------------------------------------------------------------------------------------------|
 | `int`, `float`, `bool` | `str()`: as text (floats like Kotlin's `Float.toString`)                                |
-| `str`     | `size`, `toInt()`, `toFloat()` (fail unless the whole text is a number), `indexOf(t)` (-1 if absent), `startsWith(t)`, `endsWith(t)`, `replace(a, b)`, `upper()`, `lower()`, `trim()`, `split(separator)`, `code(i)`, `utf8()` (the bytes), `unescape()` (`\n \t \r \0`; `\x` is x) |
-| `List<T>` | `indexOf(x)`, `reversed()`, `toSet()`; `List<str>.join(separator)`                                   |
-| `Set<T>`  | `size`, `toList()`, `remove(x)`                                                                        |
+| `int`, `float` | `max(other)`, `min(other)`; `int.abs()`                                                          |
+| `str`     | `toInt()`, `toFloat()` (fail unless the whole text is a number), `indexOf(t)` (-1 if absent), `startsWith(t)`, `endsWith(t)`, `replace(a, b)`, `upper()`, `lower()`, `trim()`, `split(separator)`, `code(i)`, `utf8()` (the bytes), `unescape()` (`\n \t \r \0`; `\x` is x) |
+| `List<T>` | `indexOf(x)`, `reversed()`, `toSet()`; `List<str>.join(separator)`; `union(other)`: the elements, then those of `other` not in it (no duplicates); `minus(other)`, also `xs - ys`; `distinct()` (first occurrences, in order); `disjoint(other)` |
+| `List<int>`, `List<float>` | `sum()`, `max()`, `min()` (fail for an empty list)                                   |
+| `Set<T>`  | `toList()`, `remove(x)`                                                                                |
 | `Map<K, V>` | `keys()`, `values()` (lists, in the order of the map), `remove(key)`                                 |
 | -         | `char(code)`: a character as a str; `fail(message)`: stops with an error (`ForgeError`, `IllegalStateException` in Kotlin, a panic in Rust). Its type is `Nothing`, which fits wherever a value is expected: `x ?: fail("missing")`, `if b == 0 then fail("division by zero") else a / b` |
+
+Part of the language rather than of std.forge: `size` (of `str`, lists, sets and maps), the operators, and the
+graph declarations (`Graph`, `Edge`, `Vertex`, `graphOf`, `Span`, `spanOf`).
 
 `Nothing` can also be written: a function or attribute of type `Nothing` never returns, so its value must be of type
 `Nothing` too (a `fail`, or a call of another such function), and a call of it fits wherever a value is expected:
@@ -122,17 +130,6 @@ firstOf([], "y")              // a str: the empty list is a List<str>, as "y" sa
 
 A generic method applies to every receiver it fits: `List<T>.second()` to a `List<int>` as to a `List<Expr>`.
 A method declared for a specific receiver (`List<int>.second()`) comes first.
-
-### The standard library
-
-`import "std"` (source: [std.forge](src/main/resources/forge/std.forge)). All of it is methods, so a program keeps
-its names; what it does not use is removed from the generated code with `-opt`.
-
-| Of                      | Functions                                                                                 |
-|-------------------------|-------------------------------------------------------------------------------------------|
-| `List<T>`               | `union(other)`: the elements, then those of `other` not in it (no duplicates); `minus(other)`, also `xs - ys`; `distinct()` (first occurrences, in order); `disjoint(other)` |
-| `List<int>`, `List<float>` | `sum()`, `max()`, `min()` (fail for an empty list)                                     |
-| `int`, `float`          | `max(other)`, `min(other)`; `int.abs()`                                                   |
 
 Strings are UTF-16 in Kotlin and Java, code points in Python and bytes of UTF-8 in C++, Rust and OCaml: sizes,
 indexes, `code`, `upper`, `lower` and `trim` agree for ASCII text.
@@ -295,7 +292,7 @@ identical output in each of them.
 | `ocaml`  | `name.ml` (OCaml 4.14+)  | `Rt.v`: `Int 1`, `Str "x"`, `List [| ... |]`; attributes are functions | references to set: `Name.ext_int_text := (fun v -> ...)` |
 
 - Functions keep their names; methods are named after their receiver: `fun Type.repr()` is `Type_repr`
-  (`f_Type_repr` in OCaml), an external `fun int.text()` is `int_text`. Names that are keywords of the target
+  (`f_Type_repr` in OCaml), an `ext fun int.text()` is `int_text`. Names that are keywords of the target
   get a `_` appended.
 - A parser rule `P.rule` is `P.rule(source)` in Kotlin, Java and Python, `parse_P_rule(input)` elsewhere. A
   failed parse throws `ParseException` (`rt::ParseException` in C++, `Rt.Parse_error` in OCaml); in Rust it

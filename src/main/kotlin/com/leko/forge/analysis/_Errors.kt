@@ -197,7 +197,7 @@ fun externalFunctionMustHaveNoBody(span: SourceSpan?): Diagnostic =
         Severity.ERROR,
         span,
         "E008",
-        "external function must not have a body"
+        "ext function must not have a body"
     )
 
 fun missingSynAttributeImplementationFor(span: SourceSpan?, owner: String, attrName: String): Diagnostic =

@@ -15,7 +15,7 @@ import com.leko.forge.types.*
  * Values are of the runtime's type `Rt.v` (`Int`, `Str`, `List`, `Node`, ...). Functions take and return
  * them: `report ()`, `compile (Str "Main") (Str source)`; methods are named after their receiver
  * (`f_Type_repr`). Attributes are functions too: `attr_type node`, `inh_scope node`, `coll_diags node`.
- * `external fun`s are references to set before use: `Conformance.ext_int_text := (fun v -> ...)`.
+ * `ext fun`s are references to set before use: `Conformance.ext_int_text := (fun v -> ...)`.
  * A failed parse raises `Rt.Parse_error`.
  */
 object OcamlTarget : Target {

@@ -103,7 +103,7 @@ class Check private constructor(context: Context) {
     }
 
     fun resolveFunction(name: String): CallableSymbol? {
-        val sym: CallableSymbol? = symTab.table.values
+        val sym: CallableSymbol? = (if (resolve.inStd) symTab.stdFunctions[name] else null) ?: symTab.table.values
             .filterIsInstance<CallableSymbol>()
             .find { it.name == name }
             ?: symTab.functions[name]

@@ -104,4 +104,4 @@ fun firstOr(xs: List<str>, other: str): str = match xs {
     _ -> other
 }
 
-external fun int.text(): str
+ext fun int.text(): str

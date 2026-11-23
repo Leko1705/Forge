@@ -28,6 +28,7 @@ import com.leko.forge.model.SynSymbol
 import com.leko.forge.model.VarSymbol
 import com.leko.forge.model.span
 import com.leko.forge.types.*
+import com.leko.forge.parse.isStd
 import com.leko.forge.util.Log
 
 
@@ -268,8 +269,17 @@ class MemberEnter private constructor(context: Context) {
         }
     }
 
-    private fun enterMethods(root: ForgeParser.RootContext) {
-        for (func in root.function()) {
+/** How the targets name an `ext fun` of the standard library: `str.upper`, `List.indexOf`, `Map.keys`. */
+    private fun builtinKey(receiver: Type, name: String): String = when (receiver) {
+        is ListType -> "List"
+        is SetType -> "Set"
+        is MapType -> "Map"
+        else -> receiver.toString()
+    } + "." + name
+
+        private fun enterMethods(root: ForgeParser.RootContext) {
+        // the program's methods first: a method of the standard library with the same receiver and name gives way
+        for (func in root.function().sortedBy { it.isStd() }) {
             if (func.op != null && func.op.text != "op") {
                 log.diag(invalidOperatorFunction(func.op.span, "unexpected '${func.op.text}' before 'fun'"))
             }
@@ -284,7 +294,8 @@ class MemberEnter private constructor(context: Context) {
                 // a generic method belongs to no receiver symbol: List<T> stands for every list
                 val methods = if (typeParams.isEmpty()) typeMap.methods.getOrPut(receiverSym) { mutableListOf() } as MutableList
                     else typeMap.genericMethods
-                if (methods.any { it.name == func.name.text && (typeParams.isEmpty() || it.receiver?.type == receiver) }) {
+                val hidden = methods.any { it.name == func.name.text && (typeParams.isEmpty() || it.receiver?.type == receiver) }
+                if (hidden && !func.isStd()) {
                     log.diag(methodAlreadyExist(null, "$receiver.${func.name.text}"))
                     continue
                 }
@@ -296,9 +307,11 @@ class MemberEnter private constructor(context: Context) {
                     func.name.span,
                     isOperator = func.op != null,
                     typeParams = typeParams,
+                    builtin = if (func.EXT() != null && func.isStd()) builtinKey(receiver, func.name.text) else null,
                 )
                 if (func.op != null) checkOperator(func, sym)
-                methods += sym
+                // hidden by one of the program: only the standard library itself uses it
+                if (hidden) typeMap.stdMethods += sym else methods += sym
                 func.setSym(sym)
             }
             /*

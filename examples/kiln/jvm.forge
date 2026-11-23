@@ -11,8 +11,6 @@
 //
 // Class files are version 49 (Java 5): they need no StackMapTable, and current JVMs still load them.
 
-import "std"
-
 // ==== the IR ===================================================================================
 
 node JClass(name: str, superName: str, methods: List<JMethod>)

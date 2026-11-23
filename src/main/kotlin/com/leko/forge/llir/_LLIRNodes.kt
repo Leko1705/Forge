@@ -25,6 +25,7 @@ class LLIRModule(
         inherited: Map<String, InhAttribute> = this.inherited,
         parsers: List<ParserDecl> = this.parsers,
         graphs: List<FlowGraphDecl> = this.graphs,
+        main: MainDeclarations = this.main,
     ) = LLIRModule(sourceName, records, enums, nodes, functions, inherited, parsers, ports, graphs, main)
 }
 

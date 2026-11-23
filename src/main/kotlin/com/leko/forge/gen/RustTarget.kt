@@ -14,7 +14,7 @@ import com.leko.forge.types.*
  * Values are `rt::V` (`V::Int(1)`, `rt::s("x")`, `rt::list(vec![...])`, nodes, records, ...). Functions take
  * and return them: `report()`, `compile(rt::s("Main"), rt::s(source))`; methods are named after their receiver
  * (`Type_repr`). Attributes are functions too: `attr_type(node)`, `inh_scope(node)`, `coll_diags(node)`.
- * `external fun`s are functions of the sibling module `<name>_externals`, e.g.
+ * `ext fun`s are functions of the sibling module `<name>_externals`, e.g.
  * `pub fn int_text(this: V) -> V` in `conformance_externals.rs`. A failed parse panics with an
  * `rt::ParseError`; `rt::catch_parse(|| ...)` turns it into an `Err`.
  */

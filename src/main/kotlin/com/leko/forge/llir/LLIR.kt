@@ -7,13 +7,15 @@ import com.leko.forge.context.Context
 import com.leko.forge.model.*
 import com.leko.forge.types.*
 import org.antlr.v4.runtime.ParserRuleContext
+import com.leko.forge.parse.isStd
+import com.leko.forge.utils.Options
 
 
 /**
  * Lowers an analyzed Forge file into the [LLIRModule], which the targets generate code from.
  * Runs only on files without errors, so it can rely on every expression being typed.
  */
-class LLIR private constructor(context: Context) {
+class LLIR private constructor(private val context: Context) {
 
     companion object {
         fun instance(context: Context): LLIR =
@@ -163,7 +165,7 @@ class LLIR private constructor(context: Context) {
             grammarRule.alternatives += transform(rule, sym.name)
         }
 
-        return LLIRModule(
+        val module = LLIRModule(
             ctx.start.tokenSource?.sourceName?.takeIf { it != "<unknown>" },
             records.values.filter { !it.isBuiltin },
             enums.values.toList(),
@@ -175,6 +177,23 @@ class LLIR private constructor(context: Context) {
             graphs.values.toList(),
             main,
         )
+        return withoutUnusedStd(module, ctx.function().filter { it.isStd() }.mapNotNull { f -> f.symbol?.let { function(it) } }.toSet())
+    }
+
+    /**
+     * The module without the functions of the standard library that the program does not use, also without
+     * `-opt`: everything else is kept as it is.
+     */
+    private fun withoutUnusedStd(module: LLIRModule, std: Set<Function>): LLIRModule {
+        if (std.isEmpty()) return module
+        val program = MainDeclarations()
+        program.functions += module.functions.filter { it !in std }
+        for (n in module.nodes) program.attributes += n.synthetics.keys + n.circulars.keys + n.collections.keys + n.inhEquations.keys
+        program.attributes += module.inherited.keys
+        program.graphs += module.graphs.map { it.name }
+        program.parsers += module.parsers.map { it.name }
+        val keep = Options.instance(context).get("-keep").orEmpty().flatMap { it.split(',') }.map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+        return DeadCodeElimination(keep).apply(module.copy(main = program)).first.copy(main = module.main)
     }
 
     private val ParserRuleContext.anySymbol: Symbol? get() = TreeAttributes.attributes[this]?.get("symbol") as? Symbol
@@ -231,6 +250,8 @@ class LLIR private constructor(context: Context) {
 
     private fun transform(ctx: ForgeParser.FunctionContext): Function? {
         val sym = ctx.symbol ?: return null
+        // an `ext fun` of the standard library: each use is a Builtin, which the runtime of the target implements
+        if ((sym as? FunctionSymbol)?.builtin != null) return null
         val fn = function(sym)
         fn.body = ctx.expression()?.transform()
         return fn

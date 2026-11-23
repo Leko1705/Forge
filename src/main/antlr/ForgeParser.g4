@@ -33,7 +33,7 @@ record: RECORD name=IDENT LBRACE (recordField (COMMA recordField)*)? RBRACE;
 recordField: name=IDENT COLON ty=type;
 // `op fun T.plus(other: T): T` defines an operator for T; `op` is only a keyword here
 // `fun <T> List<T>.distinct(): List<T>`: type parameters, inferred at each call
-function: (external=EXTERNAL)? (op=IDENT)? FUN (LT typeParams+=IDENT (COMMA typeParams+=IDENT)* GT)? (receiver=type DOT)? name=IDENT LPAREN (parameter (COMMA parameter)*)? RPAREN COLON ty=type (ASSIGN expression)?;
+function: (ext=EXT)? (op=IDENT)? FUN (LT typeParams+=IDENT (COMMA typeParams+=IDENT)* GT)? (receiver=type DOT)? name=IDENT LPAREN (parameter (COMMA parameter)*)? RPAREN COLON ty=type (ASSIGN expression)?;
 
 enum: ENUM name=IDENT LBRACE (enumItem (COMMA enumItem)*)? RBRACE;
 enumItem: name=IDENT (LPAREN (parameter (COMMA parameter)*)? RPAREN)?;

@@ -14,7 +14,6 @@
 // diagnostics as a collection. The back end: synthesized attributes that build the JVM IR of jvm.forge,
 // which lowers it to a class file.
 
-import "std"
 import "jvm.forge"
 
 // ==== syntax tree ===============================================================================

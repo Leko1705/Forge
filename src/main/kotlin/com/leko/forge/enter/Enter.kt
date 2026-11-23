@@ -10,6 +10,7 @@ import com.leko.forge.context.Context
 import com.leko.forge.model.*
 import com.leko.forge.types.toType
 import com.leko.forge.types.withTypeParams
+import com.leko.forge.parse.isStd
 import com.leko.forge.util.Log
 
 
@@ -89,9 +90,11 @@ class Enter private constructor(context: Context) {
             symTab[sym.type] = sym
             record.setSym(sym)
         }
-        for (func in root.function()) {
+        // the program's functions first: a function of the standard library with the same name gives way
+        for (func in root.function().sortedBy { it.isStd() }) {
             if (func.receiver != null) continue
-            if (func.name.text in symTab) {
+            val hidden = func.name.text in symTab
+            if (hidden && !func.isStd()) {
                 log.diag(functionAlreadyExist(func.name.span, func.name.text))
                 continue
             }
@@ -103,8 +106,10 @@ class Enter private constructor(context: Context) {
                 func.ty.toType().withTypeParams(typeParams),
                 func.name.span,
                 typeParams = typeParams,
+                builtin = if (func.EXT() != null && func.isStd()) func.name.text else null,
             )
-            symTab.functions[sym.name] = sym
+            // hidden by one of the program: only the standard library itself uses it
+            if (hidden) symTab.stdFunctions[sym.name] = sym else symTab.functions[sym.name] = sym
             func.setSym(sym)
         }
         for (inhDef in root.inhDef()) {

@@ -21,6 +21,8 @@ class SymTab private constructor() {
 
     /** Top level functions by name (their types are not unique, so they are not part of [table]). */
     val functions = linkedMapOf<String, FunctionSymbol>()
+    /** Functions of the standard library that one of the program hides; the standard library itself uses them. */
+    val stdFunctions = linkedMapOf<String, FunctionSymbol>()
 
     val interfaceNodes get() = globals<InterfaceNodeSymbol>()
 

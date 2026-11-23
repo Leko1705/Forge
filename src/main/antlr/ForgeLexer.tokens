@@ -1,4 +1,4 @@
-EXTERNAL=1
+EXT=1
 NODE=2
 RECORD=3
 ENUM=4
@@ -72,7 +72,7 @@ IDENT=71
 FLOAT=72
 INT=73
 WS=74
-'external'=1
+'ext'=1
 'node'=2
 'record'=3
 'enum'=4

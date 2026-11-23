@@ -183,10 +183,17 @@ class CheckTest {
     }
 
     @Test
-    fun theStandardLibraryIsBundled() {
+    fun theStandardLibraryIsPartOfEveryProgram() {
+        assertEquals(emptyList(), errors("fun f(): int = [1, 2].sum() + [3].max() + ([1] - [1]).size + [1].union([2]).size + 1.max(2) + \"a\".upper().size\n" +
+            "fun g(): float = [1.5].sum()\nfun h(): List<str> = {\"k\": 1}.keys().reversed()"))
+        // the program's own declarations come first, without being duplicates
+        assertEquals(emptyList(), errors("fun List<int>.sum(): str = \"own\"\nfun f(): str = [1].sum()\nfun fail(m: int): int = m\nfun g(): int = fail(1)" +
+            "\nfun <T> List<T>.reversed(): int = 0\nfun h(): int = [1].reversed()"))
+        assertError("already", "fun List<int>.sum(): str = \"a\"\nfun List<int>.sum(): str = \"b\"")
+        // the file that is compiled may import std, it changes nothing
         val dir = createTempDirectory("std").toFile()
         val main = File(dir, "main.forge")
-        main.writeText("import \"std\"\nfun f(): int = [1, 2].sum() + [3].max() + ([1] - [1]).size + [1].union([2]).size + 1.max(2)\nfun g(): float = [1.5].sum()")
+        main.writeText("import \"std\"\nfun f(): int = [1, 2].sum()")
         val context = Context()
         Analyzer.instance(context).analyze(main.parseForge())
         assertEquals(emptyList(), Log.instance(context).diagnostics.filter { it.severity == Severity.ERROR }.map { it.message })

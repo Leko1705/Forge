@@ -1,6 +1,59 @@
-// std.forge: the standard library of Forge, bundled with the compiler: import "std"
+// std.forge: the standard library of Forge. It is bundled with the compiler and part of every program.
 //
-// Methods, so that they do not take names from the programs that import them.
+// The `ext fun`s are implemented by the runtime of every target; the other functions are Forge code, generated
+// into a compiler only if it uses them. All are methods (except `char` and `fail`), and a program that declares
+// a function with the same receiver and name uses its own.
+//
+// Part of the types rather than of this file: `size` of str, List, Set and Map; the operators (`++`, `in`,
+// `xs[i]`, `xs[a:b]`, ...); and the graph declarations (`Graph`, `Edge`, `Vertex`, `graphOf`, `Span`, `spanOf`).
+
+// ---- builtins ------------------------------------------------------------------------------------------
+
+/** Stops with an error; of type Nothing, so it fits wherever a value is expected: `x ?: fail("missing")`. */
+ext fun fail(message: str): Nothing
+/** The character with a code, as a str. */
+ext fun char(code: int): str
+
+/** As text; floats like Kotlin's `Float.toString`. */
+ext fun int.str(): str
+ext fun float.str(): str
+ext fun bool.str(): str
+
+/** The number the whole text is; fails otherwise. */
+ext fun str.toInt(): int
+ext fun str.toFloat(): float
+/** Where [part] first occurs; -1 if it does not. */
+ext fun str.indexOf(part: str): int
+ext fun str.startsWith(prefix: str): bool
+ext fun str.endsWith(suffix: str): bool
+/** Every occurrence of [old] replaced by [replacement]. */
+ext fun str.replace(old: str, replacement: str): str
+ext fun str.upper(): str
+ext fun str.lower(): str
+/** Without whitespace at the start and the end. */
+ext fun str.trim(): str
+ext fun str.split(separator: str): List<str>
+/** The code of the character at [index]. */
+ext fun str.code(index: int): int
+/** The bytes of the UTF-8 encoding. */
+ext fun str.utf8(): List<int>
+/** With escapes replaced: `\n`, `\t`, `\r`, `\0`; `\x` is x for any other character. */
+ext fun str.unescape(): str
+
+/** Where [x] first is; -1 if it is not. */
+ext fun <T> List<T>.indexOf(x: T): int
+ext fun <T> List<T>.reversed(): List<T>
+ext fun <T> List<T>.toSet(): Set<T>
+ext fun List<str>.join(separator: str): str
+
+/** The elements in the order they were added. */
+ext fun <T> Set<T>.toList(): List<T>
+ext fun <T> Set<T>.remove(x: T): Set<T>
+
+/** The keys and the values, in the order of the map. */
+ext fun <K, V> Map<K, V>.keys(): List<K>
+ext fun <K, V> Map<K, V>.values(): List<V>
+ext fun <K, V> Map<K, V>.remove(key: K): Map<K, V>
 
 // ---- lists as sets: the order of the elements is kept, no element is added twice --------------------
 

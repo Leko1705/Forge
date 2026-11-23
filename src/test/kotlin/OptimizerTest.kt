@@ -34,6 +34,23 @@ class OptimizerTest {
     private fun LLIRModule.body(name: String): Value = functions.first { it.name == name }.body!!
 
     @Test
+    fun theStandardLibraryIsOnlyGeneratedWhereUsedAlsoWithoutOpt() {
+        val dir = createTempDirectory("forge-std").toFile()
+        try {
+            val file = File(dir, "main.forge").apply { writeText("fun f(): int = [1, 2].sum() + \"a\".upper().size\nfun unused(): int = 1") }
+            val context = Context()
+            Options.instance(context).set(arrayOf("-f", file.path))
+            val ast = file.parseForge()
+            Analyzer.instance(context).analyze(ast)
+            val m = LLIR.instance(context).transform(ast)
+            // ext funs of std are builtins, not functions; of the rest only what is used, and the program's own
+            assertEquals(listOf("sum", "f", "unused"), m.functions.map { it.name })
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
     fun constantsAreFolded() {
         val m = optimized("""
             const base = 4

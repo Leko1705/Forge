@@ -17,7 +17,7 @@ import com.leko.forge.utils.Options
  * - nodes become classes with typed fields and accessors for their attributes: `num.type()`; interface
  *   nodes become interfaces, so `instanceof` works
  * - an attribute is a static method (`attr_type(node)`) that dispatches on the kind of the node
- * - `external fun`s are static methods of a class `<Name>Externals` in the same package, e.g.
+ * - `ext fun`s are static methods of a class `<Name>Externals` in the same package, e.g.
  *   `public static String int_text(Integer self)`
  * - values are passed as `Object`: `int` is an `Integer`, lists are `java.util.List<Object>`, maps
  *   `java.util.Map<Object, Object>`

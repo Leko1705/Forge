@@ -1,6 +1,6 @@
 lexer grammar ForgeLexer;
 
-EXTERNAL: 'external';
+EXT: 'ext';
 IMPORT: 'import';
 CONST: 'const';
 NODE: 'node';

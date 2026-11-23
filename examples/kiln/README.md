@@ -118,7 +118,7 @@ them.
 | diagnostics                   | `coll Program.diagnostics`, contributed by expressions, statements and functions        |
 | code generation               | `syn Stmt.code` and `syn Expr.code` build JVM IR nodes; labels come from `syn Labeled.label`, an interface implemented by `If`, `While` and `Binary` (`for If impl Labeled`) |
 
-Kiln needs no `external fun`s: string literals are decoded with slices and builtins
+Kiln needs no `ext fun`s: string literals are decoded with slices and builtins
 (`literal[1:-1].unescape()`), numbers converted with `str.toInt()` and `int.str()`, constants encoded with
-`str.utf8()`; sets of live slots are lists combined with `union` and `-` from the standard library
-(`import "std"`), as `max_stack` uses `int.max`. Kotlin supplies only the command line driver `Main.kt`.
+`str.utf8()`; sets of live slots are lists combined with `union` and `-` of the standard library, and
+`max_stack` uses `int.max`. Kotlin supplies only the command line driver `Main.kt`.

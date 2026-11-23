@@ -1,8 +1,6 @@
 // Conformance program for the Forge targets: every feature, with results as strings. Each target runs
 // `report()` and must print exactly what the Kotlin target prints.
 
-import "std"
-
 // ---- nodes, interfaces, enums, records ------------------------------------------------------------
 
 node Program(decls: List<Decl>)
@@ -511,6 +509,6 @@ fun report(): List<str> = attributes(prog()) ++ [
     standard()
 ] ++ builtins() ++ flows() ++ graphs() ++ parsing() ++ binary()
 
-external fun int.text(): str
-external fun str.toInt(): int
-external fun str.shout(): str
+ext fun int.text(): str
+ext fun str.toInt(): int
+ext fun str.shout(): str

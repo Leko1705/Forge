@@ -16,7 +16,7 @@ import com.leko.forge.utils.Options
  * Values are `rt::V` (`rt::I(1)`, `rt::S("x")`, `rt::L({...})`, nodes, records, ...). Functions take and
  * return them: `report()`, `compile(rt::S("Main"), rt::S(source))`; methods are named after their receiver
  * (`Type_repr`). Attributes are functions too: `attr_type(node)`, `inh_scope(node)`, `coll_diags(node)`.
- * `external fun`s are declared and must be defined by the program that includes the header, e.g.
+ * `ext fun`s are declared and must be defined by the program that includes the header, e.g.
  * `rt::V conformance::int_text(rt::V self)`. A failed parse throws `rt::ParseException`.
  */
 object CppTarget : Target {

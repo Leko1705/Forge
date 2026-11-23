@@ -6,6 +6,7 @@ import com.leko.forge.analysis.*
 import com.leko.forge.context.Context
 import com.leko.forge.model.*
 import com.leko.forge.types.*
+import com.leko.forge.parse.isStd
 import com.leko.forge.util.Diagnostic
 import com.leko.forge.util.Log
 import com.leko.forge.util.Severity
@@ -360,13 +361,14 @@ class Attr private constructor(context: Context) {
             val expr = ctx.expression()
 
             val sym = ctx.symbol ?: return null
+            resolve.inStd = ctx.isStd()
 
             if (expr != null) {
                 withChildScope {
 
                     sym.params.forEach { env.value.scope.enter(it) }
 
-                    if (ctx.EXTERNAL() != null) {
+                    if (ctx.EXT() != null) {
                         log.diag(externalFunctionMustHaveNoBody(ctx.expression().span))
                     }
                     if (ctx.receiver == null) {
@@ -386,10 +388,11 @@ class Attr private constructor(context: Context) {
                 }
             }
             else {
-                if (ctx.EXTERNAL() == null) {
+                if (ctx.EXT() == null) {
                     log.diag(missingFunctionBody(ctx.name.span))
                 }
             }
+            resolve.inStd = false
 
             return null
         }

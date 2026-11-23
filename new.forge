@@ -1,5 +1,5 @@
 
-external fun str.int(): int
+ext fun str.int(): int
 
 node Root(decls: List<TopLevelDecl>)
 node TopLevelDecl

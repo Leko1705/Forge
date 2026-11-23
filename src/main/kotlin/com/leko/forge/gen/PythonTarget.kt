@@ -12,7 +12,7 @@ import com.leko.forge.types.*
  * - nodes become classes (interfaces become base classes, so `isinstance` works), with the attributes as
  *   properties: `node.type`; records and enum items are compared by value
  * - an attribute is a function that dispatches on the class of the node to the equation that applies
- * - functions become functions (methods are named `Receiver_name`); `external fun`s are imported from
+ * - functions become functions (methods are named `Receiver_name`); `ext fun`s are imported from
  *   `<module>_externals`, e.g. `def int_text(self): return str(self)` in `conformance_externals.py`
  * - parsers become classes with a static method per rule: `Calc.program(source)`
  */

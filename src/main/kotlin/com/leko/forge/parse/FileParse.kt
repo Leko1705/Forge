@@ -11,25 +11,25 @@ import java.io.File
 /** A file that can not be compiled before analysis: an `import` of a missing file, or syntax errors. */
 class ImportException(message: String) : RuntimeException(message)
 
+/** The source name of the standard library, which is part of every program; it is bundled with the compiler. */
+const val STD_SOURCE = "std.forge"
+
 /**
  * Parses a Forge file together with the files it imports (`import "jvm.forge"`, relative to the importing file),
- * transitively. The result is one root holding the declarations of all files, imported ones first; each file is
- * read once, even if it is imported several times.
+ * transitively, and the standard library. The result is one root holding the declarations of all files, the
+ * standard library and imported files first; each file is read once, even if it is imported several times.
+ * `import "std"` is allowed, but the standard library is always there.
  */
 fun File.parseForge(): ForgeParser.RootContext {
     val main = parseChecked(this)
     val seen = mutableSetOf(this.canonicalFile)
-    val imported = mutableListOf<ForgeParser.RootContext>()
+    val imported = mutableListOf(parseStd())
 
     fun collect(file: File, root: ForgeParser.RootContext) {
         for (decl in root.importDecl()) {
             val path = decl.path.text.let { it.substring(1, it.length - 1) }
+            if (path == "std") continue
             val target = File(file.absoluteFile.parentFile, path).canonicalFile
-            // the standard library: "std" always, "std.forge" unless there is such a file
-            if (path == "std" || (path == "std.forge" && !target.isFile)) {
-                if (seen.add(File(STD))) imported += parseStd()
-                continue
-            }
             if (!seen.add(target)) continue
             if (!target.isFile) {
                 throw ImportException("${file.name}:${decl.start.line}:${decl.start.charPositionInLine}: can not import '$path': ${target.path} does not exist")
@@ -40,8 +40,11 @@ fun File.parseForge(): ForgeParser.RootContext {
         }
     }
     collect(this, main)
-    if (imported.isEmpty()) return main
+    return merge(imported, main)
+}
 
+/** One root with the declarations of [imported], then those of [main]; positions are those of [main]. */
+private fun merge(imported: List<ForgeParser.RootContext>, main: ForgeParser.RootContext): ForgeParser.RootContext {
     val merged = ForgeParser.RootContext(null, 0)
     merged.start = main.start
     merged.stop = main.stop
@@ -55,14 +58,11 @@ fun File.parseForge(): ForgeParser.RootContext {
     return merged
 }
 
-/** Where the standard library is, for error messages; it is bundled with the compiler. */
-private const val STD = "std.forge"
-
-private fun parseStd(): ForgeParser.RootContext {
-    val text = ImportException::class.java.getResourceAsStream("/forge/std.forge")!!.readBytes().toString(Charsets.UTF_8)
-    val parser = ForgeParser(CommonTokenStream(ForgeLexer(CharStreams.fromString(text, STD))))
-    return parser.root()
+private val stdText: String by lazy {
+    ImportException::class.java.getResourceAsStream("/forge/std.forge")!!.readBytes().toString(Charsets.UTF_8)
 }
+
+private fun parseStd(): ForgeParser.RootContext = parseForge(CharStreams.fromString(stdText, STD_SOURCE))
 
 private fun parseChecked(file: File): ForgeParser.RootContext {
     val lexer = ForgeLexer(CharStreams.fromFileName(file.absolutePath))
@@ -74,9 +74,9 @@ private fun parseChecked(file: File): ForgeParser.RootContext {
     return root
 }
 
-/** Parses Forge source code, e.g. in tests. Imports are not resolved. */
+/** Parses Forge source code, e.g. in tests, with the standard library. Imports are not resolved. */
 fun String.parseForge(sourceName: String = "<string>"): ForgeParser.RootContext =
-    parseForge(CharStreams.fromString(this, sourceName))
+    merge(listOf(parseStd()), parseForge(CharStreams.fromString(this, sourceName)))
 
 private fun parseForge(input: CharStream): ForgeParser.RootContext {
     val lexer = ForgeLexer(input)
@@ -84,3 +84,6 @@ private fun parseForge(input: CharStream): ForgeParser.RootContext {
     val parser = ForgeParser(tokens)
     return parser.root()
 }
+
+/** Whether a declaration is one of the standard library. */
+fun ParserRuleContext.isStd(): Boolean = start?.tokenSource?.sourceName == STD_SOURCE

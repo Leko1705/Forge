@@ -55,9 +55,22 @@ class Resolve private constructor(context: Context) {
         return symTab[name]
     }
 
+    /** Whether the code being checked is that of the standard library: it uses its own declarations first. */
+    var inStd = false
+
     fun resolve(owner: Type, member: String, receiverKind: Kind, memberKind: Kind): Symbol? =
-        resolveDeclared(owner, member, receiverKind, memberKind)
+        (if (inStd && receiverKind == Kind.VAL && memberKind == Kind.MTH) hiddenStdMethod(owner, member) else null)
+            ?: resolveDeclared(owner, member, receiverKind, memberKind)
             ?: if (receiverKind == Kind.VAL && memberKind == Kind.MTH) genericMethod(owner, member) else null
+
+    private fun hiddenStdMethod(owner: Type, member: String): Symbol? {
+        for (m in typeMap.stdMethods) {
+            if (m.name != member) continue
+            val bindings = mutableMapOf<String, Type>()
+            if (fits(m.receiver?.type ?: continue, owner, bindings)) return m.instantiate(bindings)
+        }
+        return null
+    }
 
     /**
      * A generic method whose receiver fits [owner], with the type variables the receiver binds replaced:
@@ -103,8 +116,8 @@ class Resolve private constructor(context: Context) {
                 Kind.VAL -> {
                     sym.fields.firstOrNull { it.name == member }
                 }
-                // methods the program defines, else builtin ones (str.upper(), List<T>.reversed(), ...)
-                Kind.MTH -> typeMap.methods[sym]?.firstOrNull { it.name == member } ?: Builtins.method(sym, owner, member)
+                // methods the program defines, also those of the standard library (str.upper(), List<int>.sum(), ...)
+                Kind.MTH -> typeMap.methods[sym]?.firstOrNull { it.name == member }
                 else -> null
             }
         }
