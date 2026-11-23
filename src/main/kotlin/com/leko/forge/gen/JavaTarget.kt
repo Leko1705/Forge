@@ -741,6 +741,7 @@ private class JavaGeneration(private val module: LLIRModule, private val outer: 
             "str.utf8" -> "__utf8($r)"
             "str.unescape" -> "__unescape($r)"
             "char" -> "__char(${a[0]})"
+            "fail" -> "__panic((String) (${a[0]}))"
             "str.get" -> "__charAt($r, ${a[0]})"
             "str.slice", "List.slice" -> "__slice($r, ${a[0]}, ${a[1]})"
             "str.contains" -> "$s.contains((String) (${a[0]}))"

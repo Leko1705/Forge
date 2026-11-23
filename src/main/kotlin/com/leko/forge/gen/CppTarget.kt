@@ -626,6 +626,7 @@ private class CppGeneration(private val module: LLIRModule, private val namespac
             "str.utf8" -> rt("utf8")
             "str.unescape" -> rt("unescape")
             "char" -> rt("char_of")
+            "fail" -> "(rt::fail(rt::str_of(${expr(b.args[0])})), rt::Null())"
             "str.get" -> rt("char_at")
             "str.slice", "List.slice" -> rt("slice")
             "str.contains" -> rt("str_contains")

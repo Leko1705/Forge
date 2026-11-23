@@ -543,6 +543,7 @@ private class OcamlGeneration(private val module: LLIRModule) {
             "str.utf8" -> rt("utf8")
             "str.unescape" -> rt("unescape")
             "char" -> rt("char")
+            "fail" -> "(Rt.fail (Rt.str_of (${expr(b.args[0])})))"
             "str.get" -> rt("char_at")
             "str.slice", "List.slice" -> rt("slice")
             "str.contains" -> "(Bool ${rt("str_contains")})"

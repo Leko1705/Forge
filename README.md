@@ -97,7 +97,7 @@ Every target implements these; a function the program defines with the same rece
 | `List<T>` | `indexOf(x)`, `reversed()`, `toSet()`; `List<str>.join(separator)`                                   |
 | `Set<T>`  | `size`, `toList()`, `remove(x)`                                                                        |
 | `Map<K, V>` | `keys()`, `values()` (lists, in the order of the map), `remove(key)`                                 |
-| -         | `char(code)`: a character as a str                                                                     |
+| -         | `char(code)`: a character as a str; `fail(message)`: stops with an error (`ForgeError`, `IllegalStateException` in Kotlin, a panic in Rust). Its type is `Nothing`, which fits wherever a value is expected: `x ?: fail("missing")`, `if b == 0 then fail("division by zero") else a / b` |
 
 Strings are UTF-16 in Kotlin and Java, code points in Python and bytes of UTF-8 in C++, Rust and OCaml: sizes,
 indexes, `code`, `upper`, `lower` and `trim` agree for ASCII text.

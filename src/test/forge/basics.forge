@@ -88,6 +88,8 @@ const missingType: Type = Type.ERROR("missing")
 fun greet(who: str): str = greeting + ", " + who
 fun constants(): int = answer + words.size
 
+fun safeDiv(a: int, b: int): int = if b == 0 then fail("division by zero: " + a.str() + " / 0") else a / b
+
 fun sum(xs: List<int>): int = acc + x for x in xs with acc = 0
 fun describe(xs: List<int>): str = match xs {
     [] -> "empty"

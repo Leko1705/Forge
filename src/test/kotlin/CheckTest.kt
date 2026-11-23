@@ -156,6 +156,9 @@ class CheckTest {
         assertError("expected type 'int' but got str", "fun f(): List<int> = [1, 2][\"a\":]")
         assertError("not found", "fun f(): int = \"x\".nope()")
         assertError("not found", "fun f(): str = [1].join(\",\")")
+        // fail fits wherever a value is expected
+        assertEquals(emptyList(), errors("fun f(x: int?): int = x ?: fail(\"none\")\nfun g(b: bool): str = if b then \"x\" else fail(\"no\")\nfun h(): List<str> = fail(\"never\")"))
+        assertError("expected type 'str' but got int", "fun f(): int = fail(1)")
         // methods of the program come before builtins
         assertEquals(emptyList(), errors("fun str.upper(): int = 1\nfun f(): int = \"a\".upper()"))
     }

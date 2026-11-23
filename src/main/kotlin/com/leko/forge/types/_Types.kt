@@ -86,6 +86,11 @@ data class FlowGraphType(val name: String, val root: String) : Type {
     override fun toString(): String = "FlowGraph<$root>"
 }
 
+/** The type of `fail(message)`, which never returns: it can be used wherever any value is expected. */
+object NothingType : Type {
+    override fun toString(): String = "Nothing"
+}
+
 object ArbitraryType : Type {
     override fun toString(): String = "*"
 }

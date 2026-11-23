@@ -638,6 +638,7 @@ object KotlinTarget : Target {
             PortType -> "__Port"
             PortRefType -> "__PortRef"
             ArbitraryType -> "kotlin.Any?"
+            NothingType -> "kotlin.Nothing"
             ErrorType, is TerminalRuleProduction -> throw IllegalStateException("should not reach here for $type")
         }
 
@@ -908,6 +909,7 @@ object KotlinTarget : Target {
                 "str.utf8" -> call("__utf8")
                 "str.unescape" -> call("__unescape")
                 "char" -> call("__char")
+                "fail" -> call("kotlin.error")
                 "str.get" -> call("__charAt")
                 "str.slice", "List.slice" -> call("__slice")
                 "str.contains", "Set.contains" -> infix("in", b.args[0], r!!)

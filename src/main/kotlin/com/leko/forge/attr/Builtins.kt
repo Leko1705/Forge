@@ -84,6 +84,7 @@ object Builtins {
         )
 
         symTab.functions["char"] = char
+        symTab.functions["fail"] = fail
         symTab.functions["graphOf"] = FunctionSymbol(
             null,
             "graphOf",
@@ -152,6 +153,11 @@ object Builtins {
             result, builtinSpan, builtin = key,
         )
     }
+
+    /** `fail(message)`: stops with an error; it has type Nothing, so it fits wherever a value is expected. */
+    private val fail = FunctionSymbol(
+        null, "fail", listOf(VarSymbol("message", StrType, null, VarSymbol.VarKind.PARAMETER)), NothingType, builtinSpan, builtin = "fail",
+    )
 
     /** `char(code)`: the character with a code, as a str. */
     private val char = FunctionSymbol(

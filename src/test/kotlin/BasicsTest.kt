@@ -74,6 +74,13 @@ class BasicsTest {
     }
 
     @Test
+    fun failStops() {
+        assertEquals(3, safeDiv(6, 2))
+        val e = kotlin.test.assertFailsWith<IllegalStateException> { safeDiv(6, 0) }
+        assertEquals("division by zero: 6 / 0", e.message)
+    }
+
+    @Test
     fun functionsAndPatterns() {
         assertEquals(6, sum(listOf(1, 2, 3)))
         assertEquals("empty", describe(emptyList()))

@@ -588,6 +588,7 @@ private class RustGeneration(private val module: LLIRModule, private val moduleN
             "str.utf8" -> rt("utf8")
             "str.unescape" -> rt("unescape")
             "char" -> rt("char_of")
+            "fail" -> "rt::fail(rt::str_of(${r(b.args[0])}).to_string())"
             "str.get" -> rt("char_at")
             "str.slice", "List.slice" -> rt("slice")
             "str.contains" -> rt("str_contains")

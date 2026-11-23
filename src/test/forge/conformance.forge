@@ -435,6 +435,17 @@ fun builtins(): List<str> = [
     strs({"a": 1, "b": 2}.keys()) + " " + ints({"a": 1, "b": 2}.values()) + " " + {"a": 1, "b": 2}.remove("a").size.str()
 ]
 
+// ---- fail ---------------------------------------------------------------------------------------
+
+fun safeDiv(a: int, b: int): int = if b == 0 then fail("division by zero") else a / b
+fun nameOf(m: Map<str, str>): str = (if "name" in m then m["name"] else null) ?: fail("no name")
+fun digit(n: int): str = match n {
+    0 -> "zero"
+    1 -> "one"
+    _ -> fail("not a digit: " + n.str())
+}
+fun failing(): str = "fail " + safeDiv(6, 3).str() + " " + nameOf({"name": "x"}) + " " + digit(1)
+
 // ---- the report -------------------------------------------------------------------------------------
 
 fun prog(): Program = Program([
@@ -477,7 +488,8 @@ fun report(): List<str> = attributes(prog()) ++ [
     "shifts " + ints(shifts()),
     "slices " + slices(),
     "ranges " + ranges(),
-    "sets " + sets()
+    "sets " + sets(),
+    failing()
 ] ++ builtins() ++ flows() ++ graphs() ++ parsing() ++ binary()
 
 external fun int.text(): str

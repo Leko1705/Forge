@@ -50,6 +50,7 @@ class Types private constructor(context: Context) {
 
     fun isAssignable(expected: Type, got: Type): Boolean {
         if (expected == ErrorType || got == ErrorType) return true
+        if (got == NothingType) return true
         if (got is ArbitraryType) return false
         if (expected is ArbitraryType) return true
         if (expected == got) return true
@@ -77,6 +78,8 @@ class Types private constructor(context: Context) {
     fun sharedSuperType(t1: Type, t2: Type): Type? {
         if (t1 == ErrorType || t2 == ErrorType) return ErrorType
         if (t1 == t2) return t1
+        if (t1 == NothingType) return t2
+        if (t2 == NothingType) return t1
         if (t1 in listOf(IntType, FloatType) && t2 in listOf(IntType, FloatType)) return FloatType
         if (t1 is OptionalType && t2 is NullType) return t1
         if (t1 is NullType && t2 is OptionalType) return t2

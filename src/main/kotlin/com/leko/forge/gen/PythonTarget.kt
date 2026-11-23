@@ -627,6 +627,7 @@ private class PythonGeneration(private val module: LLIRModule, private val modul
             "str.utf8" -> "list($r.encode(\"utf-8\"))"
             "str.unescape" -> "_unescape($r)"
             "char" -> "chr(${a[0]})"
+            "fail" -> "_panic(${a[0]})"
             "str.get" -> "_char_at($r, ${a[0]})"
             "str.slice", "List.slice" -> "$r[${a[0]}:${a[1]}]"
             "str.contains" -> "(${a[0]} in $r)"
