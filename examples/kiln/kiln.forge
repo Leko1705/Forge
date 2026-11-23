@@ -172,7 +172,7 @@ syn Binary.type: Type = match [this.left.type, this.right.type] {
     _ -> Type.ERROR
 }
 
-fun Type.repr(): str = match this {
+val Type.repr: str = match this {
     Type.INT -> "int"
     Type.BOOL -> "bool"
     Type.STR -> "str"
@@ -282,7 +282,7 @@ syn Assign.deadStore: bool = this.reachable && this.local != null && !(this.loca
 enum Severity { ERROR, WARNING }
 record Diagnostic { severity: Severity, line: int, column: int, message: str }
 
-fun Diagnostic.repr(): str =
+val Diagnostic.repr: str =
     (match this.severity { Severity.ERROR -> "error"  Severity.WARNING -> "warning" })
     + " at " + this.line.str() + ":" + this.column.str() + ": " + this.message
 
@@ -301,32 +301,32 @@ syn Call.problem: str? =
     else "'" + this.name + "' takes (" + typeList(p.type for p in this.signatures[this.name].params)
         + "), not (" + typeList(a.type for a in this.args) + ")"
 syn Unary.problem: str? =
-    if this.type == Type.ERROR && this.operand.type != Type.ERROR then "can not apply '" + this.op + "' to " + this.operand.type.repr() else null
+    if this.type == Type.ERROR && this.operand.type != Type.ERROR then "can not apply '" + this.op + "' to " + this.operand.type.repr else null
 syn Binary.problem: str? =
     if this.type == Type.ERROR && this.left.type != Type.ERROR && this.right.type != Type.ERROR
-    then "can not apply '" + this.op + "' to " + this.left.type.repr() + " and " + this.right.type.repr() else null
+    then "can not apply '" + this.op + "' to " + this.left.type.repr + " and " + this.right.type.repr else null
 
-fun typeList(ts: List<Type>): str = (t.repr() for t in ts).join(", ")
+fun typeList(ts: List<Type>): str = (t.repr for t in ts).join(", ")
 
 syn Stmt.problem: str? = null
 syn VarDecl.problem: str? = if this.value.type == Type.VOID then "'" + this.name + "' can not be void" else null
 syn Assign.problem: str? =
     if this.local == null then "unknown variable '" + this.name + "'"
     else if this.local!!.type == this.value.type || this.value.type == Type.ERROR then null
-    else "can not assign " + this.value.type.repr() + " to '" + this.name + "' of type " + (this.local!!.type).repr()
+    else "can not assign " + this.value.type.repr + " to '" + this.name + "' of type " + (this.local!!.type).repr
 syn If.problem: str? = condition(this.cond)
 syn While.problem: str? = condition(this.cond)
 syn Break.problem: str? = if this.loopEnd == null then "'break' outside of a loop" else null
 syn Return.problem: str? = match [this.returnType, if this.value == null then Type.VOID else this.value!!.type] {
     [_, Type.ERROR] -> null
     [expected, got] if expected == got -> null
-    [expected, got] -> "can not return " + got.repr() + " from a function returning " + expected.repr()
+    [expected, got] -> "can not return " + got.repr + " from a function returning " + expected.repr
 }
 syn Print.problem: str? = if this.value.type == Type.VOID then "can not print void" else null
 syn ExprStmt.problem: str? = if this.expr is Call then null else "an expression statement must be a call"
 
 fun condition(cond: Expr): str? =
-    if cond.type == Type.BOOL || cond.type == Type.ERROR then null else "a condition must be bool, not " + cond.type.repr()
+    if cond.type == Type.BOOL || cond.type == Type.ERROR then null else "a condition must be bool, not " + cond.type.repr
 
 coll Program.diagnostics: List<Diagnostic> = []
 contrib Expr -> this.prog!!.diagnostics = diagnostics ++
@@ -354,22 +354,22 @@ syn Program.errors: List<Diagnostic> = (if d.severity == Severity.ERROR then acc
 
 // ==== code generation: Kiln -> JVM IR ===========================================================
 
-fun Type.descriptor(): str = match this {
+val Type.descriptor: str = match this {
     Type.INT -> "I"
     Type.BOOL -> "Z"
     Type.STR -> "Ljava/lang/String;"
     _ -> "V"
 }
-fun Type.slot(): Slot = if this == Type.STR then Slot.REF else Slot.INT
+val Type.slot: Slot = if this == Type.STR then Slot.REF else Slot.INT
 
-fun Function.descriptor(): str =
+syn Function.descriptor: str =
     if this.name == "main" then "([Ljava/lang/String;)V"
-    else (acc + p.type.descriptor() for p in this.params with acc = "(") + ")" + this.returns.descriptor()
+    else (acc + p.type.descriptor for p in this.params with acc = "(") + ")" + this.returns.descriptor
 
 syn Module.jvm: JClass = JClass(this.name, "java/lang/Object", (f.jvm for f in this.program.functions))
 
 // public static; code that falls off the end returns a default value (only reachable for void)
-syn Function.jvm: JMethod = JMethod(9, this.name, this.descriptor(), this.slots, this.body.code ++ match this.returns {
+syn Function.jvm: JMethod = JMethod(9, this.name, this.descriptor, this.slots, this.body.code ++ match this.returns {
     Type.VOID -> [JOp(Op.RETURN)]
     Type.STR -> [JOp(Op.ACONST_NULL), JOp(Op.ARETURN)]
     _ -> [JPush(0), JOp(Op.IRETURN)]
@@ -377,8 +377,8 @@ syn Function.jvm: JMethod = JMethod(9, this.name, this.descriptor(), this.slots,
 
 syn Stmt.code: List<JInsn>
 syn Block.code: List<JInsn> = acc ++ s.code for s in this.stmts with acc = []
-syn VarDecl.code: List<JInsn> = this.value.code ++ [JStore(this.value.type.slot(), this.slot)]
-syn Assign.code: List<JInsn> = this.value.code ++ [JStore(this.local!!.type.slot(), this.local!!.slot)]
+syn VarDecl.code: List<JInsn> = this.value.code ++ [JStore(this.value.type.slot, this.slot)]
+syn Assign.code: List<JInsn> = this.value.code ++ [JStore(this.local!!.type.slot, this.local!!.slot)]
 syn If.code: List<JInsn> =
     this.cond.jumpUnless(this.label + "_else") ++ this.yes.code
     ++ [JJump(Cond.GOTO, this.label + "_end"), JLabel(this.label + "_else")]
@@ -393,17 +393,17 @@ syn Return.code: List<JInsn> =
     else this.value!!.code ++ [JOp(if this.value!!.type == Type.STR then Op.ARETURN else Op.IRETURN)]
 syn Print.code: List<JInsn> =
     [JGetStatic("java/lang/System", "out", "Ljava/io/PrintStream;")] ++ this.value.code
-    ++ [JInvoke(Invoke.VIRTUAL, "java/io/PrintStream", "println", "(" + this.value.type.descriptor() + ")V")]
+    ++ [JInvoke(Invoke.VIRTUAL, "java/io/PrintStream", "println", "(" + this.value.type.descriptor + ")V")]
 syn ExprStmt.code: List<JInsn> = this.expr.code ++ (if this.expr.type == Type.VOID then [] else [JOp(Op.POP)])
 
 syn Expr.code: List<JInsn>
 syn Num.code: List<JInsn> = [JPush(this.value)]
 syn Text.code: List<JInsn> = [JLdc(this.value)]
 syn Bool.code: List<JInsn> = [JPush(if this.value then 1 else 0)]
-syn Var.code: List<JInsn> = [JLoad(this.type.slot(), this.local!!.slot)]
+syn Var.code: List<JInsn> = [JLoad(this.type.slot, this.local!!.slot)]
 syn Call.code: List<JInsn> =
     (acc ++ a.code for a in this.args with acc = [])
-    ++ [JInvoke(Invoke.STATIC, this.module!!.name, this.name, this.signatures[this.name].descriptor())]
+    ++ [JInvoke(Invoke.STATIC, this.module!!.name, this.name, this.signatures[this.name].descriptor)]
 syn Unary.code: List<JInsn> = this.operand.code ++ match this.op {
     "-" -> [JOp(Op.INEG)]
     _ -> [JPush(1), JOp(Op.IXOR)]

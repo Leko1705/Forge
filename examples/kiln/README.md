@@ -117,6 +117,7 @@ them.
 | values that are never read    | `circular([]) Vertex.liveIn` / `liveOut` over the CFG, on JVM slots                      |
 | diagnostics                   | `coll Program.diagnostics`, contributed by expressions, statements and functions        |
 | code generation               | `syn Stmt.code` and `syn Expr.code` build JVM IR nodes; labels come from `syn Labeled.label`, an interface implemented by `If`, `While` and `Binary` (`for If impl Labeled`) |
+| properties of enums           | `val Op.opcode`, `val Cond.delta`, `val Type.descriptor`, `val Type.slot`, `val Diagnostic.repr`: computed from the value, read like fields (`this.op.opcode`); nodes use `syn` instead (`syn Function.descriptor`) |
 
 Kiln needs no `ext fun`s: string literals are decoded with slices and builtins
 (`literal[1:-1].unescape()`), numbers converted with `str.toInt()` and `int.str()`, constants encoded with

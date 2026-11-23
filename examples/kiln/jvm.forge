@@ -37,7 +37,7 @@ enum Cond { IFEQ, IFNE, IF_ICMPEQ, IF_ICMPNE, IF_ICMPLT, IF_ICMPGE, IF_ICMPGT, I
 enum Slot { INT, REF }
 enum Invoke { STATIC, VIRTUAL }
 
-fun Op.opcode(): int = match this {
+val Op.opcode: int = match this {
     Op.IADD -> 96
     Op.ISUB -> 100
     Op.IMUL -> 104
@@ -52,14 +52,14 @@ fun Op.opcode(): int = match this {
     Op.ARETURN -> 176
     Op.RETURN -> 177
 }
-fun Op.delta(): int = match this {
+val Op.delta: int = match this {
     Op.INEG -> 0
     Op.RETURN -> 0
     Op.DUP -> 1
     Op.ACONST_NULL -> 1
     _ -> -1
 }
-fun Cond.opcode(): int = match this {
+val Cond.opcode: int = match this {
     Cond.IFEQ -> 153
     Cond.IFNE -> 154
     Cond.IF_ICMPEQ -> 159
@@ -70,7 +70,7 @@ fun Cond.opcode(): int = match this {
     Cond.IF_ICMPLE -> 164
     Cond.GOTO -> 167
 }
-fun Cond.delta(): int = match this {
+val Cond.delta: int = match this {
     Cond.GOTO -> 0
     Cond.IFEQ -> -1
     Cond.IFNE -> -1
@@ -118,7 +118,7 @@ enum Const {
 }
 
 /** The constants an entry refers to, transitively. */
-fun Const.dependencies(): List<Const> = match this {
+val Const.dependencies: List<Const> = match this {
     Const.CLASS(name) -> [Const.UTF8(name)]
     Const.STRING(text) -> [Const.UTF8(text)]
     Const.NAME_AND_TYPE(name, d) -> [Const.UTF8(name), Const.UTF8(d)]
@@ -150,7 +150,7 @@ syn JGetStatic.member: Const = Const.FIELD(this.owner, this.name, this.descripto
 syn JInvoke.member: Const = Const.METHOD(this.owner, this.name, this.descriptor)
 
 // a set drops the duplicates and keeps the order
-syn JClass.pool: List<Const> = (acc ++ [c] ++ c.dependencies() for c in this.header ++ this.constants with acc = []).toSet().toList()
+syn JClass.pool: List<Const> = (acc ++ [c] ++ c.dependencies for c in this.header ++ this.constants with acc = []).toSet().toList()
 syn JClass.header: List<Const> = [Const.CLASS(this.name), Const.CLASS(this.superName), Const.UTF8("Code")]
 syn JClass.index: Map<Const, int> = (acc ++ {c: acc.size + 1}) for c in this.pool with acc = {:}
 
@@ -174,7 +174,7 @@ syn JInsn.offset: int = this.method.offsets[this.position]
 syn JMethod.labels: Map<str, JLabel> = (if i is JLabel then acc ++ {(i as JLabel).name: i as JLabel} else acc) for i in this.code with acc = {:}
 
 syn JInsn.bytes: List<int>
-syn JOp.bytes: List<int> = [this.op.opcode()]
+syn JOp.bytes: List<int> = [this.op.opcode]
 syn JPush.bytes: List<int> =
     if this.value >= -1 && this.value <= 5 then [3 + this.value]          // iconst_m1 .. iconst_5
     else if fitsByte(this.value) then [16, this.value & 255]              // bipush
@@ -183,7 +183,7 @@ syn JPush.bytes: List<int> =
 syn JLdc.bytes: List<int> = [19] ++ u2(this.method.klass.index[Const.STRING(this.value)])
 syn JLoad.bytes: List<int> = [match this.slot { Slot.INT -> 21  Slot.REF -> 25 }, this.index]
 syn JStore.bytes: List<int> = [match this.slot { Slot.INT -> 54  Slot.REF -> 58 }, this.index]
-syn JJump.bytes: List<int> = [this.cond.opcode()] ++ s2(this.method.labels[this.target].offset - this.offset)
+syn JJump.bytes: List<int> = [this.cond.opcode] ++ s2(this.method.labels[this.target].offset - this.offset)
 syn JLabel.bytes: List<int> = []
 syn JGetStatic.bytes: List<int> = [178] ++ u2(this.method.klass.index[this.member])
 syn JInvoke.bytes: List<int> = [match this.kind { Invoke.STATIC -> 184  Invoke.VIRTUAL -> 182 }] ++ u2(this.method.klass.index[this.member])
@@ -199,16 +199,16 @@ syn JJump.fallsThrough: bool = this.cond != Cond.GOTO
 syn JInsn.next: List<JInsn> =
     if this.fallsThrough && this.position + 1 < this.method.code.size then [this.method.code[this.position + 1]] else []
 syn JInsn.successors: List<Edge> = (Edge(this, n, null) for n in this.next)
-syn JJump.successors: List<Edge> = [Edge(this, this.method.labels[this.target], this.cond.repr())] ++ (Edge(this, n, null) for n in this.next)
+syn JJump.successors: List<Edge> = [Edge(this, this.method.labels[this.target], this.cond.repr)] ++ (Edge(this, n, null) for n in this.next)
 
 /** The control flow graph of the method, built from edges: its vertices are the instructions. */
 syn JMethod.controlFlow: Graph = graphOf(this.code[0], acc ++ i.successors for i in this.code with acc = [])
 
 /** How an instruction changes the depth of the operand stack. */
 syn JInsn.delta: int = 1
-syn JOp.delta: int = this.op.delta()
+syn JOp.delta: int = this.op.delta
 syn JStore.delta: int = -1
-syn JJump.delta: int = this.cond.delta()
+syn JJump.delta: int = this.cond.delta
 syn JLabel.delta: int = 0
 syn JInvoke.delta: int =
     (if this.signature[this.signature.size - 1] == "V" then 0 else 1)
@@ -260,17 +260,17 @@ syn JMethod.listing: str = acc + "  " + i.offset.str() + ": " + i.text + "\n" fo
     with acc = "\n  " + this.name + this.descriptor + "  // stack " + this.maxStack.str() + ", locals " + this.maxLocals.str() + "\n"
 
 syn JInsn.text: str
-syn JOp.text: str = this.op.repr()
+syn JOp.text: str = this.op.repr
 syn JPush.text: str = "push " + this.value.str()
 syn JLdc.text: str = "ldc \"" + this.value + "\""
 syn JLoad.text: str = (match this.slot { Slot.INT -> "iload "  Slot.REF -> "aload " }) + this.index.str()
 syn JStore.text: str = (match this.slot { Slot.INT -> "istore "  Slot.REF -> "astore " }) + this.index.str()
-syn JJump.text: str = this.cond.repr() + " " + this.target
+syn JJump.text: str = this.cond.repr + " " + this.target
 syn JLabel.text: str = this.name + ":"
 syn JGetStatic.text: str = "getstatic " + this.owner + "." + this.name
 syn JInvoke.text: str = (match this.kind { Invoke.STATIC -> "invokestatic "  Invoke.VIRTUAL -> "invokevirtual " }) + this.owner + "." + this.name + this.descriptor
 
-fun Op.repr(): str = match this {
+val Op.repr: str = match this {
     Op.IADD -> "iadd"
     Op.ISUB -> "isub"
     Op.IMUL -> "imul"
@@ -285,7 +285,7 @@ fun Op.repr(): str = match this {
     Op.ARETURN -> "areturn"
     Op.RETURN -> "return"
 }
-fun Cond.repr(): str = match this {
+val Cond.repr: str = match this {
     Cond.IFEQ -> "ifeq"
     Cond.IFNE -> "ifne"
     Cond.IF_ICMPEQ -> "if_icmpeq"
