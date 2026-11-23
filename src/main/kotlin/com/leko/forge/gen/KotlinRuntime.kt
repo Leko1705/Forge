@@ -201,7 +201,7 @@ class Graph(
         }
         push(entry)
         while (stack.isNotEmpty()) {
-            val (v, children) = stack.last()
+            val (v, children) = stack[stack.size - 1]
             if (children.hasNext()) push(children.next())
             else {
                 stack.removeLast()
@@ -335,9 +335,9 @@ class __FlowScope(val node: kotlin.Any, private val build: __FlowBuild) {
             entry(__Port.next)
             return
         }
-        entry(items.first())
+        entry(items[0])
         for (i in 0 until items.size - 1) connect(items[i], items[i + 1], null)
-        connect(items.last(), __Port.next, null)
+        connect(items[items.size - 1], __Port.next, null)
     }
 
     private fun isVertex(x: kotlin.Any): kotlin.Boolean = x === node || ownVertices.containsKey(x)

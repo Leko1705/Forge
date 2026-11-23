@@ -41,9 +41,14 @@ enum Type { INT, STR, ERROR(msg: str) }
 record Diagnostic { msg: str, line: int }
 fun Type.repr(): str = match this { Type.INT -> "int"  Type.STR -> "str"  Type.ERROR(m) -> m }
 ext fun str.int(): int                   // implemented in the target language
+val Type.isError: bool = match this { Type.ERROR(_) -> true  _ -> false }   // a property: t.isError
 const greeting = "hello"                 // a constant, with an inferred type
 const limit: int = 2 * width             // or a declared one; constants may use each other in any order
 ```
+
+A `val` is a property of a record, an enum or a builtin type (`val <T> List<T>.last: T?`), read like a field
+(`t.isError`); its value is computed at each use. Nodes have attributes instead: `syn N.name`, which are cached. An
+`ext val` is implemented like an `ext fun` without parameters (`int_text` for `fun int.text()`).
 
 Constants are inlined: the generated code has no variable for a constant, every use of it is its value. The value
 can not use `this` or local variables, and a constant whose value depends on itself is an error.
@@ -92,22 +97,21 @@ op fun str.times(n: int): str = acc + this for _i in [0:n] with acc = ""  // "ab
 [std.forge](src/main/resources/forge/std.forge) is bundled with Forge and part of every program, like Kotlin's
 `kotlin` package (`import "std"` is allowed but changes nothing). Its `ext fun`s are implemented by the runtime of
 every target; the rest is Forge code, which a generated compiler contains only if it uses it, also without `-opt`.
-A function the program declares with the same receiver and name (or the same name, for `char` and `fail`) comes
-first.
+A function or `val` the program declares with the same receiver and name (or the same name, for `char` and `fail`)
+comes first.
 
-| Of        | Functions                                                                                             |
+| Of        | Functions and properties                                                                                       |
 |-----------|-------------------------------------------------------------------------------------------------------|
 | `int`, `float`, `bool` | `str()`: as text (floats like Kotlin's `Float.toString`)                                |
 | `int`, `float` | `max(other)`, `min(other)`; `int.abs()`                                                          |
-| `str`     | `toInt()`, `toFloat()` (fail unless the whole text is a number), `indexOf(t)` (-1 if absent), `startsWith(t)`, `endsWith(t)`, `replace(a, b)`, `upper()`, `lower()`, `trim()`, `split(separator)`, `code(i)`, `utf8()` (the bytes), `unescape()` (`\n \t \r \0`; `\x` is x) |
-| `List<T>` | `indexOf(x)`, `reversed()`, `toSet()`; `List<str>.join(separator)`; `union(other)`: the elements, then those of `other` not in it (no duplicates); `minus(other)`, also `xs - ys`; `distinct()` (first occurrences, in order); `disjoint(other)` |
+| `str`     | `size`, `toInt()`, `toFloat()` (fail unless the whole text is a number), `indexOf(t)` (-1 if absent), `startsWith(t)`, `endsWith(t)`, `replace(a, b)`, `upper()`, `lower()`, `trim()`, `split(separator)`, `code(i)`, `utf8()` (the bytes), `unescape()` (`\n \t \r \0`; `\x` is x) |
+| `List<T>` | `size`, `indexOf(x)`, `reversed()`, `toSet()`; `List<str>.join(separator)`; `union(other)`: the elements, then those of `other` not in it (no duplicates); `minus(other)`, also `xs - ys`; `distinct()` (first occurrences, in order); `disjoint(other)` |
 | `List<int>`, `List<float>` | `sum()`, `max()`, `min()` (fail for an empty list)                                   |
-| `Set<T>`  | `toList()`, `remove(x)`                                                                                |
-| `Map<K, V>` | `keys()`, `values()` (lists, in the order of the map), `remove(key)`                                 |
+| `Set<T>`  | `size`, `toList()`, `remove(x)`                                                                                |
+| `Map<K, V>` | `size`, `keys()`, `values()` (lists, in the order of the map), `remove(key)`                                 |
 | -         | `char(code)`: a character as a str; `fail(message)`: stops with an error (`ForgeError`, `IllegalStateException` in Kotlin, a panic in Rust). Its type is `Nothing`, which fits wherever a value is expected: `x ?: fail("missing")`, `if b == 0 then fail("division by zero") else a / b` |
 
-Part of the language rather than of std.forge: `size` (of `str`, lists, sets and maps), the operators, and the
-graph declarations (`Graph`, `Edge`, `Vertex`, `graphOf`, `Span`, `spanOf`).
+Part of the language rather than of std.forge: the operators and the graph declarations (`Graph`, `Edge`, `Vertex`, `graphOf`, `Span`, `spanOf`).
 
 `Nothing` can also be written: a function or attribute of type `Nothing` never returns, so its value must be of type
 `Nothing` too (a `fail`, or a call of another such function), and a call of it fits wherever a value is expected:

@@ -839,7 +839,8 @@ class Attr private constructor(context: Context) {
                 return ctx.setType(ErrorType)
             }
             ctx.setSym(sym)
-            return ctx.setType(sym.type)
+            // a property (`val`) is read like a field: its value is what it returns
+            return ctx.setType(if (sym is FunctionSymbol) sym.returnType else sym.type)
         }
 
         override fun visitFunctionCall(ctx: ForgeParser.FunctionCallContext): Type {

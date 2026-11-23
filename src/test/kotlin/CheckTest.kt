@@ -183,6 +183,23 @@ class CheckTest {
     }
 
     @Test
+    fun propertiesAreChecked() {
+        assertEquals(emptyList(), errors("record P { x: int }\nenum E { A, B(n: int) }\nval P.double: int = this.x * 2\nval E.isA: bool = match this { E.A -> true  _ -> false }\n" +
+            "val <T> List<T>.head: T? = if this.size > 0 then this[0] else null\nfun f(): int = P(1).double + ([3].head ?: 0) + (if E.A.isA then 1 else 0) + \"ab\".size"))
+        assertError("a node has attributes instead of vals", "node N(x: int)\nval N.y: int = 1")
+        assertError("a node has attributes instead of vals", "node N\nval N.y: int = 1")
+        assertError("a val has no parameters", "record P { x: int }\nval P.y(): int = 1")
+        assertError("a fun needs parameters", "record P { x: int }\nfun P.y: int = 1")
+        assertError("a val needs a receiver", "val y: int = 1")
+        assertError("is a field of", "record P { x: int }\nval P.x: int = 1")
+        assertError("already", "record P { x: int }\nval P.y: int = 1\nfun P.y(): int = 2")
+        // read like fields, not called
+        assertError("not found", "record P { x: int }\nval P.y: int = 1\nfun f(): int = P(1).y()")
+        assertError("not found", "record P { x: int }\nfun P.y(): int = 1\nfun f(): int = P(1).y")
+        assertError("missing", "record P { x: int }\nval P.y: int")
+    }
+
+    @Test
     fun theStandardLibraryIsPartOfEveryProgram() {
         assertEquals(emptyList(), errors("fun f(): int = [1, 2].sum() + [3].max() + ([1] - [1]).size + [1].union([2]).size + 1.max(2) + \"a\".upper().size\n" +
             "fun g(): float = [1.5].sum()\nfun h(): List<str> = {\"k\": 1}.keys().reversed()"))

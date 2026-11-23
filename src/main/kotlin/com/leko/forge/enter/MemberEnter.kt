@@ -286,10 +286,31 @@ class MemberEnter private constructor(context: Context) {
             if (func.op != null && func.receiver == null) {
                 log.diag(invalidOperatorFunction(func.name.span, "an operator function needs a receiver: op fun T.${func.name.text}(...)"))
             }
+            val property = func.property != null
+            if (property && func.params != null) {
+                log.diag(invalidProperty(func.params.span, "a val has no parameters: val T.${func.name.text}: ${func.ty.text}"))
+            }
+            if (!property && func.params == null) {
+                log.diag(invalidProperty(func.name.span, "a fun needs parameters: fun ${func.name.text}(): ${func.ty.text}, or a val"))
+            }
+            if (property && func.op != null) {
+                log.diag(invalidOperatorFunction(func.op.span, "an operator is a fun, not a val"))
+            }
+            if (property && func.receiver == null) {
+                log.diag(invalidProperty(func.name.span, "a val needs a receiver: val T.${func.name.text}: ${func.ty.text}"))
+            }
             val typeParams = func.typeParams.map { it.text }
             fun type(t: ForgeParser.TypeContext) = chk.checkExists(t.toType().withTypeParams(typeParams))
             val receiver = if (func.receiver != null) type(func.receiver!!) else continue
             val receiverSym = resolve.resolve(receiver)
+            if (property && receiverSym is NodeSymbol) {
+                log.diag(invalidProperty(func.name.span, "a node has attributes instead of vals: syn ${func.receiver.text}.${func.name.text}: ${func.ty.text}"))
+                continue
+            }
+            if (property && receiverSym is RecordSymbol && receiverSym.fields.any { it.name == func.name.text }) {
+                log.diag(invalidProperty(func.name.span, "'${func.name.text}' is a field of $receiver"))
+                continue
+            }
             if (receiverSym != null) {
                 // a generic method belongs to no receiver symbol: List<T> stands for every list
                 val methods = if (typeParams.isEmpty()) typeMap.methods.getOrPut(receiverSym) { mutableListOf() } as MutableList
@@ -307,6 +328,7 @@ class MemberEnter private constructor(context: Context) {
                     func.name.span,
                     isOperator = func.op != null,
                     typeParams = typeParams,
+                    isProperty = property,
                     builtin = if (func.EXT() != null && func.isStd()) builtinKey(receiver, func.name.text) else null,
                 )
                 if (func.op != null) checkOperator(func, sym)

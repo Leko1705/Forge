@@ -58,14 +58,18 @@ class Resolve private constructor(context: Context) {
     /** Whether the code being checked is that of the standard library: it uses its own declarations first. */
     var inStd = false
 
-    fun resolve(owner: Type, member: String, receiverKind: Kind, memberKind: Kind): Symbol? =
-        (if (inStd && receiverKind == Kind.VAL && memberKind == Kind.MTH) hiddenStdMethod(owner, member) else null)
+    fun resolve(owner: Type, member: String, receiverKind: Kind, memberKind: Kind): Symbol? {
+        // methods and properties (`val`s) of values
+        val function = receiverKind == Kind.VAL && (memberKind == Kind.MTH || memberKind == Kind.VAL)
+        val property = memberKind == Kind.VAL
+        return (if (inStd && function) hiddenStdMethod(owner, member, property) else null)
             ?: resolveDeclared(owner, member, receiverKind, memberKind)
-            ?: if (receiverKind == Kind.VAL && memberKind == Kind.MTH) genericMethod(owner, member) else null
+            ?: if (function) genericMethod(owner, member, property) else null
+    }
 
-    private fun hiddenStdMethod(owner: Type, member: String): Symbol? {
+    private fun hiddenStdMethod(owner: Type, member: String, property: Boolean): Symbol? {
         for (m in typeMap.stdMethods) {
-            if (m.name != member) continue
+            if (m.name != member || m.isProperty != property) continue
             val bindings = mutableMapOf<String, Type>()
             if (fits(m.receiver?.type ?: continue, owner, bindings)) return m.instantiate(bindings)
         }
@@ -76,9 +80,9 @@ class Resolve private constructor(context: Context) {
      * A generic method whose receiver fits [owner], with the type variables the receiver binds replaced:
      * `fun <T> List<T>.distinct(): List<T>` for a `List<int>` is a `distinct(): List<int>`.
      */
-    private fun genericMethod(owner: Type, member: String): Symbol? {
+    private fun genericMethod(owner: Type, member: String, property: Boolean): Symbol? {
         for (g in typeMap.genericMethods) {
-            if (g.name != member) continue
+            if (g.name != member || g.isProperty != property) continue
             val bindings = mutableMapOf<String, com.leko.forge.types.Type>()
             if (fits(g.receiver?.type ?: continue, owner, bindings)) return g.instantiate(bindings)
         }
@@ -113,11 +117,11 @@ class Resolve private constructor(context: Context) {
         if (sym is RecordSymbol) {
             if (receiverKind != Kind.VAL) return null
             return when (memberKind) {
-                Kind.VAL -> {
-                    sym.fields.firstOrNull { it.name == member }
-                }
+                // fields, then properties (`val str.size: int`)
+                Kind.VAL -> sym.fields.firstOrNull { it.name == member }
+                    ?: typeMap.methods[sym]?.firstOrNull { it.name == member && it.isProperty }
                 // methods the program defines, also those of the standard library (str.upper(), List<int>.sum(), ...)
-                Kind.MTH -> typeMap.methods[sym]?.firstOrNull { it.name == member }
+                Kind.MTH -> typeMap.methods[sym]?.firstOrNull { it.name == member && !it.isProperty }
                 else -> null
             }
         }
@@ -127,7 +131,10 @@ class Resolve private constructor(context: Context) {
                     sym.items.firstOrNull { it.name == member && it.kind == memberKind }
 
                 Kind.VAL if memberKind == Kind.MTH ->
-                    typeMap.methods[sym]?.firstOrNull { it.name == member }
+                    typeMap.methods[sym]?.firstOrNull { it.name == member && !it.isProperty }
+
+                Kind.VAL if memberKind == Kind.VAL ->
+                    typeMap.methods[sym]?.firstOrNull { it.name == member && it.isProperty }
 
                 else -> null
             }
@@ -145,7 +152,7 @@ class Resolve private constructor(context: Context) {
                             ?: symTab.inheritedAttributes[member]
                     }
                 }
-                Kind.MTH -> owners.firstNotNullOfOrNull { owner -> typeMap.methods[owner]?.firstOrNull { it.name == member } }
+                Kind.MTH -> owners.firstNotNullOfOrNull { owner -> typeMap.methods[owner]?.firstOrNull { it.name == member && !it.isProperty } }
                 else -> null
             }
         }

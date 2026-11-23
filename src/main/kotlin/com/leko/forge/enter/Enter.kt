@@ -92,7 +92,7 @@ class Enter private constructor(context: Context) {
         }
         // the program's functions first: a function of the standard library with the same name gives way
         for (func in root.function().sortedBy { it.isStd() }) {
-            if (func.receiver != null) continue
+            if (func.receiver != null || func.property != null) continue
             val hidden = func.name.text in symTab
             if (hidden && !func.isStd()) {
                 log.diag(functionAlreadyExist(func.name.span, func.name.text))

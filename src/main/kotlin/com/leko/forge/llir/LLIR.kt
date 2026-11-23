@@ -674,6 +674,13 @@ class LLIR private constructor(private val context: Context) {
                 }
                 is EnumItemSymbol -> CreateEnum(enumItem(sym), emptyList())
                 is AttributeSymbol -> AccessNodeAttr(ctx.receiver.transform(), sym.name, sym.type)
+                // a property: `size` of the builtin types as it always was, others are methods without parameters
+                is FunctionSymbol -> when {
+                    sym.builtin?.endsWith(".size") == true ->
+                        AccessRecordField(record(resolve.resolve(recvTy.nonNull()) as RecordSymbol), ctx.receiver.transform(), name, IntType)
+                    sym.builtin != null -> Builtin(sym.builtin, ctx.receiver.transform(), emptyList(), sym.returnType)
+                    else -> Call(function(sym), ctx.receiver.transform(), emptyList())
+                }
                 else -> throw AssertionError("field ${ctx.text} resolves to $sym")
             }
         }

@@ -56,21 +56,13 @@ val floatSymbol = primitive("float", FloatType)
 
 val boolSymbol = primitive("bool", BoolType)
 
-val strSymbol = primitive("str", StrType) {
-    add(VarSymbol("size", IntType, null, VarSymbol.VarKind.RECORD_FIELD))
-}
+val strSymbol = primitive("str", StrType)
 
-fun setSymbol(setType: SetType) = primitive("Set", setType) {
-    add(VarSymbol("size", IntType, null, VarSymbol.VarKind.RECORD_FIELD))
-}
+fun setSymbol(setType: SetType) = primitive("Set", setType)
 
-fun listSymbol(listType: ListType) = primitive("List", listType) {
-    add(VarSymbol("size", IntType, null, VarSymbol.VarKind.RECORD_FIELD))
-}
+fun listSymbol(listType: ListType) = primitive("List", listType)
 
-fun mapSymbol(mapType: MapType) = primitive("Map", mapType) {
-    add(VarSymbol("size", IntType, null, VarSymbol.VarKind.RECORD_FIELD))
-}
+fun mapSymbol(mapType: MapType) = primitive("Map", mapType)
 
 class VarSymbol(
     override val name: String,
@@ -178,6 +170,8 @@ data class FunctionSymbol(
     val typeParams: List<String> = emptyList(),
     /** For a use of a generic function with some types known: the declaration. */
     val generic: FunctionSymbol? = null,
+    /** `val T.name: R`: read like a field, `x.name`; a method without parameters otherwise. */
+    val isProperty: Boolean = false,
 ) : CallableSymbol {
     /** The declaration, also for a use of a generic function. */
     val declaration: FunctionSymbol get() = generic ?: this

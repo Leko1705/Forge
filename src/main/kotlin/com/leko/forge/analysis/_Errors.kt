@@ -46,6 +46,9 @@ fun constantAlreadyExist(span: SourceSpan?, name: String): Diagnostic =
 fun invalidOperatorFunction(span: SourceSpan?, message: String): Diagnostic =
     Diagnostic(Severity.ERROR, span, "E008", message)
 
+fun invalidProperty(span: SourceSpan?, message: String): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E008", message)
+
 fun emptyMapIsColon(span: SourceSpan?): Diagnostic =
     Diagnostic(Severity.ERROR, span, "E009", "{} is an empty set; an empty map is {:}")
 

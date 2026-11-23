@@ -7,6 +7,7 @@ NODE: 'node';
 RECORD: 'record';
 ENUM: 'enum';
 FUN: 'fun';
+VAL: 'val';
 PARSER: 'parser';
 MATCH: 'match';
 RULE: 'rule';

@@ -1,11 +1,11 @@
 // std.forge: the standard library of Forge. It is bundled with the compiler and part of every program.
 //
-// The `ext fun`s are implemented by the runtime of every target; the other functions are Forge code, generated
-// into a compiler only if it uses them. All are methods (except `char` and `fail`), and a program that declares
-// a function with the same receiver and name uses its own.
+// The `ext fun`s and `ext val`s are implemented by the runtime of every target; the other functions are Forge
+// code, generated into a compiler only if it uses them. All are methods or properties (except `char` and `fail`),
+// and a program that declares one with the same receiver and name uses its own.
 //
-// Part of the types rather than of this file: `size` of str, List, Set and Map; the operators (`++`, `in`,
-// `xs[i]`, `xs[a:b]`, ...); and the graph declarations (`Graph`, `Edge`, `Vertex`, `graphOf`, `Span`, `spanOf`).
+// Part of the language rather than of this file: the operators (`++`, `in`, `xs[i]`, `xs[a:b]`, ...) and the
+// graph declarations (`Graph`, `Edge`, `Vertex`, `graphOf`, `Span`, `spanOf`).
 
 // ---- builtins ------------------------------------------------------------------------------------------
 
@@ -19,6 +19,8 @@ ext fun int.str(): str
 ext fun float.str(): str
 ext fun bool.str(): str
 
+/** The number of characters: UTF-16 code units in Kotlin and Java, code points in Python, bytes elsewhere. */
+ext val str.size: int
 /** The number the whole text is; fails otherwise. */
 ext fun str.toInt(): int
 ext fun str.toFloat(): float
@@ -39,6 +41,11 @@ ext fun str.code(index: int): int
 ext fun str.utf8(): List<int>
 /** With escapes replaced: `\n`, `\t`, `\r`, `\0`; `\x` is x for any other character. */
 ext fun str.unescape(): str
+
+/** The number of elements, entries. */
+ext val <T> List<T>.size: int
+ext val <T> Set<T>.size: int
+ext val <K, V> Map<K, V>.size: int
 
 /** Where [x] first is; -1 if it is not. */
 ext fun <T> List<T>.indexOf(x: T): int
