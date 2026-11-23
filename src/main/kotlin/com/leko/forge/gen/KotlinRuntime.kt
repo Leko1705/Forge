@@ -474,5 +474,84 @@ fun __preorder(node: __Node): kotlin.collections.List<__Node> {
     return result
 }
 
+// ---- builtins ---------------------------------------------------------------------------------
+
+/** A position for a list of [size] elements: below 0 counts from the end. */
+fun __position(i: kotlin.Int, size: kotlin.Int): kotlin.Int {
+    val k = if (i < 0) i + size else i
+    if (k < 0 || k >= size) throw kotlin.IndexOutOfBoundsException("index " + i + " out of bounds for length " + size)
+    return k
+}
+
+/** A bound of a slice of [size] elements: below 0 counts from the end, clamped to 0..size. */
+fun __bound(b: kotlin.Int?, size: kotlin.Int, default: kotlin.Int): kotlin.Int {
+    val k = if (b == null) default else if (b < 0) b + size else b
+    return if (k < 0) 0 else if (k > size) size else k
+}
+
+fun <T> __index(xs: kotlin.collections.List<T>, i: kotlin.Int): T = xs[__position(i, xs.size)]
+
+fun <T> __slice(xs: kotlin.collections.List<T>, lo: kotlin.Int?, hi: kotlin.Int?): kotlin.collections.List<T> {
+    val a = __bound(lo, xs.size, 0)
+    val b = __bound(hi, xs.size, xs.size)
+    return if (a >= b) kotlin.collections.emptyList() else xs.subList(a, b).toList()
+}
+
+fun __slice(s: kotlin.String, lo: kotlin.Int?, hi: kotlin.Int?): kotlin.String {
+    val a = __bound(lo, s.length, 0)
+    val b = __bound(hi, s.length, s.length)
+    return if (a >= b) "" else s.substring(a, b)
+}
+
+fun __charAt(s: kotlin.String, i: kotlin.Int): kotlin.String = s[__position(i, s.length)].toString()
+
+fun __range(a: kotlin.Int, b: kotlin.Int): kotlin.collections.List<kotlin.Int> =
+    if (b <= a) kotlin.collections.emptyList() else (a until b).toList()
+
+/** The whole text as an int: an optional sign and digits. */
+fun __toInt(s: kotlin.String): kotlin.Int {
+    if (!s.matches(kotlin.text.Regex("[+-]?[0-9]+"))) kotlin.error("not an int: \"" + s + "\"")
+    return s.toIntOrNull() ?: kotlin.error("not an int: \"" + s + "\"")
+}
+
+/** The whole text as a float: digits with an optional point and exponent. */
+fun __toFloat(s: kotlin.String): kotlin.Float {
+    if (!s.matches(kotlin.text.Regex("[+-]?([0-9]+[.]?[0-9]*|[.][0-9]+)([eE][+-]?[0-9]+)?"))) kotlin.error("not a float: \"" + s + "\"")
+    return s.toFloat()
+}
+
+fun __split(s: kotlin.String, separator: kotlin.String): kotlin.collections.List<kotlin.String> {
+    if (separator.isEmpty()) kotlin.error("the separator of split is empty")
+    return s.split(separator)
+}
+
+fun __replace(s: kotlin.String, old: kotlin.String, new: kotlin.String): kotlin.String {
+    if (old.isEmpty()) kotlin.error("the text to replace is empty")
+    return s.replace(old, new)
+}
+
+fun __code(s: kotlin.String, i: kotlin.Int): kotlin.Int = s[__position(i, s.length)].code
+
+fun __char(code: kotlin.Int): kotlin.String = kotlin.text.String(java.lang.Character.toChars(code))
+
+fun __utf8(s: kotlin.String): kotlin.collections.List<kotlin.Int> = s.encodeToByteArray().map { it.toInt() and 0xFF }
+
+/** \n, \t, \r and \0 become their characters, a backslash before any other character is dropped. */
+fun __unescape(s: kotlin.String): kotlin.String {
+    val sb = java.lang.StringBuilder()
+    var i = 0
+    while (i < s.length) {
+        val c = s[i]
+        if (c == '\\' && i + 1 < s.length) {
+            i++
+            sb.append(when (s[i]) { 'n' -> '\n'; 't' -> '\t'; 'r' -> '\r'; '0' -> '\u0000'; else -> s[i] })
+        } else {
+            sb.append(c)
+        }
+        i++
+    }
+    return sb.toString()
+}
+
 // ==== end of Forge runtime ===================================================================
 """

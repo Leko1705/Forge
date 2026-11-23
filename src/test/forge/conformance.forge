@@ -125,7 +125,7 @@ fun ints(xs: List<int>): str = acc + (if acc == "" then "" else ",") + x.text() 
 fun strs(xs: List<str>): str = acc + (if acc == "" then "" else ",") + x for x in xs with acc = ""
 fun b(v: bool): str = if v then "true" else "false"
 fun opt(v: int?): str = if v == null then "null" else v!!.text()
-fun countMap(xs: List<str>): Map<str, int> = (acc ++ {x: (if x in acc then acc[x] + 1 else 1)}) for x in xs with acc = {}
+fun countMap(xs: List<str>): Map<str, int> = (acc ++ {x: (if x in acc then acc[x] + 1 else 1)}) for x in xs with acc = {:}
 fun arith(): List<int> = [7 / 2, -7 / 2, 7 % 3, -7 % 3, 2147483647 + 1, 65536 * 65536, -(3 - 5), 6 & 3, 6 | 3]
 fun records(): List<str> = [
     b(Pair(1, ["a"]) == Pair(1, ["a"])),
@@ -392,6 +392,49 @@ const kindsOf: List<Type> = [Type.INT, Type.ERROR(label)]
 const lookupTable: Map<str, int> = {label: limit}
 fun constants(): str = label + " " + limit.text() + " " + strs(t.repr() for t in kindsOf) + " " + lookupTable[label].text()
 
+// ---- operator functions -------------------------------------------------------------------------
+
+record Vec { x: int, y: int }
+op fun Vec.plus(o: Vec): Vec = Vec(this.x + o.x, this.y + o.y)
+op fun Vec.minus(o: Vec): Vec = Vec(this.x - o.x, this.y - o.y)
+op fun Vec.times(k: int): Vec = Vec(this.x * k, this.y * k)
+op fun Vec.neg(): Vec = Vec(-this.x, -this.y)
+op fun Vec.not(): Vec = Vec(this.y, this.x)
+op fun Vec.compareTo(o: Vec): int = this.x * this.x + this.y * this.y - (o.x * o.x + o.y * o.y)
+op fun Vec.get(i: int): int = if i == 0 then this.x else this.y
+op fun Vec.contains(v: int): bool = v == this.x || v == this.y
+op fun Vec.slice(lo: int?, hi: int?): List<int> = [this.x, this.y][lo ?: 0 : hi ?: 2]
+op fun Vec.concat(o: Vec): List<int> = [this.x, this.y, o.x, o.y]
+op fun Vec.shl(n: int): Vec = Vec(this.x << n, this.y << n)
+fun vec(v: Vec): str = "(" + v.x.str() + "," + v.y.str() + ")"
+fun operators(): str = vec(Vec(1, 2) + Vec(3, 4)) + vec(Vec(5, 5) - Vec(1, 2)) + vec(Vec(1, 2) * 3) + vec(-Vec(1, 2)) + vec(!Vec(1, 2))
+    + " " + b(Vec(1, 1) < Vec(2, 2)) + b(Vec(3, 0) >= Vec(0, 3)) + " " + Vec(5, 6)[1].str() + " " + b(6 in Vec(5, 6)) + b(7 !in Vec(5, 6))
+    + " " + ints(Vec(5, 6)[1:]) + " " + ints(Vec(1, 2) ++ Vec(3, 4)) + " " + vec(Vec(1, 2) << 2)
+
+// ---- shifts, slices, ranges, sets -----------------------------------------------------------------
+
+fun shifts(): List<int> = [1 << 4, -16 >> 2, -16 >>> 28, 1 << 31, 5 >> 33, 3 << 1 + 1, 255 >> 4 & 3]
+fun slices(): str = ints([1, 2, 3, 4][1:3]) + " " + ints([1, 2, 3, 4][1:-1]) + " " + ints([1, 2, 3, 4][-2:]) + " " + ints([1, 2, 3, 4][:2])
+    + " " + ints([1, 2, 3, 4][3:1]) + " " + ints([1, 2, 3][:10]) + " " + [1, 2, 3][-1].str() + " " + "hello"[1:3] + "|" + "hello"[-3:]
+    + "|" + "hello"[0] + "|" + "hello"[-1] + "|" + "hello"[:]
+fun ranges(): str = ints([0:5]) + " " + ints([3:1]) + " " + ints(i * i for i in [1:4]) + " " + (acc + i for i in [0:101] with acc = 0).str()
+fun noInts(): Set<int> = {}
+fun noMap(): Map<str, int> = {:}
+fun sets(): str = {1, 2, 2, 3}.size.str() + " " + b(2 in {1, 2}) + b(5 in {1, 2}) + " " + ints(({3, 1} ++ {1, 2}).toList())
+    + " " + b({1, 2} == {2, 1}) + b({1} == {1, 2}) + " " + ints({1, 2, 3}.remove(2).toList()) + " " + ints(x * 2 for x in {1, 2, 3})
+    + " " + noInts().size.str() + noMap().size.str() + " " + (acc + x for x in {4, 5} with acc = 0).str()
+
+// ---- builtins -------------------------------------------------------------------------------------
+
+fun builtins(): List<str> = [
+    12.str() + " " + 1.5.str() + " " + true.str() + " " + ("42".toInt() + "-7".toInt()).str() + " " + b("2.5".toFloat() == 2.5),
+    "hello".indexOf("l").str() + " " + "x".indexOf("y").str() + " " + b("hello".startsWith("he")) + b("hello".endsWith("lo")) + b("ell" in "hello"),
+    "a-b-c".replace("-", "+") + " " + "MiXed".upper() + " " + "MiXed".lower() + " [" + "  t  ".trim() + "] " + "hello".size.str(),
+    strs("a,b,,c".split(",")) + " " + "A".code(0).str() + " " + char(66) + " " + ints("hi".utf8()) + " " + "a\\tb".unescape().size.str(),
+    ["a", "b"].join("+") + " " + [1, 2, 3].indexOf(2).str() + " " + ints([1, 2, 3].reversed()) + " " + [1, 2, 2].toSet().size.str(),
+    strs({"a": 1, "b": 2}.keys()) + " " + ints({"a": 1, "b": 2}.values()) + " " + {"a": 1, "b": 2}.remove("a").size.str()
+]
+
 // ---- the report -------------------------------------------------------------------------------------
 
 fun prog(): Program = Program([
@@ -429,8 +472,13 @@ fun report(): List<str> = attributes(prog()) ++ [
     "logic " + b(true && !false) + b(false || false) + b(true ^ true),
     "strings " + ("a" + "b") + b("ab" == "a" + "b") + b("a" != "a"),
     "show " + Type.ERROR("x").repr() + " " + "x".shout(),
-    constants()
-] ++ flows() ++ graphs() ++ parsing() ++ binary()
+    constants(),
+    operators(),
+    "shifts " + ints(shifts()),
+    "slices " + slices(),
+    "ranges " + ranges(),
+    "sets " + sets()
+] ++ builtins() ++ flows() ++ graphs() ++ parsing() ++ binary()
 
 external fun int.text(): str
 external fun str.toInt(): int

@@ -76,9 +76,79 @@ def _fold(items, acc, body):
     return acc
 
 def _get(xs, i):
-    if i < 0 or i >= len(xs):
+    k = i + len(xs) if i < 0 else i
+    if k < 0 or k >= len(xs):
         raise ForgeError("index " + str(i) + " out of bounds for length " + str(len(xs)))
-    return xs[i]
+    return xs[k]
+
+class _Set(dict):
+    """A set: the keys of an insertion-ordered dict."""
+    __slots__ = ()
+    def __repr__(self):
+        return _show(self)
+
+def _set(*elements):
+    return _Set.fromkeys(_key(e) for e in elements)
+
+def _set_union(a, b):
+    s = _Set(a)
+    s.update(b)
+    return s
+
+def _set_remove(s, x):
+    r = _Set(s)
+    r.pop(_key(x), None)
+    return r
+
+def _map_remove(m, k):
+    r = dict(m)
+    r.pop(_key(k), None)
+    return r
+
+def _index_of(xs, x):
+    for i, y in enumerate(xs):
+        if y == x:
+            return i
+    return -1
+
+_INT = _re.compile(r"[+-]?[0-9]+")
+_FLOAT = _re.compile(r"[+-]?([0-9]+[.]?[0-9]*|[.][0-9]+)([eE][+-]?[0-9]+)?")
+
+def _to_int(s):
+    if not _INT.fullmatch(s) or not -2147483648 <= int(s) <= 2147483647:
+        raise ForgeError("not an int: \"" + s + "\"")
+    return int(s)
+
+def _to_float(s):
+    if not _FLOAT.fullmatch(s):
+        raise ForgeError("not a float: \"" + s + "\"")
+    return _f32(float(s))
+
+def _char_at(s, i):
+    return _get(s, i)
+
+def _split(s, separator):
+    if not separator:
+        raise ForgeError("the separator of split is empty")
+    return s.split(separator)
+
+def _replace(s, old, new):
+    if not old:
+        raise ForgeError("the text to replace is empty")
+    return s.replace(old, new)
+
+def _unescape(s):
+    out = []
+    i = 0
+    while i < len(s):
+        c = s[i]
+        if c == "\\" and i + 1 < len(s):
+            i += 1
+            out.append({"n": "\n", "t": "\t", "r": "\r", "0": "\0"}.get(s[i], s[i]))
+        else:
+            out.append(c)
+        i += 1
+    return "".join(out)
 
 def _key(k):
     """Map keys: lists become tuples so that they can be hashed."""
@@ -151,7 +221,7 @@ def _show(v):
         return _show_float(v)
     if isinstance(v, str):
         return v
-    if isinstance(v, (list, tuple)):
+    if isinstance(v, (list, tuple, _Set)):
         return "[" + ", ".join(_show(x) for x in v) + "]"
     if isinstance(v, dict):
         return "{" + ", ".join(_show(k) + "=" + _show(x) for k, x in v.items()) + "}"

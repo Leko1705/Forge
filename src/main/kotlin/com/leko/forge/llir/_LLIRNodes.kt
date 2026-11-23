@@ -326,6 +326,11 @@ data class AndInt(override val lhs: Value, override val rhs: Value) : IntBinary(
 data class OrInt(override val lhs: Value, override val rhs: Value) : IntBinary()
 data class XorInt(override val lhs: Value, override val rhs: Value) : IntBinary()
 data class IAnd(override val lhs: Value, override val rhs: Value) : IntBinary()
+data class ShlInt(override val lhs: Value, override val rhs: Value) : IntBinary()
+/** `>>`: arithmetic (the sign is kept) */
+data class ShrInt(override val lhs: Value, override val rhs: Value) : IntBinary()
+/** `>>>`: logical (zeros come in) */
+data class UshrInt(override val lhs: Value, override val rhs: Value) : IntBinary()
 data class IOr(override val lhs: Value, override val rhs: Value) : IntBinary()
 
 data class MulFloat(override val lhs: Value, override val rhs: Value) : FloatBinary()
@@ -351,6 +356,7 @@ data class BoolEquals(override val lhs: Value, override val rhs: Value) : BoolBi
 data class StringEquals(override val lhs: Value, override val rhs: Value) : BoolBinary()
 data class ListEquals(override val lhs: Value, override val rhs: Value) : BoolBinary()
 data class MapEquals(override val lhs: Value, override val rhs: Value) : BoolBinary()
+data class SetEquals(override val lhs: Value, override val rhs: Value) : BoolBinary()
 data class EnumEquals(override val lhs: Value, override val rhs: Value) : BoolBinary()
 data class RecordEquals(override val lhs: Value, override val rhs: Value) : BoolBinary()
 data class NodeEquals(
@@ -369,6 +375,20 @@ data class AppendListItem(val list: Value, val element: Value) : Value { overrid
 data class AppendAllListItems(val list: Value, val elements: Value) : Value { override val type: Type get() = list.type }
 data class PutMapItem(val map: Value, val key: Value, val value: Value) : Value { override val type: Type get() = map.type }
 data class PutAllMapItems(val map: Value, val elements: Value) : Value { override val type: Type get() = map.type }
+
+// ---- builtins ----
+/**
+ * An operation every runtime implements. [name] is one of
+ * - methods: `int.str`, `float.str`, `bool.str`, `str.toInt`, `str.toFloat`, `str.indexOf`, `str.startsWith`,
+ *   `str.endsWith`, `str.replace`, `str.upper`, `str.lower`, `str.trim`, `str.split`, `str.code`, `str.utf8`,
+ *   `str.unescape`, `List.indexOf`, `List.reversed`, `List.toSet`, `List.join`, `Map.keys`, `Map.values`,
+ *   `Map.remove`, `Set.toList`, `Set.remove`, and the function `char`
+ * - operators: `str.get` (`s[i]`), `str.slice` and `List.slice` (`x[a:b]`; an omitted bound is [NullValue]),
+ *   `str.contains` (`t in s`), `range` (`[a:b]`), `Set.of` (a set literal), `Set.contains`, `Set.union` (`++`)
+ *
+ * Indexes and slice bounds below 0 count from the end; slice bounds are clamped to the list.
+ */
+data class Builtin(val name: String, val receiver: Value?, val args: List<Value>, override val type: Type) : Value
 
 // ---- control ----
 data class IfElse(val cond: Value, val then: Value, val alt: Value, override val type: Type) : Value

@@ -149,11 +149,11 @@ syn JMemberRef.member: Const
 syn JGetStatic.member: Const = Const.FIELD(this.owner, this.name, this.descriptor)
 syn JInvoke.member: Const = Const.METHOD(this.owner, this.name, this.descriptor)
 
-syn JClass.pool: List<Const> = distinct(acc ++ [c] ++ c.dependencies() for c in this.header ++ this.constants with acc = [])
+// a set drops the duplicates and keeps the order
+syn JClass.pool: List<Const> = (acc ++ [c] ++ c.dependencies() for c in this.header ++ this.constants with acc = []).toSet().toList()
 syn JClass.header: List<Const> = [Const.CLASS(this.name), Const.CLASS(this.superName), Const.UTF8("Code")]
-syn JClass.index: Map<Const, int> = (acc ++ {c: acc.size + 1}) for c in this.pool with acc = {}
+syn JClass.index: Map<Const, int> = (acc ++ {c: acc.size + 1}) for c in this.pool with acc = {:}
 
-fun distinct(xs: List<Const>): List<Const> = (if x in acc then acc else acc ++ [x]) for x in xs with acc = []
 
 // ==== code layout ================================================================================
 
@@ -171,13 +171,13 @@ syn JInvoke.size: int = 3
 /** The offset of every instruction, and the length of the code at the end. */
 syn JMethod.offsets: List<int> = (acc ++ [acc[acc.size - 1] + i.size]) for i in this.code with acc = [0]
 syn JInsn.offset: int = this.method.offsets[this.position]
-syn JMethod.labels: Map<str, JLabel> = (if i is JLabel then acc ++ {(i as JLabel).name: i as JLabel} else acc) for i in this.code with acc = {}
+syn JMethod.labels: Map<str, JLabel> = (if i is JLabel then acc ++ {(i as JLabel).name: i as JLabel} else acc) for i in this.code with acc = {:}
 
 syn JInsn.bytes: List<int>
 syn JOp.bytes: List<int> = [this.op.opcode()]
 syn JPush.bytes: List<int> =
     if this.value >= -1 && this.value <= 5 then [3 + this.value]          // iconst_m1 .. iconst_5
-    else if fitsByte(this.value) then [16, (this.value + 256) % 256]      // bipush
+    else if fitsByte(this.value) then [16, this.value & 255]              // bipush
     else if fitsShort(this.value) then [17] ++ s2(this.value)             // sipush
     else [19] ++ u2(this.method.klass.index[Const.INTEGER(this.value)]) // ldc_w
 syn JLdc.bytes: List<int> = [19] ++ u2(this.method.klass.index[Const.STRING(this.value)])
@@ -344,15 +344,7 @@ fun fitsByte(v: int): bool = v >= -128 && v <= 127
 fun fitsShort(v: int): bool = v >= -32768 && v <= 32767
 fun max(a: int, b: int): int = if a > b then a else b
 
-fun u2(v: int): List<int> = [(v / 256) % 256, v % 256]
-fun s2(v: int): List<int> = u2((v + 65536) % 65536)
-fun u4(v: int): List<int> =
-    if v >= 0 then bytes4(v)
-    else match bytes4(v + 2147483647 + 1) {      // two's complement: set the sign bit of 2^31 + v
-        [b, c, d, e] -> [b + 128, c, d, e]
-        _ -> []
-    }
-fun bytes4(v: int): List<int> = [v / 16777216, (v / 65536) % 256, (v / 256) % 256, v % 256]
-
-external fun str.utf8(): List<int>
-external fun int.str(): str
+// big-endian bytes; for negative numbers the two's complement
+fun u2(v: int): List<int> = [v >> 8 & 255, v & 255]
+fun s2(v: int): List<int> = u2(v)
+fun u4(v: int): List<int> = [v >>> 24, v >> 16 & 255, v >> 8 & 255, v & 255]

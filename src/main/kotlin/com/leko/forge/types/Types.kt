@@ -64,6 +64,9 @@ class Types private constructor(context: Context) {
         if (expected is ListType && got is ListType) {
             return isAssignable(expected.elem, got.elem)
         }
+        if (expected is SetType && got is SetType) {
+            return isAssignable(expected.elem, got.elem)
+        }
         if (expected is MapType && got is MapType) {
             return isAssignable(expected.key, got.key)
                     && isAssignable(expected.value, got.value)

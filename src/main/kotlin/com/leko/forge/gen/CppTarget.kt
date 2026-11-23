@@ -450,6 +450,7 @@ private class CppGeneration(private val module: LLIRModule, private val namespac
         type == StrType -> "($v.tag == V::STR)"
         type is ListType -> "($v.tag == V::LIST)"
         type is MapType -> "($v.tag == V::MAP)"
+        type is SetType -> "($v.tag == V::SET)"
         type is ComplexType -> when {
             type.name == EDGE -> "($v.tag == V::EDGE)"
             type.name == GRAPH -> "($v.tag == V::GRAPH)"
@@ -499,7 +500,7 @@ private class CppGeneration(private val module: LLIRModule, private val namespac
         is CreateNode -> "rt::new_node(${kinds.getValue(v.target)}, ${list(v.args)})"
 
         is AccessRecordField -> when (v.target.name) {
-            "List", "Map" -> call("rt::size", v.accessed)
+            "List", "Map", "Set", "str" -> call("rt::size", v.accessed)
             EDGE -> "rt::edge_field(${expr(v.accessed)}, ${listOf("from", "to", "label").indexOf(v.name)})"
             GRAPH -> "rt::graph_field(${expr(v.accessed)}, ${listOf("entry", "vertices", "edges", "root").indexOf(v.name)})"
             else -> "rt::field(${expr(v.accessed)}, ${v.target.fields.keys.indexOf(v.name)})"
@@ -539,6 +540,11 @@ private class CppGeneration(private val module: LLIRModule, private val namespac
         is AndInt, is IAnd -> call("rt::band", (v as BinaryValue).lhs, v.rhs)
         is OrInt, is IOr -> call("rt::bor", (v as BinaryValue).lhs, v.rhs)
         is XorInt -> call("rt::bxor", v.lhs, v.rhs)
+        is ShlInt -> call("rt::shl", v.lhs, v.rhs)
+        is ShrInt -> call("rt::shr", v.lhs, v.rhs)
+        is UshrInt -> call("rt::ushr", v.lhs, v.rhs)
+        is SetEquals -> "rt::B(rt::eq(${expr(v.lhs)}, ${expr(v.rhs)}))"
+        is Builtin -> builtin(v)
         is MulFloat -> call("rt::fmul", v.lhs, v.rhs)
         is DivFloat -> call("rt::fdiv", v.lhs, v.rhs)
         is AddFloat -> call("rt::fadd", v.lhs, v.rhs)
@@ -597,6 +603,47 @@ private class CppGeneration(private val module: LLIRModule, private val namespac
         is FlowGraphRef -> "rt::flow_graph(${module.graphs.indexOf(v.graph)})"
 
         is Match -> match(v)
+    }
+
+    private fun builtin(b: Builtin): String {
+        val all = (listOfNotNull(b.receiver) + b.args).toTypedArray()
+        fun rt(fn: String) = call("rt::$fn", *all)
+        return when (b.name) {
+            "int.str" -> "rt::S(std::to_string(rt::int_of(${expr(b.receiver!!)})))"
+            "float.str" -> "rt::S(rt::show_float(rt::float_of(${expr(b.receiver!!)})))"
+            "bool.str" -> "rt::S(rt::show(${expr(b.receiver!!)}))"
+            "str.toInt" -> rt("to_int")
+            "str.toFloat" -> rt("to_float")
+            "str.indexOf" -> rt("str_index_of")
+            "str.startsWith" -> rt("starts_with")
+            "str.endsWith" -> rt("ends_with")
+            "str.replace" -> rt("replace")
+            "str.upper" -> rt("upper")
+            "str.lower" -> rt("lower")
+            "str.trim" -> rt("trim")
+            "str.split" -> rt("split")
+            "str.code" -> rt("code")
+            "str.utf8" -> rt("utf8")
+            "str.unescape" -> rt("unescape")
+            "char" -> rt("char_of")
+            "str.get" -> rt("char_at")
+            "str.slice", "List.slice" -> rt("slice")
+            "str.contains" -> rt("str_contains")
+            "range" -> rt("range")
+            "List.indexOf" -> rt("list_index_of")
+            "List.reversed" -> rt("reversed")
+            "List.toSet" -> rt("to_set")
+            "List.join" -> rt("join_str")
+            "Map.keys" -> rt("map_keys")
+            "Map.values" -> rt("map_values")
+            "Map.remove" -> rt("map_remove")
+            "Set.toList" -> rt("to_list")
+            "Set.remove" -> rt("set_remove")
+            "Set.of" -> "rt::make_set(${list(b.args)})"
+            "Set.contains" -> rt("set_contains")
+            "Set.union" -> rt("set_union")
+            else -> throw IllegalStateException("unknown builtin ${b.name}")
+        }
     }
 
     private fun callOf(v: Call): String {

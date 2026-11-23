@@ -1,6 +1,5 @@
 // The Kiln compiler, generated in Rust: ./kilnc <file.kiln> [-d <dir>]
 mod kiln;
-mod kiln_externals;
 
 use kiln::rt;
 

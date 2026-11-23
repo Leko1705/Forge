@@ -84,7 +84,7 @@ rule Kiln.stmt: ExprStmt -> expr:expr { ExprStmt(expr) }
 
 rule Kiln.expr: Expr
 rule Kiln.expr: Num -> digits:number { Num(digits.toInt()) }
-rule Kiln.expr: Text -> literal:string { Text(literal.unquote()) }
+rule Kiln.expr: Text -> literal:string { Text(literal[1:-1].unescape()) }
 rule Kiln.expr: Bool -> 'true' { Bool(true) } | 'false' { Bool(false) }
 rule Kiln.expr: Call -> name:ident '\(' args:args? '\)' { Call(name, args ?: []) }
 rule Kiln.expr: Var -> name:ident { Var(name) }
@@ -98,8 +98,6 @@ rule Kiln.expr: Expr @infixLeft(10) -> l:expr '&&' r:expr { Binary("&&", l, r) }
 rule Kiln.expr: Expr @infixLeft(5) -> l:expr '\|\|' r:expr { Binary("||", l, r) }
 rule Kiln.args: List<Expr> -> first:expr rest:(',' expr)* { [first] ++ rest }
 
-external fun str.toInt(): int
-external fun str.unquote(): str
 
 // ==== names and scopes ==========================================================================
 
@@ -115,15 +113,15 @@ inh Program.prog { functions[i] <- this }
 inh function: Function? = null
 inh Function.function { body <- this }
 
-inh signatures: Map<str, Function> = {}
-syn Program.byName: Map<str, Function> = (acc ++ {f.name: f}) for f in this.functions with acc = {}
+inh signatures: Map<str, Function> = {:}
+syn Program.byName: Map<str, Function> = (acc ++ {f.name: f}) for f in this.functions with acc = {:}
 inh Program.signatures { functions[i] <- this.byName }
 
 // a block passes the scope after each statement to the next one; `main` keeps slot 0 for its String[]
-inh scope: Scope = Scope({}, 0)
+inh scope: Scope = Scope({:}, 0)
 inh Function.scope {
     body <- Scope(acc.vars ++ {p.name: Local(p.type, acc.next)}, acc.next + 1) for p in this.params
-                with acc = Scope({}, if this.name == "main" then 1 else 0)
+                with acc = Scope({:}, if this.name == "main" then 1 else 0)
 }
 inh Block.scope {
     stmts[i] <- if i == 0 then this.scope else this.stmts[i - 1].after
@@ -311,10 +309,7 @@ syn Binary.problem: str? =
     if this.type == Type.ERROR && this.left.type != Type.ERROR && this.right.type != Type.ERROR
     then "can not apply '" + this.op + "' to " + this.left.type.repr() + " and " + this.right.type.repr() else null
 
-fun typeList(ts: List<Type>): str = match ts {
-    [] -> ""
-    first :: rest -> acc + ", " + t.repr() for t in rest with acc = first.repr()
-}
+fun typeList(ts: List<Type>): str = (t.repr() for t in ts).join(", ")
 
 syn Stmt.problem: str? = null
 syn VarDecl.problem: str? = if this.value.type == Type.VOID then "'" + this.name + "' can not be void" else null

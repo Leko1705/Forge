@@ -371,6 +371,7 @@ private class OcamlGeneration(private val module: LLIRModule) {
         type == StrType -> "(match $v with Str _ -> true | _ -> false)"
         type is ListType -> "(match $v with List _ -> true | _ -> false)"
         type is MapType -> "(match $v with Map _ -> true | _ -> false)"
+        type is SetType -> "(match $v with Set _ -> true | _ -> false)"
         type is ComplexType -> when {
             type.name == EDGE -> "(match $v with Edge _ -> true | _ -> false)"
             type.name == GRAPH -> "(match $v with Graph _ -> true | _ -> false)"
@@ -417,7 +418,7 @@ private class OcamlGeneration(private val module: LLIRModule) {
         is CreateNode -> "(Rt.new_node ${kinds.getValue(v.target)} ${listOfValues(v.args)})"
 
         is AccessRecordField -> when (v.target.name) {
-            "List", "Map" -> call("Rt.size", v.accessed)
+            "List", "Map", "Set", "str" -> call("Rt.size", v.accessed)
             EDGE -> "(Rt.edge_field (${expr(v.accessed)}) ${listOf("from", "to", "label").indexOf(v.name)})"
             GRAPH -> "(Rt.graph_field (${expr(v.accessed)}) ${listOf("entry", "vertices", "edges", "root").indexOf(v.name)})"
             else -> "(Rt.field (${expr(v.accessed)}) ${v.target.fields.keys.indexOf(v.name)})"
@@ -458,6 +459,11 @@ private class OcamlGeneration(private val module: LLIRModule) {
         is AndInt, is IAnd -> call("Rt.land_", (v as BinaryValue).lhs, v.rhs)
         is OrInt, is IOr -> call("Rt.lor_", (v as BinaryValue).lhs, v.rhs)
         is XorInt -> call("Rt.lxor_", v.lhs, v.rhs)
+        is ShlInt -> call("Rt.shl", v.lhs, v.rhs)
+        is ShrInt -> call("Rt.shr", v.lhs, v.rhs)
+        is UshrInt -> call("Rt.ushr", v.lhs, v.rhs)
+        is SetEquals -> "(Bool (Rt.eq (${expr(v.lhs)}) (${expr(v.rhs)})))"
+        is Builtin -> builtin(v)
         is MulFloat -> call("Rt.fmul", v.lhs, v.rhs)
         is DivFloat -> call("Rt.fdiv", v.lhs, v.rhs)
         is AddFloat -> call("Rt.fadd", v.lhs, v.rhs)
@@ -514,6 +520,47 @@ private class OcamlGeneration(private val module: LLIRModule) {
         is FlowGraphRef -> "(FlowGraph ${module.graphs.indexOf(v.graph)})"
 
         is Match -> match(v)
+    }
+
+    private fun builtin(b: Builtin): String {
+        val all = listOfNotNull(b.receiver) + b.args
+        fun rt(fn: String) = call("Rt.$fn", *all.toTypedArray())
+        return when (b.name) {
+            "int.str" -> "(Str (string_of_int (Rt.int_of (${expr(b.receiver!!)}))))"
+            "float.str" -> "(Str (Rt.show_float (Rt.float_of (${expr(b.receiver!!)}))))"
+            "bool.str" -> "(Str (Rt.show (${expr(b.receiver!!)})))"
+            "str.toInt" -> rt("to_int")
+            "str.toFloat" -> rt("to_float")
+            "str.indexOf" -> rt("str_index_of")
+            "str.startsWith" -> "(Bool ${rt("starts_with")})"
+            "str.endsWith" -> "(Bool ${rt("ends_with")})"
+            "str.replace" -> rt("replace")
+            "str.upper" -> rt("upper")
+            "str.lower" -> rt("lower")
+            "str.trim" -> rt("trim")
+            "str.split" -> rt("split")
+            "str.code" -> rt("code")
+            "str.utf8" -> rt("utf8")
+            "str.unescape" -> rt("unescape")
+            "char" -> rt("char")
+            "str.get" -> rt("char_at")
+            "str.slice", "List.slice" -> rt("slice")
+            "str.contains" -> "(Bool ${rt("str_contains")})"
+            "range" -> rt("range")
+            "List.indexOf" -> rt("list_index_of")
+            "List.reversed" -> rt("reversed")
+            "List.toSet" -> rt("to_set")
+            "List.join" -> rt("join")
+            "Map.keys" -> rt("map_keys")
+            "Map.values" -> rt("map_values")
+            "Map.remove" -> rt("map_remove")
+            "Set.toList" -> rt("to_list")
+            "Set.remove" -> rt("set_remove")
+            "Set.of" -> "(Rt.set_of [ ${b.args.joinToString("; ") { expr(it) }} ])"
+            "Set.contains" -> "(Bool ${rt("set_contains")})"
+            "Set.union" -> rt("set_union")
+            else -> throw IllegalStateException("unknown builtin ${b.name}")
+        }
     }
 
     private fun let(value: String, name: String, body: (String) -> String): String = names.scoped {

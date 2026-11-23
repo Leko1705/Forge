@@ -35,6 +35,11 @@ data class ListType(val elem: Type) : Type {
     override fun toString(): String = "List<$elem>"
 }
 
+/** A set: no element twice; iterated in the order the elements were added. */
+data class SetType(val elem: Type) : Type {
+    override fun toString(): String = "Set<$elem>"
+}
+
 data class MapType(val key: Type, val value: Type) : Type {
     override fun toString(): String = "Map<$key, $value>"
 }

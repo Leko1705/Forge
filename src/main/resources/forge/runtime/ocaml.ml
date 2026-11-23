@@ -20,6 +20,7 @@ type v =
   | Bool of bool
   | Str of string
   | List of v array
+  | Set of v array      (* without duplicates, in the order the elements were added *)
   | Map of (v * v) array
   | Rec of rcd
   | Node of node
@@ -76,7 +77,7 @@ let truth = function Bool b -> b | v -> fail "a bool was expected"
 let int_of = function Int i -> i | _ -> fail "an int was expected"
 let float_of = function Float f -> f | _ -> fail "a float was expected"
 let str_of = function Str s -> s | _ -> fail "a str was expected"
-let items = function List a -> a | _ -> fail "a list was expected"
+let items = function List a | Set a -> a | _ -> fail "a list was expected"
 let entries = function Map a -> a | _ -> fail "a map was expected"
 let node_of = function Node n -> n | _ -> fail "a node was expected"
 
@@ -112,6 +113,7 @@ let rec eq a b =
   | Bool x, Bool y -> x = y
   | Str x, Str y -> String.equal x y
   | List x, List y -> Array.length x = Array.length y && (let ok = ref true in Array.iteri (fun i v -> if !ok && not (eq v y.(i)) then ok := false) x; !ok)
+  | Set x, Set y -> Array.length x = Array.length y && Array.for_all (fun a -> Array.exists (fun b -> eq a b) y) x
   | Map x, Map y ->
     Array.length x = Array.length y
     && Array.for_all (fun (k, v) -> match Array.find_opt (fun (k2, _) -> eq k k2) y with Some (_, v2) -> eq v v2 | None -> false) x
@@ -164,7 +166,7 @@ let rec show v =
   | Float f -> show_float f
   | Bool b -> if b then "true" else "false"
   | Str s -> s
-  | List a -> "[" ^ String.concat ", " (Array.to_list (Array.map show a)) ^ "]"
+  | List a | Set a -> "[" ^ String.concat ", " (Array.to_list (Array.map show a)) ^ "]"
   | Map a -> "{" ^ String.concat ", " (Array.to_list (Array.map (fun (k, x) -> show k ^ "=" ^ show x) a)) ^ "}"
   | Rec r when r.rid = span_rid ->
     (match r.fields.(0) with Str s -> s ^ ":" | _ -> "") ^ show r.fields.(1) ^ ":" ^ show r.fields.(2)
@@ -184,11 +186,27 @@ let nn v = match v with Null -> fail "null value where a value is required (!!)"
 let elvis v alt = match v with Null -> alt () | _ -> v
 let is_null v = match v with Null -> true | _ -> false
 
-let get l i =
-  let a = items l and i = int_of i in
-  if i < 0 || i >= Array.length a then fail ("index " ^ string_of_int i ^ " out of bounds for length " ^ string_of_int (Array.length a))
-  else a.(i)
-let size v = match v with List a -> Int (Array.length a) | Map a -> Int (Array.length a) | _ -> fail "size of a value that is no list or map"
+(** A position for [n] elements: below 0 counts from the end. *)
+let position i n =
+  let k = if i < 0 then i + n else i in
+  if k < 0 || k >= n then fail ("index " ^ string_of_int i ^ " out of bounds for length " ^ string_of_int n) else k
+(** A bound of a slice: below 0 counts from the end, clamped to 0..n; null is the default. *)
+let bound b n default =
+  let k = match b with Null -> default | Int i -> if i < 0 then i + n else i | _ -> fail "an int was expected" in
+  max 0 (min n k)
+let get l i = let a = items l in a.(position (int_of i) (Array.length a))
+let size v = match v with
+  | List a | Set a -> Int (Array.length a) | Map a -> Int (Array.length a) | Str s -> Int (String.length s)
+  | _ -> fail "size of a value that is no list, set, map or str"
+let slice v lo hi =
+  match v with
+  | Str s -> let n = String.length s in let a = bound lo n 0 and b = bound hi n n in Str (if a >= b then "" else String.sub s a (b - a))
+  | _ -> let l = items v in let n = Array.length l in let a = bound lo n 0 and b = bound hi n n in List (if a >= b then [||] else Array.sub l a (b - a))
+let char_at s i = let t = str_of s in Str (String.make 1 t.[position (int_of i) (String.length t)])
+let range a b = let a = int_of a and b = int_of b in List (if b <= a then [||] else Array.init (b - a) (fun i -> Int (a + i)))
+let shl a b = Int (wrap (int_of a lsl (int_of b land 31)))
+let shr a b = Int (int_of a asr (int_of b land 31))
+let ushr a b = Int (wrap ((int_of a land 0xFFFFFFFF) lsr (int_of b land 31)))
 let list_concat a b = List (Array.append (items a) (items b))
 let list_append a x = List (Array.append (items a) [| x |])
 let tail l = let a = items l in List (Array.sub a 1 (Array.length a - 1))
@@ -209,6 +227,100 @@ let map_at m k =
   match Array.find_opt (fun (k2, _) -> eq k k2) (entries m) with
   | Some (_, x) -> x
   | None -> fail ("key " ^ show k ^ " is missing in the map")
+
+(* ---- sets *)
+let dedupe a = Array.of_list (List.rev (Array.fold_left (fun acc x -> if List.exists (fun y -> eq x y) acc then acc else x :: acc) [] a))
+let set_of xs = Set (dedupe (Array.of_list xs))
+let set_contains s x = Array.exists (fun y -> eq x y) (items s)
+let set_union a b = Set (dedupe (Array.append (items a) (items b)))
+let set_remove s x = Set (Array.of_list (List.filter (fun y -> not (eq x y)) (Array.to_list (items s))))
+let to_set l = Set (dedupe (items l))
+let to_list s = List (Array.copy (items s))
+
+(* ---- builtins of str, List and Map *)
+let find_from s t from =
+  let n = String.length s and m = String.length t in
+  let rec go i = if i + m > n then -1 else if String.sub s i m = t then i else go (i + 1) in
+  if from > n then -1 else go from
+let str_index_of s t = Int (find_from (str_of s) (str_of t) 0)
+let str_contains s t = find_from (str_of s) (str_of t) 0 >= 0
+let starts_with s t = let s = str_of s and t = str_of t in String.length t <= String.length s && String.sub s 0 (String.length t) = t
+let ends_with s t = let s = str_of s and t = str_of t in
+  String.length t <= String.length s && String.sub s (String.length s - String.length t) (String.length t) = t
+let split s sep =
+  let s = str_of s and p = str_of sep in
+  if p = "" then fail "the separator of split is empty";
+  let rec go from acc =
+    match find_from s p from with
+    | -1 -> List.rev (String.sub s from (String.length s - from) :: acc)
+    | i -> go (i + String.length p) (String.sub s from (i - from) :: acc)
+  in
+  List (Array.of_list (List.map (fun x -> Str x) (go 0 [])))
+let replace s a b =
+  if str_of a = "" then fail "the text to replace is empty";
+  let parts = split s a in
+  Str (String.concat (str_of b) (List.map str_of (Array.to_list (items parts))))
+let is_space c = c = ' ' || c = '\t' || c = '\n' || c = '\r' || c = '\011' || c = '\012'
+let trim s =
+  let s = str_of s in
+  let n = String.length s in
+  let i = ref 0 and j = ref (n - 1) in
+  while !i < n && is_space s.[!i] do incr i done;
+  while !j >= !i && is_space s.[!j] do decr j done;
+  Str (String.sub s !i (!j - !i + 1))
+let upper s = Str (String.uppercase_ascii (str_of s))
+let lower s = Str (String.lowercase_ascii (str_of s))
+let code s i = let t = str_of s in Int (Char.code t.[position (int_of i) (String.length t)])
+let utf8 s = let t = str_of s in List (Array.init (String.length t) (fun i -> Int (Char.code t.[i])))
+let char c =
+  let c = int_of c in
+  let b = Buffer.create 4 in
+  Buffer.add_utf_8_uchar b (Uchar.of_int c);
+  Str (Buffer.contents b)
+let unescape s =
+  let s = str_of s in
+  let b = Buffer.create (String.length s) in
+  let i = ref 0 in
+  while !i < String.length s do
+    (if s.[!i] = '\\' && !i + 1 < String.length s then begin
+       incr i;
+       Buffer.add_char b (match s.[!i] with 'n' -> '\n' | 't' -> '\t' | 'r' -> '\r' | '0' -> '\000' | c -> c)
+     end else Buffer.add_char b s.[!i]);
+    incr i
+  done;
+  Str (Buffer.contents b)
+let all_digits s from = from < String.length s && (let ok = ref true in String.iteri (fun i c -> if i >= from && not (c >= '0' && c <= '9') then ok := false) s; !ok)
+let to_int s =
+  let t = str_of s in
+  let from = if String.length t > 0 && (t.[0] = '+' || t.[0] = '-') then 1 else 0 in
+  if not (all_digits t from) then fail ("not an int: \"" ^ t ^ "\"");
+  match int_of_string_opt (if t.[0] = '+' then String.sub t 1 (String.length t - 1) else t) with
+  | Some v when v >= -2147483648 && v <= 2147483647 -> Int v
+  | _ -> fail ("not an int: \"" ^ t ^ "\"")
+let to_float s =
+  let t = str_of s in
+  let n = String.length t in
+  let i = ref (if n > 0 && (t.[0] = '+' || t.[0] = '-') then 1 else 0) in
+  let digits () = let start = !i in while !i < n && t.[!i] >= '0' && t.[!i] <= '9' do incr i done; !i - start in
+  let whole = digits () in
+  let fraction = if !i < n && t.[!i] = '.' then (incr i; digits ()) else 0 in
+  let ok = ref (whole + fraction > 0) in
+  if !i < n && (t.[!i] = 'e' || t.[!i] = 'E') then begin
+    incr i;
+    if !i < n && (t.[!i] = '+' || t.[!i] = '-') then incr i;
+    if digits () = 0 then ok := false
+  end;
+  if not !ok || !i <> n then fail ("not a float: \"" ^ t ^ "\"");
+  Float (f32 (float_of_string t))
+let join l sep = Str (String.concat (str_of sep) (List.map str_of (Array.to_list (items l))))
+let list_index_of l x =
+  let a = items l in
+  let rec go i = if i >= Array.length a then -1 else if eq a.(i) x then i else go (i + 1) in
+  Int (go 0)
+let reversed l = let a = items l in let n = Array.length a in List (Array.init n (fun i -> a.(n - 1 - i)))
+let map_keys m = List (Array.map fst (entries m))
+let map_values m = List (Array.map snd (entries m))
+let map_remove m k = Map (Array.of_list (List.filter (fun (k2, _) -> not (eq k k2)) (Array.to_list (entries m))))
 
 let match_cases subject cases alt =
   let rec go = function

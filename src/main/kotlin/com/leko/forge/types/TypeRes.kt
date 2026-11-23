@@ -6,6 +6,7 @@ import ForgeParser
 fun ForgeParser.TypeContext.toType(): Type {
     return when (this) {
         is ForgeParser.ListTypeContext -> ListType(this.type().toType())
+        is ForgeParser.SetTypeContext -> SetType(this.type().toType())
         is ForgeParser.MapTypeContext -> MapType(this.key.toType(), this.value.toType())
         is ForgeParser.OptionalTypeContext -> OptionalType(this.ty.toType())
         is ForgeParser.NamedTypeContext -> {

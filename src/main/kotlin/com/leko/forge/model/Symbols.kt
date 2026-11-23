@@ -56,7 +56,13 @@ val floatSymbol = primitive("float", FloatType)
 
 val boolSymbol = primitive("bool", BoolType)
 
-val strSymbol = primitive("str", StrType)
+val strSymbol = primitive("str", StrType) {
+    add(VarSymbol("size", IntType, null, VarSymbol.VarKind.RECORD_FIELD))
+}
+
+fun setSymbol(setType: SetType) = primitive("Set", setType) {
+    add(VarSymbol("size", IntType, null, VarSymbol.VarKind.RECORD_FIELD))
+}
 
 fun listSymbol(listType: ListType) = primitive("List", listType) {
     add(VarSymbol("size", IntType, null, VarSymbol.VarKind.RECORD_FIELD))
@@ -163,7 +169,11 @@ data class FunctionSymbol(
     override val name: String,
     override val params: List<VarSymbol>,
     override val returnType: Type,
-    override val span: SourceSpan
+    override val span: SourceSpan,
+    /** `op fun`: called for an operator applied to its receiver, e.g. `plus` for `a + b`. */
+    val isOperator: Boolean = false,
+    /** For builtin functions: the operation of the runtimes it is, e.g. `str.upper`. */
+    val builtin: String? = null,
 ) : CallableSymbol {
     override val type: Type get() = FunctionType(params.map { it.type }, returnType)
     override val kind: Kind = Kind.MTH

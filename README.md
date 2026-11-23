@@ -47,12 +47,60 @@ const limit: int = 2 * width             // or a declared one; constants may use
 Constants are inlined: the generated code has no variable for a constant, every use of it is its value. The value
 can not use `this` or local variables, and a constant whose value depends on itself is an error.
 
-Types: `int`, `float`, `bool`, `str`, `List<T>`, `Map<K, V>`, `T?`, nodes, enums, records, `Vertex`, `Graph`, `Edge`.
-A list of different nodes has their most specific common interface as element type, e.g. `[Push(1), Label("end")]`
-is a `List<Insn>` if both are `Insn`s.
-Expressions: arithmetic, `++` (lists, maps), `x in xs`, `a ?: b`, `x!!`, `v as T`, `v is T`, `if .. then .. else`,
-`match` (enum variants, lists `[a, b]`, `head :: tail`, values, guards `p if cond`), comprehensions
-(`f(x) for x in xs`, folds `acc + x for x in xs with acc = 0`). Comments: `//` and `/* */`.
+Types: `int`, `float`, `bool`, `str`, `List<T>`, `Set<T>`, `Map<K, V>`, `T?`, nodes, enums, records, `Vertex`,
+`Graph`, `Edge`. A list of different nodes has their most specific common interface as element type, e.g.
+`[Push(1), Label("end")]` is a `List<Insn>` if both are `Insn`s.
+Expressions: arithmetic, shifts `<<`, `>>` (keeps the sign) and `>>>`, `++` (lists, sets, maps), `x in xs`, `a ?: b`,
+`x!!`, `v as T`, `v is T`, `if .. then .. else`, `match` (enum variants, lists `[a, b]`, `head :: tail`, values, guards
+`p if cond`), comprehensions (`f(x) for x in xs`, folds `acc + x for x in xs with acc = 0`, also over sets).
+Comments: `//` and `/* */`.
+
+| Literal or access     | Meaning                                                                                 |
+|-----------------------|-----------------------------------------------------------------------------------------|
+| `[1, 2]`, `[0:n]`     | a list; the ints `0` to `n - 1`                                                         |
+| `{1, 2}`, `{}`        | a set (no element twice, in the order they were added); the empty set                  |
+| `{"a": 1}`, `{:}`     | a map; the empty map                                                                    |
+| `xs[i]`, `s[i]`       | an element, a character of a str; below 0 counts from the end (`xs[-1]` is the last)    |
+| `xs[a:b]`, `s[a:b]`   | elements (characters) `a` to `b - 1`; a bound may be omitted (`xs[1:]`), below 0 counts from the end, bounds out of range are clamped |
+| `t in s`              | also for strs: whether `t` is part of `s`                                               |
+
+### Operator functions
+
+`op fun` makes an operator work for a type, Kotlin style; the builtin meaning comes first, so they are for the
+types that have none (records, nodes, enums) and for builtin types an operator does not apply to:
+
+```
+record Vec { x: int, y: int }
+op fun Vec.plus(o: Vec): Vec = Vec(this.x + o.x, this.y + o.y)      // a + b
+op fun Vec.get(i: int): int = if i == 0 then this.x else this.y     // v[i]
+op fun Vec.compareTo(o: Vec): int = this.x - o.x                     // a < b is a.compareTo(b) < 0
+op fun str.times(n: int): str = acc + this for _i in [0:n] with acc = ""  // "ab" * 3
+```
+
+| Operator               | Function                                  |
+|------------------------|-------------------------------------------|
+| `+ - * / % ++`         | `plus minus times div rem concat`         |
+| `<< >> >>>`            | `shl shr ushr`                            |
+| `< > <= >=`            | `compareTo(other): int`                   |
+| `-x`, `!x`             | `neg()`, `not()`                          |
+| `x[i]`, `x[a:b]`       | `get(i)`, `slice(lo: int?, hi: int?)` (an omitted bound is `null`) |
+| `e in x`, `e !in x`    | `x.contains(e): bool`                     |
+
+### Builtin functions
+
+Every target implements these; a function the program defines with the same receiver and name comes first.
+
+| Of        | Functions                                                                                             |
+|-----------|-------------------------------------------------------------------------------------------------------|
+| `int`, `float`, `bool` | `str()`: as text (floats like Kotlin's `Float.toString`)                                |
+| `str`     | `size`, `toInt()`, `toFloat()` (fail unless the whole text is a number), `indexOf(t)` (-1 if absent), `startsWith(t)`, `endsWith(t)`, `replace(a, b)`, `upper()`, `lower()`, `trim()`, `split(separator)`, `code(i)`, `utf8()` (the bytes), `unescape()` (`\n \t \r \0`; `\x` is x) |
+| `List<T>` | `indexOf(x)`, `reversed()`, `toSet()`; `List<str>.join(separator)`                                   |
+| `Set<T>`  | `size`, `toList()`, `remove(x)`                                                                        |
+| `Map<K, V>` | `keys()`, `values()` (lists, in the order of the map), `remove(key)`                                 |
+| -         | `char(code)`: a character as a str                                                                     |
+
+Strings are UTF-16 in Kotlin and Java, code points in Python and bytes of UTF-8 in C++, Rust and OCaml: sizes,
+indexes, `code`, `upper`, `lower` and `trim` agree for ASCII text.
 
 ### Attributes
 

@@ -41,8 +41,99 @@
     @SuppressWarnings("unchecked")
     static java.util.Map<Object, Object> __m(Object v) { return (java.util.Map<Object, Object>) v; }
 
+    @SuppressWarnings("unchecked")
+    static java.util.Set<Object> __s(Object v) { return (java.util.Set<Object>) v; }
+    @SuppressWarnings("unchecked")
+    static Iterable<Object> __iter(Object v) { return (Iterable<Object>) v; }
+
     static java.util.List<Object> __list(Object... items) { return new java.util.ArrayList<>(java.util.Arrays.asList(items)); }
-    static Object __get(Object list, Object index) { return __l(list).get((Integer) index); }
+
+    /** A position for [size] elements: below 0 counts from the end. */
+    static int __position(int i, int size) {
+        int k = i < 0 ? i + size : i;
+        if (k < 0 || k >= size) throw new IndexOutOfBoundsException("index " + i + " out of bounds for length " + size);
+        return k;
+    }
+    /** A bound of a slice: below 0 counts from the end, clamped to 0..size; null is the default. */
+    static int __bound(Object b, int size, int dflt) {
+        int k = b == null ? dflt : (Integer) b < 0 ? (Integer) b + size : (Integer) b;
+        return Math.max(0, Math.min(size, k));
+    }
+    static Object __get(Object list, Object index) { java.util.List<Object> l = __l(list); return l.get(__position((Integer) index, l.size())); }
+    static Object __slice(Object v, Object lo, Object hi) {
+        if (v instanceof String) {
+            String s = (String) v;
+            int a = __bound(lo, s.length(), 0), b = __bound(hi, s.length(), s.length());
+            return a >= b ? "" : s.substring(a, b);
+        }
+        java.util.List<Object> l = __l(v);
+        int a = __bound(lo, l.size(), 0), b = __bound(hi, l.size(), l.size());
+        return a >= b ? new java.util.ArrayList<>() : new java.util.ArrayList<>(l.subList(a, b));
+    }
+    static String __charAt(Object s, Object i) { String t = (String) s; int k = __position((Integer) i, t.length()); return t.substring(k, k + 1); }
+    static java.util.List<Object> __range(Object a, Object b) {
+        java.util.ArrayList<Object> r = new java.util.ArrayList<>();
+        for (int i = (Integer) a; i < (Integer) b; i++) r.add(i);
+        return r;
+    }
+    static java.util.Set<Object> __set(Object... items) { return new java.util.LinkedHashSet<>(java.util.Arrays.asList(items)); }
+    static java.util.Set<Object> __union(Object a, Object b) { java.util.LinkedHashSet<Object> r = new java.util.LinkedHashSet<>(__s(a)); r.addAll(__s(b)); return r; }
+    static java.util.Set<Object> __setRemove(Object a, Object x) { java.util.LinkedHashSet<Object> r = new java.util.LinkedHashSet<>(__s(a)); r.remove(x); return r; }
+    static java.util.Map<Object, Object> __mapRemove(Object m, Object k) { java.util.LinkedHashMap<Object, Object> r = new java.util.LinkedHashMap<>(__m(m)); r.remove(k); return r; }
+    static java.util.List<Object> __reversed(Object l) { java.util.ArrayList<Object> r = new java.util.ArrayList<>(__l(l)); java.util.Collections.reverse(r); return r; }
+    static Integer __toInt(Object s) {
+        String t = (String) s;
+        if (!t.matches("[+-]?[0-9]+")) throw new ForgeError("not an int: \"" + t + "\"");
+        try { return Integer.parseInt(t); } catch (NumberFormatException e) { throw new ForgeError("not an int: \"" + t + "\""); }
+    }
+    static Float __toFloat(Object s) {
+        String t = (String) s;
+        if (!t.matches("[+-]?([0-9]+[.]?[0-9]*|[.][0-9]+)([eE][+-]?[0-9]+)?")) throw new ForgeError("not a float: \"" + t + "\"");
+        return Float.parseFloat(t);
+    }
+    static java.util.List<Object> __split(Object s, Object sep) {
+        String t = (String) s, p = (String) sep;
+        if (p.isEmpty()) throw new ForgeError("the separator of split is empty");
+        java.util.ArrayList<Object> r = new java.util.ArrayList<>();
+        int from = 0;
+        while (true) {
+            int i = t.indexOf(p, from);
+            if (i < 0) { r.add(t.substring(from)); return r; }
+            r.add(t.substring(from, i));
+            from = i + p.length();
+        }
+    }
+    static String __replace(Object s, Object old, Object replacement) {
+        if (((String) old).isEmpty()) throw new ForgeError("the text to replace is empty");
+        return ((String) s).replace((String) old, (String) replacement);
+    }
+    static Integer __code(Object s, Object i) { String t = (String) s; return (int) t.charAt(__position((Integer) i, t.length())); }
+    static String __char(Object code) { return new String(Character.toChars((Integer) code)); }
+    static java.util.List<Object> __utf8(Object s) {
+        java.util.ArrayList<Object> r = new java.util.ArrayList<>();
+        for (byte b : ((String) s).getBytes(java.nio.charset.StandardCharsets.UTF_8)) r.add(b & 0xFF);
+        return r;
+    }
+    static String __unescape(Object s) {
+        String t = (String) s;
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < t.length(); i++) {
+            char c = t.charAt(i);
+            if (c == '\\' && i + 1 < t.length()) {
+                char e = t.charAt(++i);
+                sb.append(e == 'n' ? '\n' : e == 't' ? '\t' : e == 'r' ? '\r' : e == '0' ? '\0' : e);
+            } else {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
+    }
+    static String __join(Object l, Object sep) {
+        StringBuilder sb = new StringBuilder();
+        boolean first = true;
+        for (Object x : __l(l)) { if (!first) sb.append((String) sep); first = false; sb.append((String) x); }
+        return sb.toString();
+    }
     static java.util.List<Object> __concat(Object a, Object b) {
         java.util.ArrayList<Object> r = new java.util.ArrayList<>(__l(a));
         r.addAll(__l(b));
@@ -59,11 +150,11 @@
     }
     static java.util.List<Object> __mapList(Object list, __Fn1 f) {
         java.util.ArrayList<Object> r = new java.util.ArrayList<>();
-        for (Object x : __l(list)) r.add(f.apply(x));
+        for (Object x : __iter(list)) r.add(f.apply(x));
         return r;
     }
     static Object __fold(Object list, Object acc, __Fn2 f) {
-        for (Object x : __l(list)) acc = f.apply(acc, x);
+        for (Object x : __iter(list)) acc = f.apply(acc, x);
         return acc;
     }
 

@@ -1,24 +1,7 @@
 (* The Kiln compiler, generated in OCaml: ./kilnc <file.kiln> [-d <dir>] *)
 open Kiln.Rt
 
-let unquote s =
-  let b = Buffer.create (String.length s) in
-  let i = ref 1 in
-  while !i < String.length s - 1 do
-    (if s.[!i] = '\\' && !i + 1 < String.length s - 1 then begin
-       incr i;
-       Buffer.add_char b (match s.[!i] with 'n' -> '\n' | 't' -> '\t' | c -> c)
-     end else Buffer.add_char b s.[!i]);
-    incr i
-  done;
-  Buffer.contents b
-
 let () =
-  (* the externals of kiln.forge and jvm.forge *)
-  Kiln.ext_str_utf8 := (fun v -> let s = str_of v in List (Array.init (String.length s) (fun i -> Int (Char.code s.[i]))));
-  Kiln.ext_int_str := (fun v -> Str (string_of_int (int_of v)));
-  Kiln.ext_str_toInt := (fun v -> Int (int_of_string (str_of v)));
-  Kiln.ext_str_unquote := (fun v -> Str (unquote (str_of v)));
   let args = Array.to_list Sys.argv |> List.tl in
   let path = match args with p :: _ -> p | [] -> prerr_endline "usage: kilnc <file.kiln> [-d <dir>]"; exit 1 in
   let dir = match args with _ :: "-d" :: d :: _ -> d | _ -> "." in

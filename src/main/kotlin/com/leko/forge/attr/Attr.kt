@@ -512,9 +512,29 @@ class Attr private constructor(context: Context) {
             return ctx.setType(ctx.expression().attribType())
         }
 
+        // ---- operators: the builtin meaning for builtin types, else an `op fun` of the receiver ----------
+
+        private fun numeric(t: Type) = t == IntType || t == FloatType
+
+        /**
+         * Attributes [ctx] as a call of the operator function [name] of [receiver] with arguments of [args]
+         * types, if there is one; returns its result type, or null if there is none.
+         */
+        private fun operator(ctx: ParserRuleContext, receiver: Type, name: String, args: List<Type>): Type? {
+            if (receiver == ErrorType || receiver is OptionalType || receiver == NullType || args.any { it == ErrorType }) return null
+            val fn = resolve.resolve(receiver, name, Kind.VAL, Kind.MTH) as? FunctionSymbol ?: return null
+            if (!fn.isOperator) return null
+            for ((param, arg) in fn.params.zip(args)) chk.checkAssignable(param.type, arg)
+            ctx.attach("operator", fn)
+            return fn.returnType
+        }
+
         override fun visitRelational(ctx: ForgeParser.RelationalContext): Type {
             val lhsTy = ctx.left.attribType()
             val rhsTy = ctx.right.attribType()
+            if (!(numeric(lhsTy) && numeric(rhsTy))) {
+                operator(ctx, lhsTy, "compareTo", listOf(rhsTy))?.let { return ctx.setType(BoolType) }
+            }
             chk.checkNumericOp(lhsTy, rhsTy, ctx.op.text)
             return ctx.setType(BoolType)
         }
@@ -523,11 +543,15 @@ class Attr private constructor(context: Context) {
             val container = ctx.right.attribType()
             when (container) {
                 is ListType -> withExpected(container.elem) { chk.checkAssignable(container.elem, ctx.left.attribType()) }
+                is SetType -> withExpected(container.elem) { chk.checkAssignable(container.elem, ctx.left.attribType()) }
                 is MapType -> withExpected(container.key) { chk.checkAssignable(container.key, ctx.left.attribType()) }
+                StrType -> chk.checkAssignable(StrType, ctx.left.attribType())
                 ErrorType -> ctx.left.attribType()
                 else -> {
-                    ctx.left.attribType()
-                    log.diag(typeMismatch(ctx.right.span, listOf(ListType(ArbitraryType), MapType(ArbitraryType, ArbitraryType)), container))
+                    val element = ctx.left.attribType()
+                    if (operator(ctx, container, "contains", listOf(element)) == null) {
+                        log.diag(typeMismatch(ctx.right.span, listOf(ListType(ArbitraryType), SetType(ArbitraryType), MapType(ArbitraryType, ArbitraryType), StrType), container))
+                    }
                 }
             }
             return ctx.setType(BoolType)
@@ -558,8 +582,12 @@ class Attr private constructor(context: Context) {
 
         override fun visitListComprehension(ctx: ForgeParser.ListComprehensionContext): Type {
             val iterable = ctx.iterable.attribType()
-            chk.checkAssignable(ListType(ArbitraryType), iterable)
-            val iterType = if (iterable is ListType) iterable.elem else ErrorType
+            if (iterable !is SetType) chk.checkAssignable(ListType(ArbitraryType), iterable)
+            val iterType = when (iterable) {
+                is ListType -> iterable.elem
+                is SetType -> iterable.elem
+                else -> ErrorType
+            }
 
             if (ctx.acc == null) {
                 withChildScope {
@@ -601,10 +629,38 @@ class Attr private constructor(context: Context) {
             return ctx.setType(MapType(keyRes, valueRes))
         }
 
+        override fun visitSetLiteral(ctx: ForgeParser.SetLiteralContext): Type {
+            val expected = env.value.expected
+            if (ctx.expression().isEmpty() && expected is MapType) {
+                log.diag(emptyMapIsColon(ctx.span))
+                return ctx.setType(ErrorType)
+            }
+            val elemTypes = ctx.expression().map { it.attribType() }
+            val res = chk.checkAllAssignable(elemTypes, (expected as? SetType)?.elem)
+            return ctx.setType(SetType(res))
+        }
+
+        override fun visitEmptyMapLiteral(ctx: ForgeParser.EmptyMapLiteralContext): Type {
+            val expected = env.value.expected
+            if (expected is MapType) return ctx.setType(expected)
+            log.diag(listTypeIsAmbiguous(ctx.span))
+            return ctx.setType(MapType(ArbitraryType, ArbitraryType))
+        }
+
+        override fun visitRangeLiteral(ctx: ForgeParser.RangeLiteralContext): Type {
+            withExpected(IntType) {
+                chk.checkAssignable(IntType, ctx.lo.attribType())
+                chk.checkAssignable(IntType, ctx.hi.attribType())
+            }
+            return ctx.setType(ListType(IntType))
+        }
+
         override fun visitAddSub(ctx: ForgeParser.AddSubContext): Type {
             val lhsTy = ctx.left.attribType()
             val rhsTy = ctx.right.attribType()
             val isAdd = ctx.PLUS() != null
+            val builtin = (numeric(lhsTy) && numeric(rhsTy)) || (isAdd && lhsTy == StrType && rhsTy == StrType)
+            if (!builtin) operator(ctx, lhsTy, if (isAdd) "plus" else "minus", listOf(rhsTy))?.let { return ctx.setType(it) }
             return ctx.setType(if (isAdd) {
                 chk.checkAdditive(lhsTy, rhsTy)
             } else {
@@ -616,6 +672,9 @@ class Attr private constructor(context: Context) {
             val lhsTy = ctx.left.attribType()
             val rhsTy = ctx.right.attribType()
             val isMod = ctx.PERCENT() != null
+            val name = if (isMod) "rem" else if (ctx.STAR() != null) "times" else "div"
+            val builtin = if (isMod) lhsTy == IntType && rhsTy == IntType else numeric(lhsTy) && numeric(rhsTy)
+            if (!builtin) operator(ctx, lhsTy, name, listOf(rhsTy))?.let { return ctx.setType(it) }
             return ctx.setType(if (isMod) {
                 chk.checkAssignable(IntType, lhsTy)
                 chk.checkAssignable(IntType, rhsTy)
@@ -625,9 +684,31 @@ class Attr private constructor(context: Context) {
             })
         }
 
+        override fun visitShift(ctx: ForgeParser.ShiftContext): Type {
+            // the operator is made of adjacent tokens: `a > > b` is no shift
+            val tokens = ctx.LT() + ctx.GT()
+            val sorted = tokens.map { it.symbol }.sortedBy { it.startIndex }
+            if (sorted.zipWithNext().any { (a, b) -> a.stopIndex + 1 != b.startIndex }) {
+                log.diag(invalidOperatorFunction(ctx.span, "a shift operator is written without spaces: << >> >>>"))
+            }
+            val lhsTy = ctx.left.attribType()
+            val rhsTy = ctx.right.attribType()
+            val name = when {
+                ctx.LT().isNotEmpty() -> "shl"
+                ctx.GT().size == 3 -> "ushr"
+                else -> "shr"
+            }
+            if (!(lhsTy == IntType && rhsTy == IntType)) operator(ctx, lhsTy, name, listOf(rhsTy))?.let { return ctx.setType(it) }
+            chk.checkAssignable(IntType, lhsTy)
+            chk.checkAssignable(IntType, rhsTy)
+            return ctx.setType(IntType)
+        }
+
         override fun visitConcat(ctx: ForgeParser.ConcatContext): Type {
             val lhsTy = ctx.left.attribType()
             val rhsTy = withExpected(lhsTy) { ctx.right.attribType() }
+            val builtin = (lhsTy is ListType && rhsTy is ListType) || (lhsTy is MapType && rhsTy is MapType) || (lhsTy is SetType && rhsTy is SetType)
+            if (!builtin) operator(ctx, lhsTy, "concat", listOf(rhsTy))?.let { return ctx.setType(it) }
             return ctx.setType(chk.checkConcatOp(lhsTy, rhsTy))
         }
 
@@ -637,7 +718,24 @@ class Attr private constructor(context: Context) {
             if (lhsTy is MapType) env = env.copy(value = env.value.copy(expected = lhsTy.key))
             val rhsTy = ctx.key.attribType()
             this.env = prevEnv
+            if (!(lhsTy is ListType || lhsTy is MapType || lhsTy == StrType)) {
+                operator(ctx, lhsTy, "get", listOf(rhsTy))?.let { return ctx.setType(it) }
+            }
             return ctx.setType(chk.checkContainerAccess(lhsTy, rhsTy))
+        }
+
+        override fun visitSliceAccess(ctx: ForgeParser.SliceAccessContext): Type {
+            val lhsTy = ctx.container.attribType()
+            val bounds = listOfNotNull(ctx.lo, ctx.hi).map { withExpected(IntType) { it.attribType() } }
+            if (lhsTy is ListType || lhsTy == StrType) {
+                bounds.forEach { chk.checkAssignable(IntType, it) }
+                return ctx.setType(lhsTy)
+            }
+            // an omitted bound is null
+            val args = listOf(ctx.lo, ctx.hi).map { it?.type ?: NullType }
+            operator(ctx, lhsTy, "slice", args)?.let { return ctx.setType(it) }
+            if (lhsTy != ErrorType) log.diag(typeMismatch(ctx.container.span, listOf(ListType(ArbitraryType), StrType), lhsTy))
+            return ctx.setType(ErrorType)
         }
 
         override fun visitContextualized(ctx: ForgeParser.ContextualizedContext): Type {
@@ -654,11 +752,13 @@ class Attr private constructor(context: Context) {
 
         override fun visitNegation(ctx: ForgeParser.NegationContext): Type {
             val exprTy = ctx.expression().attribType()
+            if (!numeric(exprTy)) operator(ctx, exprTy, "neg", emptyList())?.let { return ctx.setType(it) }
             return ctx.setType(chk.checkNegation(exprTy))
         }
 
         override fun visitInversion(ctx: ForgeParser.InversionContext): Type {
             val exprTy = ctx.expression().attribType()
+            if (exprTy != IntType && exprTy != BoolType) operator(ctx, exprTy, "not", emptyList())?.let { return ctx.setType(it) }
             return ctx.setType(chk.checkInversion(exprTy))
         }
 

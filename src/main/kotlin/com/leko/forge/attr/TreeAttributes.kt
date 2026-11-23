@@ -146,6 +146,9 @@ val ParserRuleContext.local: VarSymbol? get() = attributes[this]?.get("local") a
 /** The ports (`next`, `onTrue`, ...) an expression inside a flow refers to. */
 val ParserRuleContext.port: PortSymbol? get() = attributes[this]?.get("port") as? PortSymbol
 
+/** The `op fun` an operator expression calls, if its operand is not of a builtin type. */
+val ParserRuleContext.operator: FunctionSymbol? get() = attributes[this]?.get("operator") as? FunctionSymbol
+
 /** The built-in flow operation (`entry`, `sequence`, `bound`) a function call inside a flow refers to. */
 val ParserRuleContext.flowBuiltin: String? get() = attributes[this]?.get("flowBuiltin") as? String
 

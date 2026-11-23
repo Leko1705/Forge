@@ -32,7 +32,7 @@ java -cp build/kiln Fib
 ## The compiler in other languages
 
 Forge generates the Kiln compiler in every target; `java`, `python`, `cpp`, `rust` and `ocaml` contain a
-command line driver and the externals for each, and all of them write the same class files:
+command line driver for each, and all of them write the same class files:
 
 ```bash
 build/install/forge/bin/forge -f examples/kiln/kiln.forge -t rust -d build/kiln-rust
@@ -118,5 +118,6 @@ them.
 | diagnostics                   | `coll Program.diagnostics`, contributed by expressions, statements and functions        |
 | code generation               | `syn Stmt.code` and `syn Expr.code` build JVM IR nodes; labels come from `syn Labeled.label`, an interface implemented by `If`, `While` and `Binary` (`for If impl Labeled`) |
 
-Kotlin supplies `examples/kiln/src/kiln/Externals.kt` (the `external fun`s: `str.utf8()`, `int.str()`,
-`str.unquote()`) and the command line driver `Main.kt`.
+Kiln needs no `external fun`s: string literals are decoded with slices and builtins
+(`literal[1:-1].unescape()`), numbers converted with `str.toInt()` and `int.str()`, constants encoded with
+`str.utf8()`. Kotlin supplies only the command line driver `Main.kt`.

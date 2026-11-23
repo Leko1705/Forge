@@ -31,7 +31,8 @@ parameter: name=IDENT COLON ty=type;
 
 record: RECORD name=IDENT LBRACE (recordField (COMMA recordField)*)? RBRACE;
 recordField: name=IDENT COLON ty=type;
-function: (external=EXTERNAL)? FUN (receiver=type DOT)? name=IDENT LPAREN (parameter (COMMA parameter)*)? RPAREN COLON ty=type (ASSIGN expression)?;
+// `op fun T.plus(other: T): T` defines an operator for T; `op` is only a keyword here
+function: (external=EXTERNAL)? (op=IDENT)? FUN (receiver=type DOT)? name=IDENT LPAREN (parameter (COMMA parameter)*)? RPAREN COLON ty=type (ASSIGN expression)?;
 
 enum: ENUM name=IDENT LBRACE (enumItem (COMMA enumItem)*)? RBRACE;
 enumItem: name=IDENT (LPAREN (parameter (COMMA parameter)*)? RPAREN)?;
@@ -124,6 +125,7 @@ builtinRule: AT name=IDENT (LPAREN arg=expression RPAREN)?;
 nonterminalRule: name=IDENT;
 
 type: LIST LT type GT # listType
+    | SET LT type GT # setType
     | MAP LT key=type COMMA value=type GT # mapType
     | name=IDENT # namedType
     | ty=type QUESTIONMARK # optionalType;
@@ -136,8 +138,11 @@ expression
     | NULL                                                                   # nullValue
     | THIS                                                                   # thisExpr
     | LPAREN expression RPAREN                                               # enclosed
+    | LBRACKET lo=expression COLON hi=expression RBRACKET                   # rangeLiteral
     | LBRACKET (expression (COMMA expression)*)? RBRACKET                    # listLiteral
-    | LBRACE (expression COLON expression (COMMA expression COLON expression)*)? RBRACE  # mapLiteral
+    | LBRACE COLON RBRACE                                                    # emptyMapLiteral
+    | LBRACE expression COLON expression (COMMA expression COLON expression)* RBRACE  # mapLiteral
+    | LBRACE (expression (COMMA expression)*)? RBRACE                        # setLiteral
     | MATCH switch=expression LBRACE (matchCase)* (UNDERSCORE ARROW alt=expression)? RBRACE  # match
     | name=IDENT LPAREN (expression (COMMA expression)*)? RPAREN             # functionCall
     | IDENT                                                                  # identifier
@@ -145,6 +150,7 @@ expression
     // postfix
     | receiver=expression DOT name=IDENT LPAREN (expression (COMMA expression)*)? RPAREN  # methodCall
     | receiver=expression DOT name=IDENT                                     # fieldAccess
+    | container=expression LBRACKET lo=expression? COLON hi=expression? RBRACKET  # sliceAccess
     | container=expression LBRACKET key=expression RBRACKET                  # containerAccess
 
     // prefix unary: binds tighter than binary ops, looser than postfix
@@ -153,6 +159,8 @@ expression
 
     | left=expression op=(STAR | SLASH | PERCENT) right=expression           # mulDivMod
     | left=expression op=(PLUS | MINUS) right=expression                     # addSub
+    // << >> >>>: adjacent angle brackets, so that types like List<List<int>> still close with two GT tokens
+    | left=expression (LT LT | GT GT GT | GT GT) right=expression            # shift
     | left=expression CONCAT right=expression                                # concat
     | left=expression op=(LT | GT | LEQ | GEQ) right=expression              # relational
     | left=expression op=(IN | NOTIN) right=expression                       # inOp

@@ -135,6 +135,32 @@ class CheckTest {
     }
 
     @Test
+    fun operatorsAreChecked() {
+        val vec = "record V { x: int }\n"
+        assertEquals(emptyList(), errors(vec + "op fun V.plus(o: V): V = V(this.x + o.x)\nop fun V.get(i: int): int = this.x\nfun f(a: V): int = (a + a)[0]"))
+        assertError("is no operator", vec + "op fun V.add(o: V): V = o")
+        assertError("takes 1 parameter", vec + "op fun V.plus(): V = this")
+        assertError("returns an int", vec + "op fun V.compareTo(o: V): bool = true")
+        assertError("two int?", vec + "op fun V.slice(a: int, b: int): V = this")
+        assertError("needs a receiver", "op fun plus(a: int): int = a")
+        assertError("can not apply '+'", vec + "fun f(a: V): V = a + a")
+        // a function that is no operator does not define one
+        assertError("can not apply '+'", vec + "fun V.plus(o: V): V = o\nfun f(a: V): V = a + a")
+    }
+
+    @Test
+    fun collectionsAndBuiltinsAreChecked() {
+        assertEquals(emptyList(), errors("fun f(): Set<int> = {1, 2} ++ {}\nfun g(): Map<str, int> = {:}\nfun h(): str = \"abc\"[1:].upper() + (1 << 2 >> 1 >>> 1).str()"))
+        assertError("an empty map is {:}", "fun f(): Map<str, int> = {}")
+        assertError("without spaces", "fun f(a: int): int = a < < 2")
+        assertError("expected type 'int' but got str", "fun f(): List<int> = [1, 2][\"a\":]")
+        assertError("not found", "fun f(): int = \"x\".nope()")
+        assertError("not found", "fun f(): str = [1].join(\",\")")
+        // methods of the program come before builtins
+        assertEquals(emptyList(), errors("fun str.upper(): int = 1\nfun f(): int = \"a\".upper()"))
+    }
+
+    @Test
     fun nodesShareTheirMostSpecificSuperType() {
         val nodes = "node Insn\nnode Push(v: int): Insn\nnode Label(name: str): Insn\nnode Jump(target: str): Insn\nnode Ref\nfor Push impl Ref\nfor Jump impl Ref\n"
         assertEquals(emptyList(), errors(nodes + """

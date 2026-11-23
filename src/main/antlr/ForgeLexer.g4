@@ -21,6 +21,7 @@ THEN: 'then';
 THIS: 'this';
 ELSE: 'else';
 LIST: 'List';
+SET: 'Set';
 MAP: 'Map';
 TRUE: 'true';
 FALSE: 'false';

@@ -5,30 +5,6 @@
 #include <sys/stat.h>
 #include "kiln.hpp"
 
-// the externals of kiln.forge and jvm.forge
-namespace kiln {
-rt::V str_utf8(rt::V self) {
-    rt::List bytes;
-    for (unsigned char c : rt::str_of(self)) bytes.push_back(rt::I(c));
-    return rt::L(bytes);
-}
-rt::V int_str(rt::V self) { return rt::S(std::to_string(rt::int_of(self))); }
-rt::V str_toInt(rt::V self) { return rt::I(std::stoi(rt::str_of(self))); }
-rt::V str_unquote(rt::V self) {
-    const std::string& s = rt::str_of(self);
-    std::string r;
-    for (size_t i = 1; i + 1 < s.size(); i++) {
-        if (s[i] == '\\' && i + 2 < s.size()) {
-            char e = s[++i];
-            r += e == 'n' ? '\n' : e == 't' ? '\t' : e;
-        } else {
-            r += s[i];
-        }
-    }
-    return rt::S(r);
-}
-}
-
 int main(int argc, char** argv) {
     if (argc < 2) { std::cerr << "usage: kilnc <file.kiln> [-d <dir>]\n"; return 1; }
     std::string path = argv[1];

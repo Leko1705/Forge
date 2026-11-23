@@ -27,7 +27,7 @@ import com.leko.forge.model.InterfaceParserRuleSymbol
 import com.leko.forge.model.SynSymbol
 import com.leko.forge.model.VarSymbol
 import com.leko.forge.model.span
-import com.leko.forge.types.toType
+import com.leko.forge.types.*
 import com.leko.forge.util.Log
 
 
@@ -247,8 +247,35 @@ class MemberEnter private constructor(context: Context) {
     }
 
 
+    /** The operators functions can define: name to number of parameters. */
+    private val operators = mapOf(
+        "plus" to 1, "minus" to 1, "times" to 1, "div" to 1, "rem" to 1, "concat" to 1,
+        "shl" to 1, "shr" to 1, "ushr" to 1, "compareTo" to 1, "contains" to 1, "get" to 1, "slice" to 2,
+        "neg" to 0, "not" to 0,
+    )
+
+    private fun checkOperator(func: ForgeParser.FunctionContext, sym: FunctionSymbol) {
+        val arity = operators[sym.name]
+        when {
+            arity == null -> log.diag(invalidOperatorFunction(func.name.span,
+                "'${sym.name}' is no operator; operators are ${operators.keys.joinToString(", ")}"))
+            sym.params.size != arity -> log.diag(invalidOperatorFunction(func.name.span,
+                "operator '${sym.name}' takes $arity parameter${if (arity == 1) "" else "s"}"))
+            sym.name == "compareTo" && sym.returnType != IntType -> log.diag(invalidOperatorFunction(func.name.span, "operator 'compareTo' returns an int"))
+            sym.name == "contains" && sym.returnType != BoolType -> log.diag(invalidOperatorFunction(func.name.span, "operator 'contains' returns a bool"))
+            sym.name == "slice" && sym.params.any { it.type != OptionalType(IntType) } ->
+                log.diag(invalidOperatorFunction(func.name.span, "operator 'slice' takes two int? (an omitted bound is null)"))
+        }
+    }
+
     private fun enterMethods(root: ForgeParser.RootContext) {
         for (func in root.function()) {
+            if (func.op != null && func.op.text != "op") {
+                log.diag(invalidOperatorFunction(func.op.span, "unexpected '${func.op.text}' before 'fun'"))
+            }
+            if (func.op != null && func.receiver == null) {
+                log.diag(invalidOperatorFunction(func.name.span, "an operator function needs a receiver: op fun T.${func.name.text}(...)"))
+            }
             val receiver = if (func.receiver != null) chk.checkExists(func.receiver!!.toType()) else continue
             val receiverSym = resolve.resolve(receiver)
             if (receiverSym != null) {
@@ -262,8 +289,10 @@ class MemberEnter private constructor(context: Context) {
                     func.name.text,
                     func.parameter().map { VarSymbol(it.name.text, chk.checkExists(it.ty.toType()), it.name.span, VarSymbol.VarKind.PARAMETER) },
                     chk.checkExists(func.ty.toType()),
-                    func.name.span
+                    func.name.span,
+                    isOperator = func.op != null,
                 )
+                if (func.op != null) checkOperator(func, sym)
                 methods += sym
                 func.setSym(sym)
             }

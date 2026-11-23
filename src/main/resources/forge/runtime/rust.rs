@@ -16,6 +16,8 @@ pub mod rt {
         Bool(bool),
         Str(Rc<str>),
         List(Rc<Vec<V>>),
+        /** Without duplicates, in the order the elements were added. */
+        Set(Rc<Vec<V>>),
         Map(Rc<Vec<(V, V)>>),
         Rec(Rc<Rec>),
         Node(Rc<Node>),
@@ -61,7 +63,7 @@ pub mod rt {
     pub fn int_of(v: &V) -> i32 { match v { V::Int(i) => *i, _ => fail("an int was expected") } }
     pub fn float_of(v: &V) -> f32 { match v { V::Float(f) => *f, _ => fail("a float was expected") } }
     pub fn str_of(v: &V) -> &str { match v { V::Str(s) => s, _ => fail("a str was expected") } }
-    pub fn items(v: &V) -> &Vec<V> { match v { V::List(l) => l, _ => fail("a list was expected") } }
+    pub fn items(v: &V) -> &Vec<V> { match v { V::List(l) | V::Set(l) => l, _ => fail("a list was expected") } }
     pub fn entries(v: &V) -> &Vec<(V, V)> { match v { V::Map(m) => m, _ => fail("a map was expected") } }
     pub fn node_of(v: &V) -> &Node { match v { V::Node(n) => n, _ => fail(format!("a node was expected, got {}", show(v))) } }
     pub fn is_null(v: &V) -> bool { matches!(v, V::Null) }
@@ -97,6 +99,7 @@ pub mod rt {
             (V::Bool(x), V::Bool(y)) => x == y,
             (V::Str(x), V::Str(y)) => x == y,
             (V::List(x), V::List(y)) => x.len() == y.len() && x.iter().zip(y.iter()).all(|(p, q)| eq(p, q)),
+            (V::Set(x), V::Set(y)) => x.len() == y.len() && x.iter().all(|a| y.iter().any(|b| eq(a, b))),
             (V::Map(x), V::Map(y)) => x.len() == y.len()
                 && x.iter().all(|(k, v)| y.iter().any(|(k2, v2)| eq(k, k2) && eq(v, v2))),
             (V::Rec(x), V::Rec(y)) => x.rid == y.rid && x.name == y.name && x.fields.len() == y.fields.len()
@@ -147,7 +150,7 @@ pub mod rt {
             V::Float(f) => show_float(*f),
             V::Bool(b) => b.to_string(),
             V::Str(s) => s.to_string(),
-            V::List(l) => format!("[{}]", join(l)),
+            V::List(l) | V::Set(l) => format!("[{}]", join(l)),
             V::Map(m) => format!("{{{}}}", m.iter().map(|(k, x)| format!("{}={}", show(k), show(x))).collect::<Vec<_>>().join(", ")),
             V::Rec(r) if r.rid == SPAN_RID => format!("{}{}:{}", if is_null(&r.fields[0]) { String::new() } else { format!("{}:", show(&r.fields[0])) }, show(&r.fields[1]), show(&r.fields[2])),
             V::Rec(r) if r.item && r.fields.is_empty() => r.name.to_string(),
@@ -168,15 +171,111 @@ pub mod rt {
 
     pub fn nn(v: V) -> V { if is_null(&v) { fail("null value where a value is required (!!)") } v }
     pub fn elvis(v: V, alt: impl FnOnce() -> V) -> V { if is_null(&v) { alt() } else { v } }
-    pub fn get(l: &V, i: &V) -> V {
-        let a = items(l);
-        let k = int_of(i);
-        if k < 0 || k as usize >= a.len() { fail(format!("index {} out of bounds for length {}", k, a.len())) }
-        a[k as usize].clone()
+    /** A position for [n] elements: below 0 counts from the end. */
+    pub fn position(i: i32, n: usize) -> usize {
+        let k = if i < 0 { i as i64 + n as i64 } else { i as i64 };
+        if k < 0 || k >= n as i64 { fail(format!("index {} out of bounds for length {}", i, n)) }
+        k as usize
     }
+    /** A bound of a slice: below 0 counts from the end, clamped to 0..n; null is the default. */
+    fn bound(b: &V, n: usize, default: usize) -> usize {
+        let k = match b { V::Null => default as i64, _ => { let i = int_of(b) as i64; if i < 0 { i + n as i64 } else { i } } };
+        k.clamp(0, n as i64) as usize
+    }
+    pub fn get(l: &V, i: &V) -> V { let a = items(l); a[position(int_of(i), a.len())].clone() }
     pub fn size(v: &V) -> V {
-        match v { V::List(l) => V::Int(l.len() as i32), V::Map(m) => V::Int(m.len() as i32), _ => fail("size of a value that is no list or map") }
+        match v {
+            V::List(l) | V::Set(l) => V::Int(l.len() as i32),
+            V::Map(m) => V::Int(m.len() as i32),
+            V::Str(s) => V::Int(s.len() as i32),
+            _ => fail("size of a value that is no list, set, map or str"),
+        }
     }
+    pub fn slice(v: &V, lo: &V, hi: &V) -> V {
+        match v {
+            V::Str(s) => { let n = s.len(); let (a, b) = (bound(lo, n, 0), bound(hi, n, n)); if a >= b { self::s("") } else { self::s(&String::from_utf8_lossy(&s.as_bytes()[a..b])) } }
+            _ => { let l = items(v); let n = l.len(); let (a, b) = (bound(lo, n, 0), bound(hi, n, n)); list(if a >= b { vec![] } else { l[a..b].to_vec() }) }
+        }
+    }
+    pub fn char_at(v: &V, i: &V) -> V { let t = str_of(v).as_bytes(); let k = position(int_of(i), t.len()); s(&String::from_utf8_lossy(&t[k..k + 1])) }
+    pub fn range(a: &V, b: &V) -> V { list((int_of(a)..int_of(b)).map(V::Int).collect()) }
+    pub fn shl(a: &V, b: &V) -> V { V::Int(int_of(a).wrapping_shl(int_of(b) as u32 & 31)) }
+    pub fn shr(a: &V, b: &V) -> V { V::Int(int_of(a) >> (int_of(b) & 31)) }
+    pub fn ushr(a: &V, b: &V) -> V { V::Int(((int_of(a) as u32) >> (int_of(b) as u32 & 31)) as i32) }
+
+    // ---- sets
+    pub fn make_set(xs: Vec<V>) -> V {
+        let mut r: Vec<V> = Vec::new();
+        for x in xs { if !r.iter().any(|y| eq(&x, y)) { r.push(x); } }
+        V::Set(Rc::new(r))
+    }
+    pub fn set_contains(st: &V, x: &V) -> V { V::Bool(items(st).iter().any(|y| eq(x, y))) }
+    pub fn set_union(a: &V, b: &V) -> V { let mut r = items(a).clone(); r.extend(items(b).iter().cloned()); make_set(r) }
+    pub fn set_remove(st: &V, x: &V) -> V { make_set(items(st).iter().filter(|y| !eq(x, y)).cloned().collect()) }
+    pub fn to_set(l: &V) -> V { make_set(items(l).clone()) }
+    pub fn to_list(st: &V) -> V { list(items(st).clone()) }
+
+    // ---- builtins of str, List and Map
+    pub fn str_index_of(a: &V, b: &V) -> V { V::Int(str_of(a).find(str_of(b)).map(|i| i as i32).unwrap_or(-1)) }
+    pub fn str_contains(a: &V, b: &V) -> V { V::Bool(str_of(a).contains(str_of(b))) }
+    pub fn starts_with(a: &V, b: &V) -> V { V::Bool(str_of(a).starts_with(str_of(b))) }
+    pub fn ends_with(a: &V, b: &V) -> V { V::Bool(str_of(a).ends_with(str_of(b))) }
+    pub fn split(a: &V, sep: &V) -> V {
+        if str_of(sep).is_empty() { fail("the separator of split is empty") }
+        list(str_of(a).split(str_of(sep)).map(s).collect())
+    }
+    pub fn replace(a: &V, old: &V, new: &V) -> V {
+        if str_of(old).is_empty() { fail("the text to replace is empty") }
+        s(&str_of(a).replace(str_of(old), str_of(new)))
+    }
+    pub fn trim(a: &V) -> V { s(str_of(a).trim_matches(|c: char| matches!(c, ' ' | '\t' | '\n' | '\r' | '\u{b}' | '\u{c}'))) }
+    pub fn upper(a: &V) -> V { s(&str_of(a).to_ascii_uppercase()) }
+    pub fn lower(a: &V) -> V { s(&str_of(a).to_ascii_lowercase()) }
+    pub fn code(a: &V, i: &V) -> V { let t = str_of(a).as_bytes(); V::Int(t[position(int_of(i), t.len())] as i32) }
+    pub fn utf8(a: &V) -> V { list(str_of(a).bytes().map(|b| V::Int(b as i32)).collect()) }
+    pub fn char_of(c: &V) -> V { s(&char::from_u32(int_of(c) as u32).map(|c| c.to_string()).unwrap_or_else(|| fail("not a character code"))) }
+    pub fn unescape(a: &V) -> V {
+        let mut out = String::new();
+        let mut chars = str_of(a).chars().peekable();
+        while let Some(c) = chars.next() {
+            if c == '\\' && chars.peek().is_some() {
+                let e = chars.next().unwrap();
+                out.push(match e { 'n' => '\n', 't' => '\t', 'r' => '\r', '0' => '\0', x => x });
+            } else {
+                out.push(c);
+            }
+        }
+        s(&out)
+    }
+    pub fn to_int(a: &V) -> V {
+        let t = str_of(a);
+        let digits = t.strip_prefix(|c| c == '+' || c == '-').unwrap_or(t);
+        if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) { fail(format!("not an int: \"{}\"", t)) }
+        match t.trim_start_matches('+').parse::<i32>() { Ok(v) => V::Int(v), Err(_) => fail(format!("not an int: \"{}\"", t)) }
+    }
+    pub fn to_float(a: &V) -> V {
+        let t = str_of(a).as_bytes();
+        let n = t.len();
+        let mut i = if n > 0 && (t[0] == b'+' || t[0] == b'-') { 1 } else { 0 };
+        let mut digits = |i: &mut usize| { let start = *i; while *i < n && t[*i].is_ascii_digit() { *i += 1; } *i - start };
+        let whole = digits(&mut i);
+        let mut fraction = 0;
+        if i < n && t[i] == b'.' { i += 1; fraction = digits(&mut i); }
+        let mut ok = whole + fraction > 0;
+        if i < n && (t[i] == b'e' || t[i] == b'E') {
+            i += 1;
+            if i < n && (t[i] == b'+' || t[i] == b'-') { i += 1; }
+            if digits(&mut i) == 0 { ok = false; }
+        }
+        if !ok || i != n { fail(format!("not a float: \"{}\"", str_of(a))) }
+        V::Float(str_of(a).parse::<f32>().unwrap())
+    }
+    pub fn join_str(l: &V, sep: &V) -> V { s(&items(l).iter().map(|x| str_of(x).to_string()).collect::<Vec<_>>().join(str_of(sep))) }
+    pub fn list_index_of(l: &V, x: &V) -> V { V::Int(items(l).iter().position(|y| eq(x, y)).map(|i| i as i32).unwrap_or(-1)) }
+    pub fn reversed(l: &V) -> V { let mut r = items(l).clone(); r.reverse(); list(r) }
+    pub fn map_keys(m: &V) -> V { list(entries(m).iter().map(|(k, _)| k.clone()).collect()) }
+    pub fn map_values(m: &V) -> V { list(entries(m).iter().map(|(_, x)| x.clone()).collect()) }
+    pub fn map_remove(m: &V, k: &V) -> V { V::Map(Rc::new(entries(m).iter().filter(|(k2, _)| !eq(k, k2)).cloned().collect())) }
     pub fn list_concat(a: &V, b: &V) -> V { let mut r = items(a).clone(); r.extend(items(b).iter().cloned()); list(r) }
     pub fn list_append(a: &V, x: &V) -> V { let mut r = items(a).clone(); r.push(x.clone()); list(r) }
     pub fn tail(l: &V) -> V { list(items(l)[1..].to_vec()) }

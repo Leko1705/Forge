@@ -474,7 +474,8 @@ private class PythonGeneration(private val module: LLIRModule, private val modul
         type == BoolType -> "isinstance($v, bool)"
         type == StrType -> "isinstance($v, str)"
         type is ListType -> "isinstance($v, list)"
-        type is MapType -> "isinstance($v, dict)"
+        type is SetType -> "isinstance($v, _Set)"
+        type is MapType -> "(isinstance($v, dict) and not isinstance($v, _Set))"
         type is ComplexType -> "isinstance($v, ${typeClass(type.name)})"
         else -> "True"
     }
@@ -510,7 +511,7 @@ private class PythonGeneration(private val module: LLIRModule, private val modul
             else "${gid(v.target.enumName)}.${id(v.target.itemName)}(${args(v.args)})"
         is CreateNode -> "${gid(v.target.name)}(${args(v.args)})"
 
-        is AccessRecordField -> if (v.target.name == "List" || v.target.name == "Map") "len(${expr(v.accessed)})"
+        is AccessRecordField -> if (v.target.name in setOf("List", "Map", "Set", "str") && v.name == "size") "len(${expr(v.accessed)})"
             else "${expr(v.accessed)}.${id(v.name)}"
         is AccessNodeField -> "${expr(v.accessed)}.${id(v.name)}"
         is AccessNodeAttr -> when {
@@ -547,6 +548,11 @@ private class PythonGeneration(private val module: LLIRModule, private val modul
         is AndInt, is IAnd -> bin(v as BinaryValue, "&")
         is OrInt, is IOr -> bin(v as BinaryValue, "|")
         is XorInt -> bin(v, "^")
+        is ShlInt -> "_i32(${expr(v.lhs)} << (${expr(v.rhs)} & 31))"
+        is ShrInt -> "(${expr(v.lhs)} >> (${expr(v.rhs)} & 31))"
+        is UshrInt -> "_i32((${expr(v.lhs)} & 0xFFFFFFFF) >> (${expr(v.rhs)} & 31))"
+        is SetEquals -> bin(v, "==")
+        is Builtin -> builtin(v)
         is MulFloat -> "_f32(${expr(v.lhs)} * ${expr(v.rhs)})"
         is DivFloat -> "_f32(${expr(v.lhs)} / ${expr(v.rhs)})"
         is AddFloat -> "_f32(${expr(v.lhs)} + ${expr(v.rhs)})"
@@ -598,6 +604,47 @@ private class PythonGeneration(private val module: LLIRModule, private val modul
         is FlowGraphRef -> gid(v.graph.name)
 
         is Match -> match(v)
+    }
+
+    private fun builtin(b: Builtin): String {
+        val r = b.receiver?.let { expr(it) }
+        val a = b.args.map { expr(it) }
+        return when (b.name) {
+            "int.str" -> "str($r)"
+            "float.str" -> "_show_float($r)"
+            "bool.str" -> "(\"true\" if $r else \"false\")"
+            "str.toInt" -> "_to_int($r)"
+            "str.toFloat" -> "_to_float($r)"
+            "str.indexOf" -> "$r.find(${a[0]})"
+            "str.startsWith" -> "$r.startswith(${a[0]})"
+            "str.endsWith" -> "$r.endswith(${a[0]})"
+            "str.replace" -> "_replace($r, ${a[0]}, ${a[1]})"
+            "str.upper" -> "$r.upper()"
+            "str.lower" -> "$r.lower()"
+            "str.trim" -> "$r.strip()"
+            "str.split" -> "_split($r, ${a[0]})"
+            "str.code" -> "ord(_char_at($r, ${a[0]}))"
+            "str.utf8" -> "list($r.encode(\"utf-8\"))"
+            "str.unescape" -> "_unescape($r)"
+            "char" -> "chr(${a[0]})"
+            "str.get" -> "_char_at($r, ${a[0]})"
+            "str.slice", "List.slice" -> "$r[${a[0]}:${a[1]}]"
+            "str.contains" -> "(${a[0]} in $r)"
+            "range" -> "list(range(${a[0]}, ${a[1]}))"
+            "List.indexOf" -> "_index_of($r, ${a[0]})"
+            "List.reversed" -> "$r[::-1]"
+            "List.toSet" -> "_set(*$r)"
+            "List.join" -> "${a[0]}.join($r)"
+            "Map.keys" -> "list($r.keys())"
+            "Map.values" -> "list($r.values())"
+            "Map.remove" -> "_map_remove($r, ${a[0]})"
+            "Set.toList" -> "list($r)"
+            "Set.remove" -> "_set_remove($r, ${a[0]})"
+            "Set.of" -> "_set(${a.joinToString(", ")})"
+            "Set.contains" -> "_in_map($r, ${a[0]})"
+            "Set.union" -> "_set_union($r, ${a[0]})"
+            else -> throw IllegalStateException("unknown builtin ${b.name}")
+        }
     }
 
     private fun call(v: Call): String {

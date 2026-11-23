@@ -111,6 +111,7 @@ private class JavaGeneration(private val module: LLIRModule, private val outer: 
         StrType -> "String"
         is ListType -> "java.util.List<Object>"
         is MapType -> "java.util.Map<Object, Object>"
+        is SetType -> "java.util.Set<Object>"
         is OptionalType -> jtype(type.elem)
         is ComplexType -> tid(type.name)
         is FlowGraphType -> "__FlowGraph"
@@ -124,6 +125,7 @@ private class JavaGeneration(private val module: LLIRModule, private val outer: 
         "Object" -> e
         "java.util.List<Object>" -> "__l($e)"
         "java.util.Map<Object, Object>" -> "__m($e)"
+        "java.util.Set<Object>" -> "__s($e)"
         else -> "(($t) ($e))"
     }
 
@@ -428,7 +430,7 @@ private class JavaGeneration(private val module: LLIRModule, private val outer: 
                 val iterable = expr(stmt.iterable)
                 names.scoped {
                     val v = names.bind(stmt.name)
-                    line("${indent}for (final Object $v : __l($iterable)) {")
+                    line("${indent}for (final Object $v : __iter($iterable)) {")
                     stmt.body.forEach { flowStmt(it, "$indent    ") }
                     line("$indent}")
                 }
@@ -581,6 +583,7 @@ private class JavaGeneration(private val module: LLIRModule, private val outer: 
         type == StrType -> "($v instanceof String)"
         type is ListType -> "($v instanceof java.util.List)"
         type is MapType -> "($v instanceof java.util.Map)"
+        type is SetType -> "($v instanceof java.util.Set)"
         type is ComplexType -> "($v instanceof ${tid(type.name)})"
         else -> "true"
     }
@@ -616,6 +619,8 @@ private class JavaGeneration(private val module: LLIRModule, private val outer: 
         is AccessRecordField -> when (v.target.name) {
             "List" -> "__l(${expr(v.accessed)}).size()"
             "Map" -> "__m(${expr(v.accessed)}).size()"
+            "Set" -> "__s(${expr(v.accessed)}).size()"
+            "str" -> "((String) (${expr(v.accessed)})).length()"
             else -> "((${tid(v.target.name)}) (${expr(v.accessed)})).${id(v.name)}"
         }
         is AccessNodeField -> "((${nodeClass(v.target)}) (${expr(v.accessed)})).${id(v.name)}"
@@ -652,6 +657,11 @@ private class JavaGeneration(private val module: LLIRModule, private val outer: 
         is AndInt, is IAnd -> "(${i((v as BinaryValue).lhs)} & ${i(v.rhs)})"
         is OrInt, is IOr -> "(${i((v as BinaryValue).lhs)} | ${i(v.rhs)})"
         is XorInt -> "(${i(v.lhs)} ^ ${i(v.rhs)})"
+        is ShlInt -> "(${i(v.lhs)} << ${i(v.rhs)})"
+        is ShrInt -> "(${i(v.lhs)} >> ${i(v.rhs)})"
+        is UshrInt -> "(${i(v.lhs)} >>> ${i(v.rhs)})"
+        is SetEquals -> "java.util.Objects.equals(${expr(v.lhs)}, ${expr(v.rhs)})"
+        is Builtin -> builtin(v)
         is MulFloat -> "(${f(v.lhs)} * ${f(v.rhs)})"
         is DivFloat -> "(${f(v.lhs)} / ${f(v.rhs)})"
         is AddFloat -> "(${f(v.lhs)} + ${f(v.rhs)})"
@@ -709,6 +719,46 @@ private class JavaGeneration(private val module: LLIRModule, private val outer: 
         is FlowGraphRef -> id(v.graph.name)
 
         is Match -> match(v)
+    }
+
+    private fun builtin(b: Builtin): String {
+        val r = b.receiver?.let { expr(it) }
+        val a = b.args.map { expr(it) }
+        val s = "((String) ($r))"
+        return when (b.name) {
+            "int.str", "float.str", "bool.str" -> "String.valueOf($r)"
+            "str.toInt" -> "__toInt($r)"
+            "str.toFloat" -> "__toFloat($r)"
+            "str.indexOf" -> "$s.indexOf((String) (${a[0]}))"
+            "str.startsWith" -> "$s.startsWith((String) (${a[0]}))"
+            "str.endsWith" -> "$s.endsWith((String) (${a[0]}))"
+            "str.replace" -> "__replace($r, ${a[0]}, ${a[1]})"
+            "str.upper" -> "$s.toUpperCase(java.util.Locale.ROOT)"
+            "str.lower" -> "$s.toLowerCase(java.util.Locale.ROOT)"
+            "str.trim" -> "$s.strip()"
+            "str.split" -> "__split($r, ${a[0]})"
+            "str.code" -> "__code($r, ${a[0]})"
+            "str.utf8" -> "__utf8($r)"
+            "str.unescape" -> "__unescape($r)"
+            "char" -> "__char(${a[0]})"
+            "str.get" -> "__charAt($r, ${a[0]})"
+            "str.slice", "List.slice" -> "__slice($r, ${a[0]}, ${a[1]})"
+            "str.contains" -> "$s.contains((String) (${a[0]}))"
+            "range" -> "__range(${a[0]}, ${a[1]})"
+            "List.indexOf" -> "__l($r).indexOf(${a[0]})"
+            "List.reversed" -> "__reversed($r)"
+            "List.toSet" -> "new java.util.LinkedHashSet<Object>(__l($r))"
+            "List.join" -> "__join($r, ${a[0]})"
+            "Map.keys" -> "new java.util.ArrayList<Object>(__m($r).keySet())"
+            "Map.values" -> "new java.util.ArrayList<Object>(__m($r).values())"
+            "Map.remove" -> "__mapRemove($r, ${a[0]})"
+            "Set.toList" -> "new java.util.ArrayList<Object>(__s($r))"
+            "Set.remove" -> "__setRemove($r, ${a[0]})"
+            "Set.of" -> "__set(${a.joinToString(", ")})"
+            "Set.contains" -> "__s($r).contains(${a[0]})"
+            "Set.union" -> "__union($r, ${a[0]})"
+            else -> throw IllegalStateException("unknown builtin ${b.name}")
+        }
     }
 
     private fun call(v: Call): String {

@@ -41,7 +41,7 @@ struct PortRef;
 
 /** A value of Forge. Lists, maps and records are immutable; nodes are compared by identity. */
 struct V {
-    enum Tag : uint8_t { NUL, INT, FLOAT, BOOL, STR, LIST, MAP, REC, NODE, GRAPH, EDGE, PORT, PORTREF, FLOWGRAPH, NOMATCH };
+    enum Tag : uint8_t { NUL, INT, FLOAT, BOOL, STR, LIST, SET, MAP, REC, NODE, GRAPH, EDGE, PORT, PORTREF, FLOWGRAPH, NOMATCH };
     Tag tag = NUL;
     union { int32_t i; float f; bool b; };
     std::shared_ptr<void> p;
@@ -85,7 +85,8 @@ inline bool truth(const V& v) { if (v.tag != V::BOOL) fail("a bool was expected"
 inline int32_t int_of(const V& v) { if (v.tag != V::INT) fail("an int was expected"); return v.i; }
 inline float float_of(const V& v) { if (v.tag != V::FLOAT) fail("a float was expected"); return v.f; }
 inline const std::string& str_of(const V& v) { if (v.tag != V::STR) fail("a str was expected"); return v.as<std::string>(); }
-inline const List& items(const V& v) { if (v.tag != V::LIST) fail("a list was expected"); return v.as<List>(); }
+/** The elements of a list or a set (without duplicates, in the order they were added). */
+inline const List& items(const V& v) { if (v.tag != V::LIST && v.tag != V::SET) fail("a list was expected"); return v.as<List>(); }
 inline const std::vector<std::pair<V, V>>& entries(const V& v) { if (v.tag != V::MAP) fail("a map was expected"); return v.as<MapData>().entries; }
 // the elements of a temporary would be destroyed with it: `for (auto& x : items(f()))` does not compile
 const List& items(const V&& v) = delete;
@@ -144,6 +145,16 @@ inline bool eq(const V& a, const V& b) {
             const List& x = a.as<List>(); const List& y = b.as<List>();
             if (x.size() != y.size()) return false;
             for (size_t k = 0; k < x.size(); k++) if (!eq(x[k], y[k])) return false;
+            return true;
+        }
+        case V::SET: {
+            const List& x = a.as<List>(); const List& y = b.as<List>();
+            if (x.size() != y.size()) return false;
+            for (auto& e : x) {
+                bool found = false;
+                for (auto& f : y) if (eq(e, f)) { found = true; break; }
+                if (!found) return false;
+            }
             return true;
         }
         case V::MAP: {
@@ -217,7 +228,7 @@ inline std::string show(const V& v) {
         case V::FLOAT: return show_float(v.f);
         case V::BOOL: return v.b ? "true" : "false";
         case V::STR: return v.as<std::string>();
-        case V::LIST: return "[" + join(v.as<List>()) + "]";
+        case V::LIST: case V::SET: return "[" + join(v.as<List>()) + "]";
         case V::MAP: {
             std::string r = "{";
             bool first = true;
@@ -256,16 +267,160 @@ inline std::string show(const V& v) {
 inline V nn(const V& v) { if (v.is_null()) fail("null value where a value is required (!!)"); return v; }
 template <class F> V elvis(const V& v, F alt) { return v.is_null() ? alt() : v; }
 
+/** A position for [n] elements: below 0 counts from the end. */
+inline long position(long i, long n) {
+    long k = i < 0 ? i + n : i;
+    if (k < 0 || k >= n) fail("index " + std::to_string(i) + " out of bounds for length " + std::to_string(n));
+    return k;
+}
+/** A bound of a slice: below 0 counts from the end, clamped to 0..n; null is the default. */
+inline long bound(const V& b, long n, long dflt) {
+    long k = b.is_null() ? dflt : (int_of(b) < 0 ? int_of(b) + n : int_of(b));
+    return std::max(0L, std::min(n, k));
+}
 inline V get(const V& l, const V& i) {
     const List& a = items(l);
-    int32_t k = int_of(i);
-    if (k < 0 || k >= static_cast<int32_t>(a.size())) fail("index " + std::to_string(k) + " out of bounds for length " + std::to_string(a.size()));
-    return a[k];
+    return a[position(int_of(i), static_cast<long>(a.size()))];
 }
 inline V size(const V& v) {
-    if (v.tag == V::LIST) return I(static_cast<int32_t>(v.as<List>().size()));
+    if (v.tag == V::LIST || v.tag == V::SET) return I(static_cast<int32_t>(v.as<List>().size()));
     if (v.tag == V::MAP) return I(static_cast<int32_t>(v.as<MapData>().entries.size()));
-    fail("size of a value that is no list or map");
+    if (v.tag == V::STR) return I(static_cast<int32_t>(v.as<std::string>().size()));
+    fail("size of a value that is no list, set, map or str");
+}
+inline V slice(const V& v, const V& lo, const V& hi) {
+    if (v.tag == V::STR) {
+        const std::string& s = v.as<std::string>();
+        long n = static_cast<long>(s.size()), a = bound(lo, n, 0), b = bound(hi, n, n);
+        return S(a >= b ? "" : s.substr(a, b - a));
+    }
+    const List& l = items(v);
+    long n = static_cast<long>(l.size()), a = bound(lo, n, 0), b = bound(hi, n, n);
+    return L(a >= b ? List() : List(l.begin() + a, l.begin() + b));
+}
+inline V char_at(const V& s, const V& i) { const std::string& t = str_of(s); return S(std::string(1, t[position(int_of(i), static_cast<long>(t.size()))])); }
+inline V range(const V& a, const V& b) { List r; for (int32_t i = int_of(a); i < int_of(b); i++) r.push_back(I(i)); return L(r); }
+inline V shl(const V& a, const V& b) { return I(static_cast<int32_t>(static_cast<uint32_t>(int_of(a)) << (int_of(b) & 31))); }
+inline V shr(const V& a, const V& b) { return I(int_of(a) >> (int_of(b) & 31)); }
+inline V ushr(const V& a, const V& b) { return I(static_cast<int32_t>(static_cast<uint32_t>(int_of(a)) >> (int_of(b) & 31))); }
+
+// ---- sets
+inline V make_set(const List& xs) {
+    List r;
+    for (auto& x : xs) { bool known = false; for (auto& y : r) if (eq(x, y)) { known = true; break; } if (!known) r.push_back(x); }
+    return make(V::SET, std::make_shared<List>(std::move(r)));
+}
+inline V set_contains(const V& s, const V& x) { for (auto& y : items(s)) if (eq(x, y)) return B(true); return B(false); }
+inline V set_union(const V& a, const V& b) { List r = items(a); for (auto& x : items(b)) r.push_back(x); return make_set(r); }
+inline V set_remove(const V& s, const V& x) { List r; for (auto& y : items(s)) if (!eq(x, y)) r.push_back(y); return make_set(r); }
+inline V to_set(const V& l) { return make_set(items(l)); }
+inline V to_list(const V& s) { return L(items(s)); }
+
+// ---- builtins of str, List and Map
+inline V str_index_of(const V& s, const V& t) { auto i = str_of(s).find(str_of(t)); return I(i == std::string::npos ? -1 : static_cast<int32_t>(i)); }
+inline V str_contains(const V& s, const V& t) { return B(str_of(s).find(str_of(t)) != std::string::npos); }
+inline V starts_with(const V& s, const V& t) { const std::string& a = str_of(s); const std::string& b = str_of(t); return B(a.size() >= b.size() && a.compare(0, b.size(), b) == 0); }
+inline V ends_with(const V& s, const V& t) { const std::string& a = str_of(s); const std::string& b = str_of(t); return B(a.size() >= b.size() && a.compare(a.size() - b.size(), b.size(), b) == 0); }
+inline V split(const V& s, const V& sep) {
+    const std::string& t = str_of(s); const std::string& p = str_of(sep);
+    if (p.empty()) fail("the separator of split is empty");
+    List r;
+    size_t from = 0;
+    while (true) {
+        size_t i = t.find(p, from);
+        if (i == std::string::npos) { r.push_back(S(t.substr(from))); return L(r); }
+        r.push_back(S(t.substr(from, i - from)));
+        from = i + p.size();
+    }
+}
+inline V replace(const V& s, const V& a, const V& b) {
+    if (str_of(a).empty()) fail("the text to replace is empty");
+    V parts = split(s, a);
+    std::string r;
+    bool first = true;
+    for (auto& x : items(parts)) { if (!first) r += str_of(b); first = false; r += str_of(x); }
+    return S(r);
+}
+inline bool is_space(char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f'; }
+inline V trim(const V& s) {
+    const std::string& t = str_of(s);
+    size_t i = 0, j = t.size();
+    while (i < j && is_space(t[i])) i++;
+    while (j > i && is_space(t[j - 1])) j--;
+    return S(t.substr(i, j - i));
+}
+inline V upper(const V& s) { std::string t = str_of(s); for (auto& c : t) if (c >= 'a' && c <= 'z') c = static_cast<char>(c - 32); return S(t); }
+inline V lower(const V& s) { std::string t = str_of(s); for (auto& c : t) if (c >= 'A' && c <= 'Z') c = static_cast<char>(c + 32); return S(t); }
+inline V code(const V& s, const V& i) { const std::string& t = str_of(s); return I(static_cast<unsigned char>(t[position(int_of(i), static_cast<long>(t.size()))])); }
+inline V utf8(const V& s) { List r; for (unsigned char c : str_of(s)) r.push_back(I(c)); return L(r); }
+inline V char_of(const V& code) {
+    uint32_t c = static_cast<uint32_t>(int_of(code));
+    std::string r;
+    if (c < 0x80) r += static_cast<char>(c);
+    else if (c < 0x800) { r += static_cast<char>(0xC0 | (c >> 6)); r += static_cast<char>(0x80 | (c & 0x3F)); }
+    else if (c < 0x10000) { r += static_cast<char>(0xE0 | (c >> 12)); r += static_cast<char>(0x80 | ((c >> 6) & 0x3F)); r += static_cast<char>(0x80 | (c & 0x3F)); }
+    else { r += static_cast<char>(0xF0 | (c >> 18)); r += static_cast<char>(0x80 | ((c >> 12) & 0x3F)); r += static_cast<char>(0x80 | ((c >> 6) & 0x3F)); r += static_cast<char>(0x80 | (c & 0x3F)); }
+    return S(r);
+}
+inline V unescape(const V& s) {
+    const std::string& t = str_of(s);
+    std::string r;
+    for (size_t i = 0; i < t.size(); i++) {
+        if (t[i] == '\\' && i + 1 < t.size()) {
+            char e = t[++i];
+            r += e == 'n' ? '\n' : e == 't' ? '\t' : e == 'r' ? '\r' : e == '0' ? '\0' : e;
+        } else {
+            r += t[i];
+        }
+    }
+    return S(r);
+}
+inline V to_int(const V& s) {
+    const std::string& t = str_of(s);
+    size_t from = !t.empty() && (t[0] == '+' || t[0] == '-') ? 1 : 0;
+    bool ok = from < t.size();
+    for (size_t i = from; i < t.size(); i++) if (t[i] < '0' || t[i] > '9') ok = false;
+    if (ok) {
+        long long v = 0;
+        for (size_t i = from; i < t.size() && v <= 2147483648LL; i++) v = v * 10 + (t[i] - '0');
+        if (t[0] == '-') v = -v;
+        if (v >= -2147483648LL && v <= 2147483647LL) return I(static_cast<int32_t>(v));
+    }
+    fail("not an int: \"" + t + "\"");
+}
+inline V to_float(const V& s) {
+    const std::string& t = str_of(s);
+    size_t n = t.size(), i = n > 0 && (t[0] == '+' || t[0] == '-') ? 1 : 0;
+    auto digits = [&] { size_t start = i; while (i < n && t[i] >= '0' && t[i] <= '9') i++; return i - start; };
+    size_t whole = digits(), fraction = 0;
+    if (i < n && t[i] == '.') { i++; fraction = digits(); }
+    bool ok = whole + fraction > 0;
+    if (i < n && (t[i] == 'e' || t[i] == 'E')) {
+        i++;
+        if (i < n && (t[i] == '+' || t[i] == '-')) i++;
+        if (digits() == 0) ok = false;
+    }
+    if (!ok || i != n) fail("not a float: \"" + t + "\"");
+    return F(std::strtof(t.c_str(), nullptr));
+}
+inline V join_str(const V& l, const V& sep) {
+    std::string r;
+    bool first = true;
+    for (auto& x : items(l)) { if (!first) r += str_of(sep); first = false; r += str_of(x); }
+    return S(r);
+}
+inline V list_index_of(const V& l, const V& x) {
+    const List& a = items(l);
+    for (size_t i = 0; i < a.size(); i++) if (eq(a[i], x)) return I(static_cast<int32_t>(i));
+    return I(-1);
+}
+inline V reversed(const V& l) { const List& a = items(l); return L(List(a.rbegin(), a.rend())); }
+inline V map_keys(const V& m) { List r; for (auto& e : entries(m)) r.push_back(e.first); return L(r); }
+inline V map_values(const V& m) { List r; for (auto& e : entries(m)) r.push_back(e.second); return L(r); }
+inline V map_remove(const V& m, const V& k) {
+    auto d = std::make_shared<MapData>();
+    for (auto& e : entries(m)) if (!eq(e.first, k)) d->entries.push_back(e);
+    return make(V::MAP, d);
 }
 inline V list_concat(const V& a, const V& b) { List r = items(a); r.insert(r.end(), items(b).begin(), items(b).end()); return L(std::move(r)); }
 inline V list_append(const V& a, const V& x) { List r = items(a); r.push_back(x); return L(std::move(r)); }

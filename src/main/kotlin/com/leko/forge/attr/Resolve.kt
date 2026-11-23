@@ -1,6 +1,8 @@
 package com.leko.forge.attr
 
 import com.leko.forge.context.Context
+import com.leko.forge.model.setSymbol
+import com.leko.forge.types.SetType
 import com.leko.forge.model.ConcreteNodeSymbol
 import com.leko.forge.model.EnumItemSymbol
 import com.leko.forge.model.EnumSymbol
@@ -45,6 +47,7 @@ class Resolve private constructor(context: Context) {
     fun resolve(type: Type): Symbol? {
         if (type is ListType && type !in symTab) symTab[type] = listSymbol(type)
         if (type is MapType && type !in symTab) symTab[type] = mapSymbol(type)
+        if (type is SetType && type !in symTab) symTab[type] = setSymbol(type)
         return symTab[type]
     }
 
@@ -65,10 +68,8 @@ class Resolve private constructor(context: Context) {
                 Kind.VAL -> {
                     sym.fields.firstOrNull { it.name == member }
                 }
-                Kind.MTH -> {
-                    val methods = typeMap.methods[sym] ?: return null
-                    methods.firstOrNull { it.name == member }
-                }
+                // methods the program defines, else builtin ones (str.upper(), List<T>.reversed(), ...)
+                Kind.MTH -> typeMap.methods[sym]?.firstOrNull { it.name == member } ?: Builtins.method(sym, owner, member)
                 else -> null
             }
         }

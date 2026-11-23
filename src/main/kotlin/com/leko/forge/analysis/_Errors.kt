@@ -43,6 +43,12 @@ fun recordAlreadyExist(span: SourceSpan?, recordName: String): Diagnostic =
 fun constantAlreadyExist(span: SourceSpan?, name: String): Diagnostic =
     Diagnostic(Severity.ERROR, span, "E008", "'$name' is already defined; a constant needs a name of its own")
 
+fun invalidOperatorFunction(span: SourceSpan?, message: String): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E008", message)
+
+fun emptyMapIsColon(span: SourceSpan?): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E009", "{} is an empty set; an empty map is {:}")
+
 fun constantUsesThis(span: SourceSpan?, name: String): Diagnostic =
     Diagnostic(Severity.ERROR, span, "E008", "the value of constant '$name' can not use 'this'")
 

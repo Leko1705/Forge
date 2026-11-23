@@ -629,6 +629,7 @@ object KotlinTarget : Target {
             NullType -> "kotlin.Nothing?"
             is ListType -> "kotlin.collections.List<${typeRepr(type.elem)}>"
             is MapType -> "kotlin.collections.Map<${typeRepr(type.key)}, ${typeRepr(type.value)}>"
+            is SetType -> "kotlin.collections.Set<${typeRepr(type.elem)}>"
             is OptionalType -> if (type.elem is FunctionType) "(${typeRepr(type.elem)})?" else "${typeRepr(type.elem)}?"
             is ComplexType -> id(type.name)
             is ParserType -> id(type.name)
@@ -746,15 +747,15 @@ object KotlinTarget : Target {
                     sb.append(")")
                 }
 
-                is AccessRecordField -> postfix(value.accessed, id(value.name))
+                is AccessRecordField -> postfix(value.accessed, if (value.target.name == "str" && value.name == "size") "length" else id(value.name))
                 is AccessNodeField -> postfix(value.accessed, id(value.name))
                 is AccessNodeAttr -> postfix(value.receiver, id(value.name))
                 is AccessListContainer -> {
-                    sb.append("(")
+                    sb.append("__index(")
                     value(value.container)
-                    sb.append(")[")
+                    sb.append(", ")
                     value(value.key)
-                    sb.append("]")
+                    sb.append(")")
                 }
                 is AccessMapContainer -> {
                     sb.append("(")
@@ -791,6 +792,11 @@ object KotlinTarget : Target {
                 is AddInt, is AddFloat, is ConcatStr, is MergeLists, is MergeMaps -> binary(value as BinaryValue, "+")
                 is SubInt, is SubFloat -> binary(value as BinaryValue, "-")
                 is AndInt, is IAnd -> binary(value as BinaryValue, "and")
+                is ShlInt -> binary(value, "shl")
+                is ShrInt -> binary(value, "shr")
+                is UshrInt -> binary(value, "ushr")
+                is SetEquals -> binary(value, "==")
+                is Builtin -> builtin(value)
                 is OrInt, is IOr -> binary(value as BinaryValue, "or")
                 is XorInt, is XorBool -> binary(value as BinaryValue, "xor")
                 is AndBool -> binary(value, "&&")
@@ -861,6 +867,68 @@ object KotlinTarget : Target {
                 is FlowGraphRef -> sb.append(id(value.graph.name))
 
                 is Match -> match(value)
+            }
+        }
+
+        // ---- builtins ----------------------------------------------------------------------
+
+        private fun builtin(b: Builtin) {
+            val r = b.receiver
+            fun call(fn: String) {
+                sb.append(fn).append("(")
+                args(listOfNotNull(r) + b.args)
+                sb.append(")")
+            }
+            fun method(member: String) {
+                postfix(r!!, member)
+                sb.append("(")
+                args(b.args)
+                sb.append(")")
+            }
+            fun infix(op: String, left: Value, right: Value) {
+                sb.append("(")
+                value(left)
+                sb.append(" $op ")
+                value(right)
+                sb.append(")")
+            }
+            when (b.name) {
+                "int.str", "float.str", "bool.str" -> method("toString")
+                "str.toInt" -> call("__toInt")
+                "str.toFloat" -> call("__toFloat")
+                "str.indexOf", "List.indexOf" -> method("indexOf")
+                "str.startsWith" -> method("startsWith")
+                "str.endsWith" -> method("endsWith")
+                "str.replace" -> call("__replace")
+                "str.upper" -> method("uppercase")
+                "str.lower" -> method("lowercase")
+                "str.trim" -> method("trim")
+                "str.split" -> call("__split")
+                "str.code" -> call("__code")
+                "str.utf8" -> call("__utf8")
+                "str.unescape" -> call("__unescape")
+                "char" -> call("__char")
+                "str.get" -> call("__charAt")
+                "str.slice", "List.slice" -> call("__slice")
+                "str.contains", "Set.contains" -> infix("in", b.args[0], r!!)
+                "range" -> call("__range")
+                "List.reversed" -> method("reversed")
+                "List.toSet" -> method("toSet")
+                "List.join" -> method("joinToString")
+                "Map.keys" -> postfix(r!!, "keys.toList()")
+                "Map.values" -> postfix(r!!, "values.toList()")
+                "Map.remove", "Set.remove" -> infix("-", r!!, b.args[0])
+                "Set.toList" -> method("toList")
+                "Set.union" -> infix("+", r!!, b.args[0])
+                "Set.of" -> {
+                    val elem = (b.type as? SetType)?.elem
+                    sb.append("kotlin.collections.setOf")
+                    if (elem != null && elem != ArbitraryType && elem != ErrorType) sb.append("<${typeRepr(elem)}>")
+                    sb.append("(")
+                    args(b.args)
+                    sb.append(")")
+                }
+                else -> throw IllegalStateException("unknown builtin ${b.name}")
             }
         }
 
