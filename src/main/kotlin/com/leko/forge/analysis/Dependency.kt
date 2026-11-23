@@ -91,6 +91,10 @@ class Dependency private constructor(context: Context) {
         for (contrib in root.contrib()) {
             add(contrib.symbol ?: continue, contrib)
         }
+        // constants are inlined: a function that uses a constant whose value calls it calls itself
+        for (const in root.constDef()) {
+            add(const.symbol ?: continue, const.value)
+        }
 
         val visited = mutableSetOf<Symbol>()
         val stack = mutableListOf<Symbol>()
@@ -100,7 +104,8 @@ class Dependency private constructor(context: Context) {
             val index = stack.indexOf(sym)
             if (index >= 0) {
                 val cycle = stack.subList(index, stack.size)
-                if (cycle.none { it is CircularSymbol } && reported.add(sym)) {
+                // cycles of constants alone were reported when they were attributed
+                if (cycle.none { it is CircularSymbol } && !cycle.all { it is ConstSymbol } && reported.add(sym)) {
                     log.diag(cyclicDependencyDetected(sym.span, cycle.joinToString(" -> ") { it.name } + " -> " + sym.name))
                 }
                 return

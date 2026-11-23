@@ -99,7 +99,11 @@ class LLIR private constructor(context: Context) {
 
     private fun graph(sym: FlowGraphSymbol): FlowGraphDecl = graphs.getOrPut(sym.name) { FlowGraphDecl(sym.name, node(sym.root)) }
 
+    /** The values of the constants; a use of a constant is replaced by its value. */
+    private var constants: Map<ConstSymbol, ForgeParser.ExpressionContext> = emptyMap()
+
     fun transform(ctx: ForgeParser.RootContext): LLIRModule {
+        constants = ctx.constDef().mapNotNull { def -> def.symbol?.let { it to def.value } }.toMap()
         node(symTab[VERTEX] as NodeSymbol)
         ctx.nodeDef().forEach { node(it.symbol ?: return@forEach) }
         ctx.enum_().forEach { enum(it.symbol ?: return@forEach) }
@@ -554,6 +558,8 @@ class LLIR private constructor(context: Context) {
                     else -> LocalRef(sym.name, sym.type)
                 }
                 is FlowGraphSymbol -> FlowGraphRef(graph(sym))
+                // inlined: the generated code has no variable for the constant
+                is ConstSymbol -> constants.getValue(sym).transform()
                 else -> throw AssertionError("identifier ${ctx.text} resolves to $sym")
             }
         }

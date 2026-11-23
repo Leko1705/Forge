@@ -79,6 +79,15 @@ inh Program.program {
     decls[i] <- this
 }
 
+// constants, inlined where they are used; they may be used before their definition
+const greeting = "hello"
+const answer: int = six * 7
+const six = 6
+const words: List<str> = [greeting, "world"]
+const missingType: Type = Type.ERROR("missing")
+fun greet(who: str): str = greeting + ", " + who
+fun constants(): int = answer + words.size
+
 fun sum(xs: List<int>): int = acc + x for x in xs with acc = 0
 fun describe(xs: List<int>): str = match xs {
     [] -> "empty"

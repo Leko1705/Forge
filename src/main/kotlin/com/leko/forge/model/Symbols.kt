@@ -16,6 +16,19 @@ sealed interface Symbol {
     val span: SourceSpan?
 }
 
+/**
+ * `const name: T = value`: a value known when Forge runs, inlined wherever it is used. The type is the declared
+ * one, or the one of the value, which is attributed on first use (constants may be used before their definition).
+ */
+class ConstSymbol(override val name: String, val declared: Type?, override val span: SourceSpan?) : Symbol {
+    enum class State { NEW, IN_PROGRESS, DONE }
+
+    var state: State = State.NEW
+    var inferred: Type? = null
+    override val type: Type get() = declared ?: inferred ?: ErrorType
+    override val kind: Kind get() = Kind.VAL
+}
+
 sealed interface CallableSymbol : Symbol {
     val params: List<VarSymbol>
     val returnType: Type

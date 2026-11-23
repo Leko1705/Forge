@@ -383,6 +383,15 @@ fun binary(): List<str> = [
 ]
 fun headerText(h: Header): str = h.version.text() + " " + strs(b(f) for f in h.flags) + " " + h.kind.text() + " " + h.delta.text() + " " + h.name + " " + ints(h.data)
 
+// ---- constants: inlined ------------------------------------------------------------------------
+
+const label = "const"
+const limit: int = base * 3 + 1
+const base = 4
+const kindsOf: List<Type> = [Type.INT, Type.ERROR(label)]
+const lookupTable: Map<str, int> = {label: limit}
+fun constants(): str = label + " " + limit.text() + " " + strs(t.repr() for t in kindsOf) + " " + lookupTable[label].text()
+
 // ---- the report -------------------------------------------------------------------------------------
 
 fun prog(): Program = Program([
@@ -419,7 +428,8 @@ fun report(): List<str> = attributes(prog()) ++ [
     "floats " + strs(floats()),
     "logic " + b(true && !false) + b(false || false) + b(true ^ true),
     "strings " + ("a" + "b") + b("ab" == "a" + "b") + b("a" != "a"),
-    "show " + Type.ERROR("x").repr() + " " + "x".shout()
+    "show " + Type.ERROR("x").repr() + " " + "x".shout(),
+    constants()
 ] ++ flows() ++ graphs() ++ parsing() ++ binary()
 
 external fun int.text(): str

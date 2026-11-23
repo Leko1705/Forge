@@ -164,6 +164,16 @@ class Enter private constructor(context: Context) {
                 symTab.ports[name] = PortSymbol(name, portDef.inherited != null, ident.span)
             }
         }
+        for (const in root.constDef()) {
+            val name = const.name.text
+            if (name in symTab || name in symTab.constants || name in symTab.ports || name in symTab.inheritedAttributes) {
+                log.diag(constantAlreadyExist(const.name.span, name))
+                continue
+            }
+            val sym = ConstSymbol(name, const.ty?.toType(), const.name.span)
+            symTab.constants[name] = sym
+            const.setSym(sym)
+        }
         for (graph in root.graphDef()) {
             val name = graph.name.text
             if (name in symTab) {

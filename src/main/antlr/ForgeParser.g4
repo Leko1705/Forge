@@ -2,7 +2,8 @@ parser grammar ForgeParser;
 options { tokenVocab=ForgeLexer; }
 
 root: importDecl* (
-record
+constDef
+| record
 | enum
 | function
 | nodeDef
@@ -22,6 +23,9 @@ record
 
 // import "jvm.forge"   -- the declarations of another file (relative to this one) are part of this program
 importDecl: IMPORT path=STRING;
+
+// const greeting = "hello"   /   const answer: int = 42   -- inlined wherever it is used
+constDef: CONST name=IDENT (COLON ty=type)? ASSIGN value=expression;
 
 parameter: name=IDENT COLON ty=type;
 

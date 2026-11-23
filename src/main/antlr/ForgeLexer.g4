@@ -2,6 +2,7 @@ lexer grammar ForgeLexer;
 
 EXTERNAL: 'external';
 IMPORT: 'import';
+CONST: 'const';
 NODE: 'node';
 RECORD: 'record';
 ENUM: 'enum';

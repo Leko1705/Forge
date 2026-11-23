@@ -122,6 +122,19 @@ class CheckTest {
     }
 
     @Test
+    fun constantsAreChecked() {
+        assertEquals(emptyList(), errors("const a = b + 1\nconst b: int = 2\nconst s: str? = null\nfun f(): int = a"))
+        assertError("expected type 'int' but got str", "const c: int = \"x\"")
+        assertError("depends on itself", "const a = b\nconst b = a")
+        assertError("depends on itself", "const a: int = a")
+        assertError("already defined", "const d = 1\nconst d = 2")
+        assertError("already defined", "fun d(): int = 1\nconst d = 2")
+        assertError("can not use 'this'", "const g = this")
+        assertError("cyclic dependency", "const e = f()\nfun f(): int = e")
+        assertError("can not find 'x'", "fun f(x: int): int = c\nconst c = x")
+    }
+
+    @Test
     fun nodesShareTheirMostSpecificSuperType() {
         val nodes = "node Insn\nnode Push(v: int): Insn\nnode Label(name: str): Insn\nnode Jump(target: str): Insn\nnode Ref\nfor Push impl Ref\nfor Jump impl Ref\n"
         assertEquals(emptyList(), errors(nodes + """

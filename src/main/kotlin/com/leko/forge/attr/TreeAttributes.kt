@@ -46,6 +46,8 @@ fun ParserRuleContext.setSym(sym: Symbol): Symbol {
     return sym
 }
 
+val ForgeParser.ConstDefContext.symbol: ConstSymbol? get() = attributes[this]?.get("symbol") as? ConstSymbol
+
 val ForgeParser.EnumContext.symbol: EnumSymbol? get() {
     val attrs = attributes[this]
     return attrs?.get("symbol") as? EnumSymbol

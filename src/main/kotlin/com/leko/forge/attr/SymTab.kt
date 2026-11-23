@@ -34,6 +34,9 @@ class SymTab private constructor() {
 
     val inheritedAttributes = mutableMapOf<String, InhSymbol>()
 
+    /** Constants by name. */
+    val constants = linkedMapOf<String, ConstSymbol>()
+
     /** Flow ports by name, including the built-in `next`. */
     val ports = linkedMapOf<String, PortSymbol>("next" to PortSymbol("next", false, null))
 

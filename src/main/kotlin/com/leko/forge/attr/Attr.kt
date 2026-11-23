@@ -45,7 +45,11 @@ class Attr private constructor(context: Context) {
     private enum class FlowRole { SOURCE, TARGET, CHILD }
 
 
+    /** The definitions of the constants, attributed when they are first used. */
+    private var constants: Map<ConstSymbol, ForgeParser.ConstDefContext> = emptyMap()
+
     fun attr(root: ForgeParser.RootContext) {
+        constants = root.constDef().mapNotNull { def -> def.symbol?.let { it to def } }.toMap()
         root.accept(TypeAttrib())
     }
 
@@ -72,6 +76,7 @@ class Attr private constructor(context: Context) {
                     return ctx.setType(PortType)
                 }
             }
+            if (sym == null) sym = symTab.constants[name]?.also { attribConst(it) }
             if (sym == null) sym = resolve.resolve(name)
             if (sym == null && env.value.delegateIndexVarEnabled) {
                 sym = VarSymbol(name, IntType, ctx.IDENT().span)
@@ -90,6 +95,49 @@ class Attr private constructor(context: Context) {
                 return ctx.setType(ErrorType)
             }
             return ctx.setType(sym.type)
+        }
+
+        /**
+         * The type of a constant: its value is attributed on its own (no locals, no `this`), the first time the
+         * constant is used or defined. A constant whose value uses itself is an error.
+         */
+        private fun attribConst(sym: ConstSymbol) {
+            when (sym.state) {
+                ConstSymbol.State.DONE -> return
+                ConstSymbol.State.IN_PROGRESS -> {
+                    log.diag(constantDependsOnItself(sym.span, sym.name))
+                    sym.inferred = ErrorType
+                    sym.state = ConstSymbol.State.DONE
+                    return
+                }
+                ConstSymbol.State.NEW -> {}
+            }
+            val def = constants[sym] ?: return
+            sym.state = ConstSymbol.State.IN_PROGRESS
+            val outer = env
+            env = Env(AttributeContext(Scope(), expected = sym.declared))
+            try {
+                val type = def.value.attribType()
+                findThis(def.value)?.let { log.diag(constantUsesThis(it.span, sym.name)) }
+                if (sym.state == ConstSymbol.State.IN_PROGRESS) {
+                    sym.declared?.let { chk.checkAssignable(it, type) }
+                    sym.inferred = type
+                }
+            } finally {
+                env = outer
+                sym.state = ConstSymbol.State.DONE
+            }
+        }
+
+        private fun findThis(tree: org.antlr.v4.runtime.tree.ParseTree): ForgeParser.ThisExprContext? {
+            if (tree is ForgeParser.ThisExprContext) return tree
+            for (i in 0 until tree.childCount) findThis(tree.getChild(i))?.let { return it }
+            return null
+        }
+
+        override fun visitConstDef(ctx: ForgeParser.ConstDefContext): Type? {
+            ctx.symbol?.let { attribConst(it) }
+            return null
         }
 
         /** Variables of the enclosing scopes, innermost first. */

@@ -30,7 +30,12 @@ enum Type { INT, STR, ERROR(msg: str) }
 record Diagnostic { msg: str, line: int }
 fun Type.repr(): str = match this { Type.INT -> "int"  Type.STR -> "str"  Type.ERROR(m) -> m }
 external fun str.int(): int              // implemented in Kotlin
+const greeting = "hello"                 // a constant, with an inferred type
+const limit: int = 2 * width             // or a declared one; constants may use each other in any order
 ```
+
+Constants are inlined: the generated code has no variable for a constant, every use of it is its value. The value
+can not use `this` or local variables, and a constant whose value depends on itself is an error.
 
 Types: `int`, `float`, `bool`, `str`, `List<T>`, `Map<K, V>`, `T?`, nodes, enums, records, `Vertex`, `Graph`, `Edge`.
 A list of different nodes has their most specific common interface as element type, e.g. `[Push(1), Label("end")]`
