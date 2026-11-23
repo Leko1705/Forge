@@ -844,9 +844,20 @@ class Attr private constructor(context: Context) {
             if (env.value.inFlow && lookupLocal(name) == null) {
                 attribFlowCall(ctx)?.let { return it }
             }
-            val sym = chk.resolveFunction(name) ?: run {
+            var sym = chk.resolveFunction(name) ?: run {
                 ctx.expression().forEach { it.attribType() }
                 return ctx.setType(ErrorType)
+            }
+            // a generic function: its type parameters are what the arguments are
+            if (sym is FunctionSymbol && sym.typeParams.isNotEmpty()) {
+                val bindings = mutableMapOf<String, Type>()
+                val argTypes = attribGenericArgs(ctx.expression(), sym.params.map { it.type }, bindings)
+                val use = sym.instantiate(bindings)
+                ctx.setSym(use)
+                if (argTypes.size < use.params.size) log.diag(tooFewArguments(ctx.span))
+                if (argTypes.size > use.params.size) log.diag(tooManyArguments(ctx.span))
+                use.params.zip(argTypes).forEach { (p, t) -> chk.checkAssignable(p.type, t) }
+                return ctx.setType(use.returnType)
             }
             ctx.setSym(sym)
             if (sym is RecordSymbol && sym.opaque) {
@@ -871,6 +882,24 @@ class Attr private constructor(context: Context) {
                 }
             }
             return ctx.setType(sym.returnType)
+        }
+
+        /**
+         * The arguments of a call of a generic function, binding its type parameters. Arguments whose type
+         * comes from what is expected (`[]`, `{}`, `{:}`, `null`) are attributed last, once the others bound
+         * what they can.
+         */
+        private fun attribGenericArgs(args: List<ForgeParser.ExpressionContext>, params: List<Type>, bindings: MutableMap<String, Type>): List<Type> {
+            val types = arrayOfNulls<Type>(args.size)
+            fun attrib(i: Int) {
+                val param = params.getOrNull(i)?.substitute(bindings)
+                types[i] = if (param == null || param.hasTypeVars()) args[i].attribType() else withExpected(param) { args[i].attribType() }
+                params.getOrNull(i)?.let { unify(it, types[i]!!, bindings) }
+            }
+            val late = args.indices.filter { args[it].text in setOf("[]", "{}", "{:}", "null") }
+            args.indices.filter { it !in late }.forEach(::attrib)
+            late.forEach(::attrib)
+            return types.map { it!! }
         }
 
         /** `entry(x)`, `sequence(xs)`, `bound(port)` and `port(child)` inside flows; `null` for other calls. */
@@ -917,16 +946,35 @@ class Attr private constructor(context: Context) {
         override fun visitMethodCall(ctx: ForgeParser.MethodCallContext): Type {
             val recv = ctx.receiver
             val recvTy = recv.attribOwner(setOf(Kind.VAL, Kind.TYP))
-            val argTypes = ctx.expression().drop(1).map { it.attribType() }   // whatever the grammar actually names these
+            val args = ctx.expression().drop(1)
 
-            if (recvTy == ErrorType) return ctx.setType(ErrorType)
+            if (recvTy == ErrorType) {
+                args.forEach { it.attribType() }
+                return ctx.setType(ErrorType)
+            }
 
             val methodName = ctx.name.text
-            val sym = resolveMember(recvTy, methodName, recv.receiverKind(), Kind.MTH)
+            var sym = resolveMember(recvTy, methodName, recv.receiverKind(), Kind.MTH)
 
             if (sym == null) {
+                args.forEach { it.attribType() }
                 log.diag(methodNotFound(ctx.name.span, recvTy.toString(), methodName))
                 return ctx.setType(ErrorType)
+            }
+            val argTypes: List<Type>
+            if (sym is FunctionSymbol && sym.declaration.typeParams.isNotEmpty()) {
+                // a generic method: what the receiver does not bind, the arguments do
+                val declaration = sym.declaration
+                val bindings = mutableMapOf<String, Type>()
+                unify(declaration.receiver!!.type, if (recvTy is OptionalType) recvTy.elem else recvTy, bindings)
+                argTypes = attribGenericArgs(args, declaration.params.map { it.type }, bindings)
+                sym = declaration.instantiate(bindings)
+            } else {
+                val expected = (sym.type as? CallableType)?.parameters.orEmpty()
+                argTypes = args.mapIndexed { i, arg ->
+                    val e = expected.getOrNull(i)
+                    if (e == null) arg.attribType() else withExpected(e) { arg.attribType() }
+                }
             }
             ctx.setSym(sym)
 

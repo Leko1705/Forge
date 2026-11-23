@@ -1,0 +1,48 @@
+// std.forge: the standard library of Forge, bundled with the compiler: import "std"
+//
+// Methods, so that they do not take names from the programs that import them.
+
+// ---- lists as sets: the order of the elements is kept, no element is added twice --------------------
+
+/** The elements of this list, then those of [other] that it does not contain. */
+fun <T> List<T>.union(other: List<T>): List<T> = (if x in acc then acc else acc ++ [x]) for x in other with acc = this.distinct()
+
+/** The elements of this list that [other] does not contain; also `xs - ys`. */
+op fun <T> List<T>.minus(other: List<T>): List<T> = (if x in other then acc else acc ++ [x]) for x in this with acc = []
+
+/** The elements without duplicates, each where it first occurs. */
+fun <T> List<T>.distinct(): List<T> = this.toSet().toList()
+
+/** Whether the lists have no element in common. */
+fun <T> List<T>.disjoint(other: List<T>): bool = (acc && !(x in other)) for x in this with acc = true
+
+// ---- numbers -------------------------------------------------------------------------------------------
+
+fun List<int>.sum(): int = acc + x for x in this with acc = 0
+fun List<float>.sum(): float = acc + x for x in this with acc = 0.0
+
+/** The largest element; fails for an empty list. */
+fun List<int>.max(): int = match this {
+    first :: rest -> (if x > acc then x else acc) for x in rest with acc = first
+    _ -> fail("max of an empty list")
+}
+fun List<float>.max(): float = match this {
+    first :: rest -> (if x > acc then x else acc) for x in rest with acc = first
+    _ -> fail("max of an empty list")
+}
+
+/** The smallest element; fails for an empty list. */
+fun List<int>.min(): int = match this {
+    first :: rest -> (if x < acc then x else acc) for x in rest with acc = first
+    _ -> fail("min of an empty list")
+}
+fun List<float>.min(): float = match this {
+    first :: rest -> (if x < acc then x else acc) for x in rest with acc = first
+    _ -> fail("min of an empty list")
+}
+
+fun int.max(other: int): int = if this > other then this else other
+fun int.min(other: int): int = if this < other then this else other
+fun float.max(other: float): float = if this > other then this else other
+fun float.min(other: float): float = if this < other then this else other
+fun int.abs(): int = if this < 0 then -this else this

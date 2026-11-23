@@ -55,7 +55,42 @@ class Resolve private constructor(context: Context) {
         return symTab[name]
     }
 
-    fun resolve(owner: Type, member: String, receiverKind: Kind, memberKind: Kind): Symbol? {
+    fun resolve(owner: Type, member: String, receiverKind: Kind, memberKind: Kind): Symbol? =
+        resolveDeclared(owner, member, receiverKind, memberKind)
+            ?: if (receiverKind == Kind.VAL && memberKind == Kind.MTH) genericMethod(owner, member) else null
+
+    /**
+     * A generic method whose receiver fits [owner], with the type variables the receiver binds replaced:
+     * `fun <T> List<T>.distinct(): List<T>` for a `List<int>` is a `distinct(): List<int>`.
+     */
+    private fun genericMethod(owner: Type, member: String): Symbol? {
+        for (g in typeMap.genericMethods) {
+            if (g.name != member) continue
+            val bindings = mutableMapOf<String, com.leko.forge.types.Type>()
+            if (fits(g.receiver?.type ?: continue, owner, bindings)) return g.instantiate(bindings)
+        }
+        return null
+    }
+
+    private fun fits(pattern: Type, actual: Type, bindings: MutableMap<String, Type>): Boolean = when {
+        pattern is com.leko.forge.types.TypeVar -> {
+            val bound = bindings[pattern.name]
+            if (bound == null) { bindings[pattern.name] = actual; true } else bound == actual
+        }
+        pattern is ListType && actual is ListType -> fits(pattern.elem, actual.elem, bindings)
+        pattern is SetType && actual is SetType -> fits(pattern.elem, actual.elem, bindings)
+        pattern is MapType && actual is MapType -> fits(pattern.key, actual.key, bindings) && fits(pattern.value, actual.value, bindings)
+        pattern is OptionalType && actual is OptionalType -> fits(pattern.elem, actual.elem, bindings)
+        pattern == actual -> true
+        // a generic method of a node is one of its subtypes too
+        else -> {
+            val p = resolve(pattern) as? NodeSymbol
+            val a = resolve(actual) as? NodeSymbol
+            p != null && a != null && (p == a || p in typeMap.allParentsOf(a))
+        }
+    }
+
+    private fun resolveDeclared(owner: Type, member: String, receiverKind: Kind, memberKind: Kind): Symbol? {
         assert(owner !is OptionalType) { "Resolve can not be applied to an optional type" }
         val sym = resolve(owner) ?: return null
 

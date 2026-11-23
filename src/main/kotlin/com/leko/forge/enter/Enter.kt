@@ -9,6 +9,7 @@ import com.leko.forge.attr.setSym
 import com.leko.forge.context.Context
 import com.leko.forge.model.*
 import com.leko.forge.types.toType
+import com.leko.forge.types.withTypeParams
 import com.leko.forge.util.Log
 
 
@@ -94,12 +95,14 @@ class Enter private constructor(context: Context) {
                 log.diag(functionAlreadyExist(func.name.span, func.name.text))
                 continue
             }
+            val typeParams = func.typeParams.map { it.text }
             val sym = FunctionSymbol(
                 null,
                 func.name.text,
-                func.parameter().map { VarSymbol(it.name.text, it.ty.toType(), it.name.span, VarSymbol.VarKind.PARAMETER) },
-                func.ty.toType(),
+                func.parameter().map { VarSymbol(it.name.text, it.ty.toType().withTypeParams(typeParams), it.name.span, VarSymbol.VarKind.PARAMETER) },
+                func.ty.toType().withTypeParams(typeParams),
                 func.name.span,
+                typeParams = typeParams,
             )
             symTab.functions[sym.name] = sym
             func.setSym(sym)

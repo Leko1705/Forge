@@ -17,6 +17,9 @@ class TypeMap private constructor() {
 
     val methods = mutableMapOf<Symbol, List<FunctionSymbol>>()
 
+    /** Generic methods (`fun <T> List<T>.distinct()`): their receivers have type variables, so no symbol is theirs. */
+    val genericMethods = mutableListOf<FunctionSymbol>()
+
     val nodeAttributes = mutableMapOf<NodeSymbol, List<NodeBoundAttributeSymbol>>()
 
     val parserRuleDefs = mutableMapOf<ParserSymbol, List<InterfaceParserRuleSymbol>>()

@@ -120,4 +120,5 @@ them.
 
 Kiln needs no `external fun`s: string literals are decoded with slices and builtins
 (`literal[1:-1].unescape()`), numbers converted with `str.toInt()` and `int.str()`, constants encoded with
-`str.utf8()`. Kotlin supplies only the command line driver `Main.kt`.
+`str.utf8()`; sets of live slots are lists combined with `union` and `-` from the standard library
+(`import "std"`), as `max_stack` uses `int.max`. Kotlin supplies only the command line driver `Main.kt`.

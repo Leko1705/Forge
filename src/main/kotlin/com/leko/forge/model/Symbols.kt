@@ -174,7 +174,21 @@ data class FunctionSymbol(
     val isOperator: Boolean = false,
     /** For builtin functions: the operation of the runtimes it is, e.g. `str.upper`. */
     val builtin: String? = null,
+    /** The type parameters of a generic function: `T` in `fun <T> List<T>.distinct()`. */
+    val typeParams: List<String> = emptyList(),
+    /** For a use of a generic function with some types known: the declaration. */
+    val generic: FunctionSymbol? = null,
 ) : CallableSymbol {
+    /** The declaration, also for a use of a generic function. */
+    val declaration: FunctionSymbol get() = generic ?: this
+
+    /** This function with type variables replaced: a use of a generic function. */
+    fun instantiate(bindings: Map<String, Type>): FunctionSymbol = if (typeParams.isEmpty()) this else copy(
+        params = params.map { VarSymbol(it.name, it.type.substitute(bindings), it.span, it.varKind) },
+        returnType = returnType.substitute(bindings),
+        generic = declaration,
+    )
+
     override val type: Type get() = FunctionType(params.map { it.type }, returnType)
     override val kind: Kind = Kind.MTH
 }

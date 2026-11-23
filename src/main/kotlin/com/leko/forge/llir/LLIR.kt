@@ -78,7 +78,9 @@ class LLIR private constructor(context: Context) {
     private fun enumItem(item: EnumItemSymbol): EnumItem =
         enum(resolve.resolve(item.enumType) as EnumSymbol).items.first { it.itemName == item.name }
 
-    private fun function(sym: CallableSymbol): Function {
+    private fun function(callable: CallableSymbol): Function {
+        // a use of a generic function is the function
+        val sym = (callable as? FunctionSymbol)?.declaration ?: callable
         functions[sym]?.let { return it }
         val receiver = when (sym) {
             is FunctionSymbol -> sym.receiver?.type
@@ -90,6 +92,7 @@ class LLIR private constructor(context: Context) {
             sym.name,
             sym.params.map { Parameter(it.name, it.type) },
             sym.returnType,
+            (sym as? FunctionSymbol)?.typeParams.orEmpty(),
         )
         functions[sym] = fn
         return fn

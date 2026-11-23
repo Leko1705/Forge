@@ -86,6 +86,11 @@ data class FlowGraphType(val name: String, val root: String) : Type {
     override fun toString(): String = "FlowGraph<$root>"
 }
 
+/** A type parameter of a generic function: `T` in `fun <T> List<T>.distinct(): List<T>`. */
+data class TypeVar(val name: String) : Type {
+    override fun toString(): String = name
+}
+
 /** The type of `fail(message)`, which never returns: it can be used wherever any value is expected. */
 object NothingType : Type {
     override fun toString(): String = "Nothing"

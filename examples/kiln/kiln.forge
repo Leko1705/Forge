@@ -14,6 +14,7 @@
 // diagnostics as a collection. The back end: synthesized attributes that build the JVM IR of jvm.forge,
 // which lowers it to a class file.
 
+import "std"
 import "jvm.forge"
 
 // ==== syntax tree ===============================================================================
@@ -136,8 +137,8 @@ syn Assign.local: Local? = if this.name in this.scope.vars then this.scope.vars[
 
 // the number of local variable slots a function needs, collected from its declarations
 coll Function.slots: int = 0
-contrib VarDecl -> this.function!!.slots = max(slots, this.scope.next + 1)
-contrib Function -> this.slots as n = max(n, this.params.size + (if this.name == "main" then 1 else 0))
+contrib VarDecl -> this.function!!.slots = slots.max(this.scope.next + 1)
+contrib Function -> this.slots as n = n.max(this.params.size + (if this.name == "main" then 1 else 0))
 
 inh returnType: Type = Type.VOID
 inh Function.returnType { body <- this.returns }
@@ -252,15 +253,12 @@ syn Function.fallsOff: bool = this.flowGraph.exit("next") != null && (this.flowG
 
 // ==== live variables ============================================================================
 
-fun union(a: List<int>, b: List<int>): List<int> = (if x in acc then acc else acc ++ [x]) for x in b with acc = a
-fun minus(a: List<int>, b: List<int>): List<int> = (if x in b then acc else acc ++ [x]) for x in a with acc = []
-
 // the slots an expression reads
 syn Expr.reads: List<int> = []
 syn Var.reads: List<int> = if this.local == null then [] else [this.local!!.slot]
-syn Call.reads: List<int> = union(acc, a.reads) for a in this.args with acc = []
+syn Call.reads: List<int> = acc.union(a.reads) for a in this.args with acc = []
 syn Unary.reads: List<int> = this.operand.reads
-syn Binary.reads: List<int> = union(this.left.reads, this.right.reads)
+syn Binary.reads: List<int> = this.left.reads.union(this.right.reads)
 
 syn Vertex.uses: List<int> = []
 syn Vertex.defs: List<int> = []
@@ -273,8 +271,8 @@ syn Print.uses: List<int> = this.value.reads
 syn ExprStmt.uses: List<int> = this.expr.reads
 syn Return.uses: List<int> = if this.value == null then [] else this.value!!.reads
 
-circular([]) Vertex.liveOut: List<int> = union(acc, s.liveIn) for s in cfg.succ(this) with acc = []
-circular([]) Vertex.liveIn: List<int> = union(this.uses, minus(this.liveOut, this.defs))
+circular([]) Vertex.liveOut: List<int> = acc.union(s.liveIn) for s in cfg.succ(this) with acc = []
+circular([]) Vertex.liveIn: List<int> = this.uses.union(this.liveOut - this.defs)
 
 syn Stmt.deadStore: bool = false
 syn VarDecl.deadStore: bool = this.reachable && !(this.slot in this.liveOut)

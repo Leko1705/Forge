@@ -326,7 +326,13 @@ object KotlinTarget : Target {
         private fun generateFunction(function: Function) {
             val body = function.body ?: return   // external: implemented in Kotlin elsewhere
             sb.appendLine("// function ${function.name}")
+            // methods on lists, sets, maps erase to `name(List, ...)` on the JVM, as functions do
+            function.receiver?.takeIf { it is ListType || it is SetType || it is MapType || it is OptionalType }?.let {
+                val key = typeRepr(it).replace("kotlin.collections.", "").replace("kotlin.", "").replace(Regex("[^A-Za-z0-9]+"), "_").trim('_')
+                sb.appendLine("@kotlin.jvm.JvmName(\"${function.name}__$key\")")
+            }
             sb.append("fun ")
+            if (function.typeParams.isNotEmpty()) sb.append("<${function.typeParams.joinToString(", ")}> ")
             function.receiver?.let { sb.append(typeRepr(it)).append(".") }
             sb.append(id(function.name)).append("(")
             sb.append(function.parameters.joinToString(", ") { "${id(it.name)}: ${typeRepr(it.type)}" })
@@ -639,6 +645,7 @@ object KotlinTarget : Target {
             PortRefType -> "__PortRef"
             ArbitraryType -> "kotlin.Any?"
             NothingType -> "kotlin.Nothing"
+            is TypeVar -> type.name
             ErrorType, is TerminalRuleProduction -> throw IllegalStateException("should not reach here for $type")
         }
 

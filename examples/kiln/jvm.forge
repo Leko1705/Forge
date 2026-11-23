@@ -11,6 +11,8 @@
 //
 // Class files are version 49 (Java 5): they need no StackMapTable, and current JVMs still load them.
 
+import "std"
+
 // ==== the IR ===================================================================================
 
 node JClass(name: str, superName: str, methods: List<JMethod>)
@@ -219,9 +221,9 @@ syn JInvoke.delta: int =
 syn JInvoke.signature: List<str> = Descriptor.method(this.descriptor)
 
 /** The depth of the stack before an instruction: the deepest of its predecessors, a fixpoint around loops. */
-circular(0) JInsn.stackIn: int = max(acc, (p as JInsn).stackIn + (p as JInsn).delta) for p in this.method.controlFlow.pred(this) with acc = 0
+circular(0) JInsn.stackIn: int = acc.max((p as JInsn).stackIn + (p as JInsn).delta) for p in this.method.controlFlow.pred(this) with acc = 0
 
-syn JMethod.maxStack: int = max(acc, max(i.stackIn, i.stackIn + i.delta)) for i in this.code with acc = 0
+syn JMethod.maxStack: int = acc.max(i.stackIn.max(i.stackIn + i.delta)) for i in this.code with acc = 0
 
 // ==== class file =================================================================================
 
@@ -342,7 +344,6 @@ rule ClassFile.attribute: int -> @u2 n:@u4 @bytes(n) { n }
 
 fun fitsByte(v: int): bool = v >= -128 && v <= 127
 fun fitsShort(v: int): bool = v >= -32768 && v <= 32767
-fun max(a: int, b: int): int = if a > b then a else b
 
 // big-endian bytes; for negative numbers the two's complement
 fun u2(v: int): List<int> = [v >> 8 & 255, v & 255]

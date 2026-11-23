@@ -263,7 +263,7 @@ class MemberEnter private constructor(context: Context) {
                 "operator '${sym.name}' takes $arity parameter${if (arity == 1) "" else "s"}"))
             sym.name == "compareTo" && sym.returnType != IntType -> log.diag(invalidOperatorFunction(func.name.span, "operator 'compareTo' returns an int"))
             sym.name == "contains" && sym.returnType != BoolType -> log.diag(invalidOperatorFunction(func.name.span, "operator 'contains' returns a bool"))
-            sym.name == "slice" && sym.params.any { it.type != OptionalType(IntType) } ->
+            sym.name == "slice" && sym.params.any { it.type != OptionalType(IntType) && it.type !is TypeVar } ->
                 log.diag(invalidOperatorFunction(func.name.span, "operator 'slice' takes two int? (an omitted bound is null)"))
         }
     }
@@ -276,21 +276,26 @@ class MemberEnter private constructor(context: Context) {
             if (func.op != null && func.receiver == null) {
                 log.diag(invalidOperatorFunction(func.name.span, "an operator function needs a receiver: op fun T.${func.name.text}(...)"))
             }
-            val receiver = if (func.receiver != null) chk.checkExists(func.receiver!!.toType()) else continue
+            val typeParams = func.typeParams.map { it.text }
+            fun type(t: ForgeParser.TypeContext) = chk.checkExists(t.toType().withTypeParams(typeParams))
+            val receiver = if (func.receiver != null) type(func.receiver!!) else continue
             val receiverSym = resolve.resolve(receiver)
             if (receiverSym != null) {
-                val methods = typeMap.methods.getOrPut(receiverSym) { mutableListOf() } as MutableList
-                if (methods.any { it.name == func.name.text }) {
+                // a generic method belongs to no receiver symbol: List<T> stands for every list
+                val methods = if (typeParams.isEmpty()) typeMap.methods.getOrPut(receiverSym) { mutableListOf() } as MutableList
+                    else typeMap.genericMethods
+                if (methods.any { it.name == func.name.text && (typeParams.isEmpty() || it.receiver?.type == receiver) }) {
                     log.diag(methodAlreadyExist(null, "$receiver.${func.name.text}"))
                     continue
                 }
                 val sym = FunctionSymbol(
                     receiverSym,
                     func.name.text,
-                    func.parameter().map { VarSymbol(it.name.text, chk.checkExists(it.ty.toType()), it.name.span, VarSymbol.VarKind.PARAMETER) },
-                    chk.checkExists(func.ty.toType()),
+                    func.parameter().map { VarSymbol(it.name.text, type(it.ty), it.name.span, VarSymbol.VarKind.PARAMETER) },
+                    type(func.ty),
                     func.name.span,
                     isOperator = func.op != null,
+                    typeParams = typeParams,
                 )
                 if (func.op != null) checkOperator(func, sym)
                 methods += sym

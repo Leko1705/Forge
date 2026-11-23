@@ -24,6 +24,8 @@ Options: `-f` files, `-d` output directory, `-o` output name, `-p` package (name
 
 A file can use the declarations of others: `import "jvm.forge"` (relative to the importing file) at the top
 makes the declarations of the imported file part of this one, which is then compiled to one Kotlin file.
+`import "std"` imports the [standard library](#the-standard-library), which is bundled with Forge
+(`import "std.forge"` too, unless there is a `std.forge` next to the importing file).
 
 For a complete example, see [examples/kiln](examples/kiln): a small language whose compiler is written in
 Forge and generates JVM class files, using a reusable JVM backend (`jvm.forge`).
@@ -107,6 +109,30 @@ fun impossible(what: str): Nothing = fail("impossible: " + what)
 fun checked(n: int): int = if n >= 0 then n else impossible("negative")
 fun wrong(): Nothing = 1      // error: expected type 'Nothing' but got int
 ```
+
+### Generic functions
+
+Type parameters come after `fun`; they are inferred at every call, from the receiver and the arguments:
+
+```
+fun <T> firstOf(xs: List<T>, otherwise: T): T = match xs { first :: _ -> first  _ -> otherwise }
+fun <T> List<T>.second(): T? = if this.size > 1 then this[1] else null
+firstOf([], "y")              // a str: the empty list is a List<str>, as "y" says
+```
+
+A generic method applies to every receiver it fits: `List<T>.second()` to a `List<int>` as to a `List<Expr>`.
+A method declared for a specific receiver (`List<int>.second()`) comes first.
+
+### The standard library
+
+`import "std"` (source: [std.forge](src/main/resources/forge/std.forge)). All of it is methods, so a program keeps
+its names; what it does not use is removed from the generated code with `-opt`.
+
+| Of                      | Functions                                                                                 |
+|-------------------------|-------------------------------------------------------------------------------------------|
+| `List<T>`               | `union(other)`: the elements, then those of `other` not in it (no duplicates); `minus(other)`, also `xs - ys`; `distinct()` (first occurrences, in order); `disjoint(other)` |
+| `List<int>`, `List<float>` | `sum()`, `max()`, `min()` (fail for an empty list)                                     |
+| `int`, `float`          | `max(other)`, `min(other)`; `int.abs()`                                                   |
 
 Strings are UTF-16 in Kotlin and Java, code points in Python and bytes of UTF-8 in C++, Rust and OCaml: sizes,
 indexes, `code`, `upper`, `lower` and `trim` agree for ASCII text.

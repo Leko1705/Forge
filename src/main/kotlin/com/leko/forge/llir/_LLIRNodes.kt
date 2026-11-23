@@ -99,6 +99,8 @@ class Function(
     val name: String,
     val parameters: List<Parameter>,
     val returnType: Type,
+    /** Type parameters of a generic function; its types contain them as [TypeVar]s. */
+    val typeParams: List<String> = emptyList(),
 ) {
     var body: Value? = null
 }

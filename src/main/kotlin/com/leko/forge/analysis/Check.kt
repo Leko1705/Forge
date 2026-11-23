@@ -66,6 +66,7 @@ class Check private constructor(context: Context) {
         return when (type) {
             ArbitraryType -> type
             NothingType -> type
+            is TypeVar -> type
             BoolType -> type
             is FunctionType -> FunctionType(
                 type.parameters.map { checkExists(it) },

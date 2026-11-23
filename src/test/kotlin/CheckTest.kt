@@ -172,6 +172,27 @@ class CheckTest {
     }
 
     @Test
+    fun genericFunctionsInferTheirTypeParameters() {
+        val generic = "fun <T> first(xs: List<T>, d: T): T = match xs { x :: _ -> x  _ -> d }\nfun <T> List<T>.second(): T? = if this.size > 1 then this[1] else null\n"
+        assertEquals(emptyList(), errors(generic + "fun f(): str = first([], \"y\")\nfun g(): int = [1, 2].second() ?: 0\nfun h(): List<int> = [[1]].second() ?: []"))
+        assertError("expected type 'int' but got str", generic + "fun f(): int = first([\"a\"], \"b\")")
+        assertError("expected type 'str' but got int", generic + "fun f(): str = first([\"a\"], 1)")
+        assertError("expected type 'int?' but got str?", generic + "fun f(): int? = [\"a\"].second()")
+        // a method for a specific receiver comes first
+        assertEquals(emptyList(), errors(generic + "fun List<int>.second(): str = \"own\"\nfun f(): str = [1].second()\nfun g(): str? = [\"a\"].second()"))
+    }
+
+    @Test
+    fun theStandardLibraryIsBundled() {
+        val dir = createTempDirectory("std").toFile()
+        val main = File(dir, "main.forge")
+        main.writeText("import \"std\"\nfun f(): int = [1, 2].sum() + [3].max() + ([1] - [1]).size + [1].union([2]).size + 1.max(2)\nfun g(): float = [1.5].sum()")
+        val context = Context()
+        Analyzer.instance(context).analyze(main.parseForge())
+        assertEquals(emptyList(), Log.instance(context).diagnostics.filter { it.severity == Severity.ERROR }.map { it.message })
+    }
+
+    @Test
     fun nodesShareTheirMostSpecificSuperType() {
         val nodes = "node Insn\nnode Push(v: int): Insn\nnode Label(name: str): Insn\nnode Jump(target: str): Insn\nnode Ref\nfor Push impl Ref\nfor Jump impl Ref\n"
         assertEquals(emptyList(), errors(nodes + """

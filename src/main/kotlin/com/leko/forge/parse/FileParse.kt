@@ -25,6 +25,11 @@ fun File.parseForge(): ForgeParser.RootContext {
         for (decl in root.importDecl()) {
             val path = decl.path.text.let { it.substring(1, it.length - 1) }
             val target = File(file.absoluteFile.parentFile, path).canonicalFile
+            // the standard library: "std" always, "std.forge" unless there is such a file
+            if (path == "std" || (path == "std.forge" && !target.isFile)) {
+                if (seen.add(File(STD))) imported += parseStd()
+                continue
+            }
             if (!seen.add(target)) continue
             if (!target.isFile) {
                 throw ImportException("${file.name}:${decl.start.line}:${decl.start.charPositionInLine}: can not import '$path': ${target.path} does not exist")
@@ -48,6 +53,15 @@ fun File.parseForge(): ForgeParser.RootContext {
         }
     }
     return merged
+}
+
+/** Where the standard library is, for error messages; it is bundled with the compiler. */
+private const val STD = "std.forge"
+
+private fun parseStd(): ForgeParser.RootContext {
+    val text = ImportException::class.java.getResourceAsStream("/forge/std.forge")!!.readBytes().toString(Charsets.UTF_8)
+    val parser = ForgeParser(CommonTokenStream(ForgeLexer(CharStreams.fromString(text, STD))))
+    return parser.root()
 }
 
 private fun parseChecked(file: File): ForgeParser.RootContext {
