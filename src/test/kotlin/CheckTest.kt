@@ -159,6 +159,14 @@ class CheckTest {
         // fail fits wherever a value is expected
         assertEquals(emptyList(), errors("fun f(x: int?): int = x ?: fail(\"none\")\nfun g(b: bool): str = if b then \"x\" else fail(\"no\")\nfun h(): List<str> = fail(\"never\")"))
         assertError("expected type 'str' but got int", "fun f(): int = fail(1)")
+        // functions and attributes can be of type Nothing; then they must not return
+        assertEquals(emptyList(), errors(
+            "node A(v: int)\nfun stop(m: str): Nothing = fail(\"stop: \" + m)\nfun again(): Nothing = stop(\"again\")\n" +
+                "fun both(b: bool): Nothing = if b then stop(\"a\") else again()\nfun use(b: bool): int = if b then 1 else stop(\"no\")\n" +
+                "syn A.never: Nothing = fail(\"never\")\nfun v(a: A): str = a.never"))
+        assertError("expected type 'Nothing' but got int", "fun f(): Nothing = 1")
+        assertError("expected type 'Nothing' but got str", "fun f(b: bool): Nothing = if b then fail(\"x\") else \"y\"")
+        assertError("expected type 'Nothing' but got int", "node A(v: int)\nsyn A.never: Nothing = this.v")
         // methods of the program come before builtins
         assertEquals(emptyList(), errors("fun str.upper(): int = 1\nfun f(): int = \"a\".upper()"))
     }

@@ -15,6 +15,8 @@ fun ForgeParser.TypeContext.toType(): Type {
                 "float" -> FloatType
                 "boolean", "bool" -> BoolType
                 "str" -> StrType
+                // never returns, e.g. a function that fails: fun error(m: str): Nothing = fail(m)
+                "Nothing" -> NothingType
                 else -> ComplexType(name)
             }
         }

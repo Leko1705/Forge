@@ -99,6 +99,15 @@ Every target implements these; a function the program defines with the same rece
 | `Map<K, V>` | `keys()`, `values()` (lists, in the order of the map), `remove(key)`                                 |
 | -         | `char(code)`: a character as a str; `fail(message)`: stops with an error (`ForgeError`, `IllegalStateException` in Kotlin, a panic in Rust). Its type is `Nothing`, which fits wherever a value is expected: `x ?: fail("missing")`, `if b == 0 then fail("division by zero") else a / b` |
 
+`Nothing` can also be written: a function or attribute of type `Nothing` never returns, so its value must be of type
+`Nothing` too (a `fail`, or a call of another such function), and a call of it fits wherever a value is expected:
+
+```
+fun impossible(what: str): Nothing = fail("impossible: " + what)
+fun checked(n: int): int = if n >= 0 then n else impossible("negative")
+fun wrong(): Nothing = 1      // error: expected type 'Nothing' but got int
+```
+
 Strings are UTF-16 in Kotlin and Java, code points in Python and bytes of UTF-8 in C++, Rust and OCaml: sizes,
 indexes, `code`, `upper`, `lower` and `trim` agree for ASCII text.
 
