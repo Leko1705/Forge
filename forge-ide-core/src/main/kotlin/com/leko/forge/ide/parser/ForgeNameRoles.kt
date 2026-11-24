@@ -10,13 +10,13 @@ enum class ForgeNameRole {
     NODE_DECLARATION, TYPE_DECLARATION, TYPE_REFERENCE, BUILTIN_TYPE, TYPE_PARAMETER,
     ENUM_CONSTANT, FUNCTION_DECLARATION, FUNCTION_CALL, METHOD_CALL, PROPERTY,
     CONSTANT, FIELD, PARAMETER, LOCAL_VARIABLE, ATTRIBUTE, PORT, GRAPH,
-    PARSER, PARSER_RULE, ANNOTATION, SOFT_KEYWORD,
+    PARSER, PARSER_RULE, ANNOTATION, SOFT_KEYWORD, MODULE, TRAIT,
     /** An identifier in an expression: a variable, a field, an attribute, a constant, ... */
     IDENTIFIER,
 }
 
 /** The types the compiler knows without a declaration (TypeRes); the graph types are declared by the compiler. */
-private val builtinTypes = setOf("int", "float", "bool", "boolean", "str", "Nothing", "Graph", "Vertex", "Edge", "Span")
+private val builtinTypes = setOf("int", "long", "float", "bool", "boolean", "str", "Nothing", "Graph", "Vertex", "Edge", "Span")
 
 /**
  * The role of [token], an IDENT or `@` directly below [context]: what the grammar says the name is. `null` for
@@ -32,9 +32,15 @@ fun nameRole(context: ParserRuleContext, token: Token): ForgeNameRole? = when (c
     is ForgeParser.FunctionContext -> when {
         token === context.name -> if (context.property != null) PROPERTY else FUNCTION_DECLARATION
         token === context.op -> SOFT_KEYWORD
-        context.typeParams.any { it === token } -> TYPE_PARAMETER
         else -> null
     }
+    is ForgeParser.TypeParamContext -> TYPE_PARAMETER.takeIf { token === context.name }
+    is ForgeParser.TraitDefContext -> TRAIT.takeIf { token === context.name }
+    is ForgeParser.TraitMemberContext -> (if (context.property != null) PROPERTY else FUNCTION_DECLARATION).takeIf { token === context.name }
+    is ForgeParser.ModDefContext -> MODULE.takeIf { token === context.name }
+    is ForgeParser.UseDeclContext -> MODULE.takeIf { token === context.path }
+    is ForgeParser.LambdaParamContext -> PARAMETER.takeIf { token === context.name }
+    is ForgeParser.BindingContext -> LOCAL_VARIABLE.takeIf { token === context.name || context.names.any { it === token } }
     is ForgeParser.NodeDefContext -> when (token) {
         context.name -> NODE_DECLARATION
         context.parent -> TYPE_REFERENCE
@@ -97,6 +103,7 @@ fun nameRole(context: ParserRuleContext, token: Token): ForgeNameRole? = when (c
     is ForgeParser.NamedTypeContext -> when {
         token !== context.name -> null
         typeParameterDeclaration(context, token) != null -> TYPE_PARAMETER
+        token.text == "Self" && generateSequence(context as ParserRuleContext) { it.parent as? ParserRuleContext }.any { it is ForgeParser.TraitDefContext } -> TYPE_PARAMETER
         token.text in builtinTypes -> BUILTIN_TYPE
         else -> TYPE_REFERENCE
     }
@@ -116,11 +123,21 @@ fun nameRole(context: ParserRuleContext, token: Token): ForgeNameRole? = when (c
     else -> null
 }
 
-/** The declaration of the type parameter [token] names (`T` in `fun <T> List<T>.second(): T?`), if it names one. */
+/**
+ * The declaration of the type parameter [token] names (`T` in `fun <T> List<T>.second(): T?`, `record Pair<A, B>`),
+ * if it names one.
+ */
 fun typeParameterDeclaration(context: ParserRuleContext, token: Token): Token? =
     generateSequence(context) { it.parent as? ParserRuleContext }
-        .filterIsInstance<ForgeParser.FunctionContext>().firstOrNull()
-        ?.typeParams?.firstOrNull { it.text == token.text }
+        .mapNotNull { c ->
+            when (c) {
+                is ForgeParser.FunctionContext -> c.typeParams()
+                is ForgeParser.RecordContext -> c.typeParams()
+                is ForgeParser.EnumContext -> c.typeParams()
+                else -> null
+            }
+        }.firstOrNull()
+        ?.typeParam()?.map { it.name }?.firstOrNull { it.text == token.text }
 
 /** Whether [token], a name with a [nameRole] directly below [context], declares something, or uses a declaration. */
 fun isDeclaration(context: ParserRuleContext, token: Token): Boolean = when (context) {
@@ -130,7 +147,13 @@ fun isDeclaration(context: ParserRuleContext, token: Token): Boolean = when (con
     is ForgeParser.EnumItemContext -> token === context.name
     is ForgeParser.ConstDefContext -> token === context.name
     is ForgeParser.ParameterContext -> token === context.name
-    is ForgeParser.FunctionContext -> token === context.name || context.typeParams.any { it === token }
+    is ForgeParser.FunctionContext -> token === context.name
+    is ForgeParser.TypeParamContext -> token === context.name
+    is ForgeParser.TraitDefContext -> token === context.name
+    is ForgeParser.TraitMemberContext -> token === context.name
+    is ForgeParser.ModDefContext -> token === context.name
+    is ForgeParser.LambdaParamContext -> token === context.name
+    is ForgeParser.BindingContext -> true
     is ForgeParser.NodeDefContext -> token === context.name
     is ForgeParser.SynDefContext -> token === context.attrName
     is ForgeParser.InhDefContext -> token === context.attrName

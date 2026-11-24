@@ -53,7 +53,9 @@ object ForgeDiagnostics {
         val parser = ForgeParser(CommonTokenStream(ListTokenSource(tokens)))
         parser.removeErrorListeners()
         val main = parser.root()
-        if (parser.numberOfSyntaxErrors > 0) return emptyList()
+        // the expressions in strings, and `where`s as the compiler sees them
+        val interpolationErrors = com.leko.forge.parse.postParse(main, object : org.antlr.v4.runtime.BaseErrorListener() {})
+        if (parser.numberOfSyntaxErrors > 0 || interpolationErrors > 0) return emptyList()
         val positions = Positions(source.text, tokens)
         val problems = mutableListOf<ForgeProblem>()
 
@@ -82,6 +84,7 @@ object ForgeDiagnostics {
                     // without a file, the imports are skipped above; the standard library is always added
                     val root = (source.file ?: File("<editor>")).parseForgeImports(main, host::read)
                     val context = Context()
+                    com.leko.forge.enter.Modules.instance(context).resolve(root)
                     Enter.instance(context).enter(root)
                     MemberEnter.instance(context).enter(root)
                     Attr.instance(context).attr(root)

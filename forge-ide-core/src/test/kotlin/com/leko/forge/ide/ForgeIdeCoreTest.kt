@@ -155,6 +155,52 @@ class ForgeIdeCoreTest {
     }
 
     @Test
+    fun theLanguageFeaturesAreAnalyzedAsTheCompilerDoes() {
+        val file = File(root, "src/test/forge/language.forge")
+        val errors = ForgeDiagnostics.analyze(ForgeSource(file.readText(), file), ForgeHost.DISK).filter { it.severity == ForgeSeverity.ERROR }
+        assertEquals(emptyList(), errors)
+        // mod, use and trait are keywords before a name, names otherwise
+        assertTrue(ForgeLexer.MOD in lex("mod m {}").map { it.first })
+        assertTrue(ForgeLexer.MOD !in lex("fun mod(x: int): int = x").map { it.first })
+        // an expression in a string is parsed with the file: its errors are syntax errors
+        assertTrue(ForgeAntlr.parse("fun f(): str = \"${'$'}{1 +}\"").second.isNotEmpty())
+        assertTrue(ForgeAntlr.parse("fun f(): str = \"${'$'}{1 + 2}\"").second.isEmpty())
+    }
+
+    @Test
+    fun namesOfTheLanguageFeaturesResolve() {
+        val text = "mod geo {\n    record Point { x: int }\n}\nfun f(g: (int) -> int): int = g(y) + geo::Point(1).x where y = 2\n" +
+            "fun h(): int = [1].map({ v -> v + 1 })[0]\nfun s(n: int): str = \"${'$'}{n}\""
+        val semantics = ForgeSemantics.compute(text, null, ForgeHost.DISK)
+        // a call of a function value: the parameter
+        assertEquals(ForgeNameRole.PARAMETER, semantics.resolutions.getValue(text.indexOf("g(y)")).role)
+        // a where binding
+        val y = semantics.resolutions.getValue(text.indexOf("y) +"))
+        assertEquals(ForgeNameRole.LOCAL_VARIABLE, y.role)
+        assertEquals(4 to text.substringAfter("}\n}\n").indexOf("y = 2"), y.line to y.column)
+        // a qualified name: the declaration in the module, by the name written
+        val point = semantics.resolutions.getValue(text.indexOf("geo::Point(1)"))
+        assertEquals("geo::Point", point.name)
+        assertEquals(2, point.line)
+        // a lambda parameter, and a name in a string
+        assertEquals(ForgeNameRole.LOCAL_VARIABLE, semantics.resolutions.getValue(text.indexOf("v + 1")).role)
+        assertEquals(ForgeNameRole.PARAMETER, semantics.resolutions.getValue(text.lastIndexOf("n}")).role)
+    }
+
+    @Test
+    fun theOutlineHasModulesAndTraits() {
+        val text = "mod geo {\n    record Point { x: int }\n    mod deep { const c = 1 }\n}\ntrait Named { fun name(): str }"
+        val declarations = ForgeDeclarations(text, ForgeAntlr.parse(text).first)
+        val outline = declarations.outline()
+        assertEquals(listOf("mod geo", "trait Named"), outline.map { it.label })
+        assertEquals(listOf("record Point { x: int }", "mod deep"), outline[0].children.map { it.label })
+        assertEquals(listOf("const c"), outline[0].children[1].children.map { it.label })
+        assertEquals(listOf("fun name(): str"), outline[1].children.map { it.label })
+        assertEquals("module", declarations.info(outline[0].name)!!.kind)
+        assertEquals("trait", declarations.info(outline[1].name)!!.kind)
+    }
+
+    @Test
     fun linesShiftAroundAnEdit() {
         val map = ForgeLineShift.between("a\nb\nc\nd", "a\nB\nx\nc\nd")
         assertEquals(1, map.line(1))

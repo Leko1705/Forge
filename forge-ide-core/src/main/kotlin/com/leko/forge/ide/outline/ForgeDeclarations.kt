@@ -70,13 +70,23 @@ class ForgeDeclarations(private val text: String, private val tree: ForgeParser.
 
     // ---- the outline -----------------------------------------------------------------------------------------
 
-    /** The declarations of the file: the names that the children of the Root rule declare. */
-    fun outline(): List<ForgeOutlineEntry> = tree.children.orEmpty().filterIsInstance<ParserRuleContext>().mapNotNull { decl ->
+    /**
+     * The declarations of the file: the names that the children of the Root rule declare; a module (`mod m { ... }`)
+     * with its declarations, a trait with its members.
+     */
+    fun outline(): List<ForgeOutlineEntry> = outline(tree)
+
+    private fun outline(parent: ParserRuleContext): List<ForgeOutlineEntry> = parent.children.orEmpty().filterIsInstance<ParserRuleContext>().mapNotNull { decl ->
         val name = names.firstOrNull { it.context === decl } ?: return@mapNotNull null
-        val children = if (name.role == ForgeNameRole.NODE_DECLARATION || name.role == ForgeNameRole.TYPE_DECLARATION) {
-            names.filter { it !== name && it.context.parent === decl && isMember(it) }
+        val children = when {
+            decl is ForgeParser.ModDefContext -> outline(decl)
+            decl is ForgeParser.TraitDefContext -> names.filter { it.context.parent === decl }
                 .map { ForgeOutlineEntry(it, oneLine(textOf(it.context)), it.context.startOffset, it.context.endOffset, emptyList()) }
-        } else emptyList()
+            name.role == ForgeNameRole.NODE_DECLARATION || name.role == ForgeNameRole.TYPE_DECLARATION ->
+                names.filter { it !== name && it.context.parent === decl && isMember(it) }
+                    .map { ForgeOutlineEntry(it, oneLine(textOf(it.context)), it.context.startOffset, it.context.endOffset, emptyList()) }
+            else -> emptyList()
+        }
         ForgeOutlineEntry(
             name, header(decl, structureStop, 100), decl.startOffset, decl.endOffset, children,
             isEnum = decl is ForgeParser.EnumContext,
@@ -122,12 +132,15 @@ class ForgeDeclarations(private val text: String, private val tree: ForgeParser.
             ForgeNameRole.GRAPH -> "graph"
             ForgeNameRole.PARSER -> "parser"
             ForgeNameRole.PARSER_RULE -> "parser rule"
+            ForgeNameRole.MODULE -> "module"
+            ForgeNameRole.TRAIT -> "trait"
             else -> "name"
         }
         val owner = header(decl, documentationStop, 160)
         // a part of a declaration: a parameter, a field, an enum constant, a local, ...
         val part = generateSequence(name.context) { it.parent as? ParserRuleContext }.takeWhile { it !== decl }.firstOrNull {
-            it is ForgeParser.ParameterContext || it is ForgeParser.RecordFieldContext || it is ForgeParser.EnumItemContext
+            it is ForgeParser.ParameterContext || it is ForgeParser.RecordFieldContext || it is ForgeParser.EnumItemContext ||
+                it is ForgeParser.TraitMemberContext
         }
         return when {
             part != null -> ForgeDeclarationInfo(oneLine(textOf(part)), "$kind of $owner", null, null)
@@ -163,16 +176,20 @@ class ForgeDeclarations(private val text: String, private val tree: ForgeParser.
 
     private fun oneLine(text: String) = text.replace(Regex("\\s+"), " ").trim()
 
-    /** The declaration of the whole file [context] is in: a child of the Root rule. */
+    /** The declaration [context] is in: a child of the Root rule or of a module (a module for its own name). */
     private fun topLevel(context: ParserRuleContext): ParserRuleContext? =
-        generateSequence(context) { it.parent as? ParserRuleContext }.firstOrNull { it.parent is ForgeParser.RootContext }
+        generateSequence(context) { it.parent as? ParserRuleContext }.firstOrNull {
+            it.parent is ForgeParser.RootContext || (it.parent is ForgeParser.ModDefContext && it !is ForgeParser.ModDefContext) ||
+                (it is ForgeParser.ModDefContext && it === context)
+        }
 
     /** The token a declaration's header ends before, for the documentation: before the value or the body. */
     private val documentationStop: (ParserRuleContext, Token) -> Boolean = { decl, token ->
         when (decl) {
             is ForgeParser.ParseRuleDefContext -> token.type == ForgeLexer.ARROW
             is ForgeParser.RecordContext, is ForgeParser.EnumContext, is ForgeParser.ConstDefContext -> false
-            is ForgeParser.InhImplContext, is ForgeParser.FlowDefContext -> token.type == ForgeLexer.LBRACE
+            is ForgeParser.InhImplContext, is ForgeParser.FlowDefContext, is ForgeParser.ModDefContext, is ForgeParser.TraitDefContext ->
+                token.type == ForgeLexer.LBRACE
             else -> token.type == ForgeLexer.ASSIGN
         }
     }

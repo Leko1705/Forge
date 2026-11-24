@@ -93,6 +93,17 @@ object ForgeAntlr {
                 errors += ForgeSyntaxError(offset, msg)
             }
         })
-        return parser.root() to errors
+        val root = parser.root()
+        // the expressions in strings are parsed after the file: their syntax errors too
+        com.leko.forge.parse.postParse(root, object : BaseErrorListener() {
+            override fun syntaxError(
+                recognizer: Recognizer<*, *>?, offendingSymbol: Any?, line: Int, charPositionInLine: Int,
+                msg: String, e: RecognitionException?,
+            ) {
+                val offset = (offendingSymbol as? Token)?.startIndex?.takeIf { it >= 0 } ?: text.length
+                errors += ForgeSyntaxError(offset, msg)
+            }
+        })
+        return root to errors
     }
 }

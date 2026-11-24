@@ -159,3 +159,6 @@ val ParserRuleContext.operator: FunctionSymbol? get() = attributes[this]?.get("o
 val ParserRuleContext.flowBuiltin: String? get() = attributes[this]?.get("flowBuiltin") as? String
 
 val ParserRuleContext.typeOrNull: Type? get() = attributes[this]?.get("type") as? Type
+
+/** The variable or constant whose function value a call `f(x)` calls, if it calls one. */
+val ForgeParser.FunctionCallContext.callee: Symbol? get() = attributes[this]?.get("callee") as? Symbol

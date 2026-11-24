@@ -9,6 +9,7 @@ import com.leko.forge.attr.clearTreeAttributes
 import com.leko.forge.attr.port
 import com.leko.forge.attr.symbol
 import com.leko.forge.attr.local
+import com.leko.forge.attr.callee
 import com.leko.forge.context.Context
 import com.leko.forge.enter.Enter
 import com.leko.forge.enter.MemberEnter
@@ -123,11 +124,14 @@ class ForgeSemantics(
             val parser = ForgeParser(CommonTokenStream(ListTokenSource(tokens)))
             parser.removeErrorListeners()
             val main = parser.root()
+        // the expressions in strings, and `where`s as the compiler sees them
+        com.leko.forge.parse.postParse(main, object : org.antlr.v4.runtime.BaseErrorListener() {})
             if (file == null && main.importDecl().any { it.path.text != "\"std\"" }) return null
             return synchronized(lock) {
                 try {
                     val root = (file ?: File("<editor>")).parseForgeImports(main, host::read)
                     val context = Context()
+                    com.leko.forge.enter.Modules.instance(context).resolve(root)
                     Enter.instance(context).enter(root)
                     MemberEnter.instance(context).enter(root)
                     Attr.instance(context).attr(root)
@@ -246,7 +250,7 @@ class ForgeSemantics(
                     declarationTypes[span.startLine to span.startCol] = symbol.type.toString()
                 }
                 resolutions[token.startIndex] = ForgeResolution(
-                    symbol.name, span.source, span.startLine, span.startCol, role(symbol, nameRole(context, token)),
+                    com.leko.forge.types.displayName(symbol.name), span.source, span.startLine, span.startCol, role(symbol, nameRole(context, token)),
                 )
                 return
             }
@@ -259,7 +263,9 @@ class ForgeSemantics(
             val symbol: Symbol? = when (context) {
                 is ForgeParser.IdentifierContext -> context.symbol ?: context.port ?: context.local
                 is ForgeParser.FieldAccessContext -> context.symbol.takeIf { token === context.name }
-                is ForgeParser.FunctionCallContext -> (context.symbol ?: context.port).takeIf { token === context.name }
+                // also a call of a variable whose value is a function
+                is ForgeParser.FunctionCallContext -> (context.symbol ?: context.port
+                    ?: context.callee).takeIf { token === context.name }
                 is ForgeParser.MethodCallContext -> context.symbol.takeIf { token === context.name }
                 is ForgeParser.TypePatternContext -> when (token) {
                     context.name -> context.symbol
