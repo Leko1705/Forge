@@ -45,3 +45,6 @@ bin/
 .DS_Store
 ### IntelliJ Platform Gradle Plugin ###
 .intellijPlatform/
+
+### JVM heap dumps ###
+*.hprof

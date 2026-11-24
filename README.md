@@ -346,6 +346,9 @@ the compiler itself, so the editor sees what `forge -f` sees:
   rules); in expressions the locals in scope, constants, functions, nodes and records (with parentheses), and
   keywords; types in type positions; the nodes, attributes, parsers and rules a declaration names (`syn Num.`
   offers the attributes `Num` implements); `@u2`, `@infixLeft`, ...; top level keywords at the start of a line.
+- **Formatting** (Reformat Code) and indentation on Enter, in the style of the examples: declarations at the start
+  of a line, their further lines indented once, and the insides of brackets that span lines once more; spaces after
+  commas and around `=`, `->`, `<-` and the comparison and logic operators.
 - **Folding** of declaration bodies, blocks in braces, block comments and the imports.
 - **Compiling in the IDE**: a Forge run configuration runs the compiler of the plugin on a file (output directory,
   package, target, `-opt`, `-keep`). Right click on a .forge file | Run, or the run icon at its first declaration,

@@ -66,6 +66,7 @@
         <completion.contributor language="Forge"
                                 implementationClass="com.leko.forge.intellij.completion.ForgeCompletionContributor"/>
         <typedHandler implementation="com.leko.forge.intellij.completion.ForgeTypedHandler"/>
+        <lang.formatter language="Forge" implementationClass="com.leko.forge.intellij.format.ForgeFormattingModelBuilder"/>
         <lang.foldingBuilder language="Forge" implementationClass="com.leko.forge.intellij.editor.ForgeFoldingBuilder"/>
         <lang.documentationProvider language="Forge"
                                     implementationClass="com.leko.forge.intellij.editor.ForgeDocumentationProvider"/>
