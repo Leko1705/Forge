@@ -1,3 +1,4 @@
+import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
 
 // The IntelliJ plugin for Forge: highlighting with the compiler's own lexer and parser, and the compiler's
@@ -66,6 +67,16 @@ intellijPlatform {
         }
     }
     buildSearchableOptions = false
+
+    // ./gradlew :forge-intellij:verifyPlugin: the plugin against these IDEs (APIs it uses, deprecated or internal ones)
+    pluginVerification {
+        // the IDEs are downloaded; dependencies outside them are not looked up in the Marketplace
+        freeArgs = listOf("-offline")
+        ides {
+            create(IntelliJPlatformType.IntellijIdea, "2026.2.5")
+            create(IntelliJPlatformType.IntellijIdea, "2026.3")
+        }
+    }
 }
 
 tasks.test {

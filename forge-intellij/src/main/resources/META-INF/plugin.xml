@@ -37,6 +37,7 @@
 
     <extensions defaultExtensionNs="com.intellij">
         <newProjectWizard.generator implementation="com.leko.forge.intellij.wizard.ForgeNewProjectWizard"/>
+        <postStartupActivity implementation="com.leko.forge.intellij.wizard.ForgeNewProjectActivity"/>
         <fileType name="Forge" language="Forge" extensions="forge" fieldName="INSTANCE"
                   implementationClass="com.leko.forge.intellij.ForgeFileType"/>
         <lang.parserDefinition language="Forge"

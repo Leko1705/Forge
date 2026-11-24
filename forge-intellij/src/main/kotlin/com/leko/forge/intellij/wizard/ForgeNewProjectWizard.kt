@@ -10,16 +10,12 @@ import com.intellij.ide.wizard.NewProjectWizardBaseStep
 import com.intellij.ide.wizard.NewProjectWizardChainStep.Companion.nextStep
 import com.intellij.ide.wizard.NewProjectWizardStep
 import com.intellij.ide.wizard.RootNewProjectWizardStep
-import com.intellij.ide.wizard.setupProjectFromBuilder
-import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.extensions.ExtensionPointName
-import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.module.GeneralModuleType
 import com.intellij.openapi.module.ModuleTypeManager
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.startup.StartupManager
 import com.intellij.openapi.ui.validation.DialogValidation
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.ui.dsl.builder.COLUMNS_MEDIUM
@@ -35,7 +31,7 @@ import javax.swing.Icon
 
 /** Links a Gradle build to the IDE; implemented with the Gradle plugin, when it is there (forge-gradle.xml). */
 interface ForgeGradleLinker {
-    fun link(project: Project, directory: Path)
+    suspend fun link(project: Project, directory: Path)
 
     companion object {
         val EP_NAME = ExtensionPointName.create<ForgeGradleLinker>("com.leko.forge.gradleLinker")
@@ -111,18 +107,15 @@ class ForgeNewProjectWizard : GeneratorNewProjectWizard {
             ForgeProjectTemplate.write(directory, options, compilerJar())
 
             // a module with the project directory as its content root, as for an empty project
-            val moduleType = ModuleTypeManager.getInstance().findByID(GeneralModuleType.TYPE_ID)
-            setupProjectFromBuilder(project, moduleType.createModuleBuilder())
+            val builder = ModuleTypeManager.getInstance().findByID(GeneralModuleType.TYPE_ID).createModuleBuilder()
+            builder.name = base.name
+            builder.contentEntryPath = directory.toString()
+            builder.moduleFilePath = directory.resolve(".idea").resolve("${base.name}.iml").toString()
+            builder.commit(project)
 
-            val root = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(directory)
-            root?.refresh(false, true)
-            val program = root?.findFileByRelativePath("src/main/forge/${options.fileName}.forge")
-            StartupManager.getInstance(project).runAfterOpened {
-                ApplicationManager.getApplication().invokeLater({
-                    if (program != null) FileEditorManager.getInstance(project).openFile(program, true)
-                    if (options.gradle) ForgeGradleLinker.EP_NAME.extensionList.forEach { it.link(project, directory) }
-                }, project.disposed)
-            }
+            LocalFileSystem.getInstance().refreshAndFindFileByNioFile(directory)?.refresh(false, true)
+            // what is left to do once the project is open: ForgeNewProjectActivity
+            project.putUserData(ForgeNewProjectActivity.PENDING, ForgeNewProjectActivity.Pending(directory, "src/main/forge/${options.fileName}.forge", options.gradle))
         }
     }
 

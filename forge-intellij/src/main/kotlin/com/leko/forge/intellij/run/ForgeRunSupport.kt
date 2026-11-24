@@ -53,7 +53,7 @@ class ForgeRunLineMarkerContributor : RunLineMarkerContributor() {
         if (element.node.elementType !in ForgeTokenTypes.KEYWORDS) return null
         val file = element.containingFile as? ForgeFile ?: return null
         // the first token of the first declaration: the declarations are the children of the Root rule
-        val root = file.node.getChildren(null).firstOrNull { (it.elementType as? ForgeRuleType)?.debugName == "Root" } ?: return null
+        val root = file.node.getChildren(null).firstOrNull { (it.elementType as? ForgeRuleType)?.ruleName == "Root" } ?: return null
         val first = root.getChildren(null).firstOrNull { it.elementType is ForgeRuleType } ?: return null
         if (PsiTreeUtil.getDeepestFirst(first.psi) !== element) return null
         return Info(AllIcons.RunConfigurations.TestState.Run, ExecutorAction.getActions(0)) { "Compile ${file.name}" }

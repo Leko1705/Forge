@@ -92,7 +92,7 @@ class ForgeFindUsagesHandlerFactory : FindUsagesHandlerFactory() {
                 if (!super.processElementUsages(usageOf, processor, options)) return false
                 if (usageOf !== element) return true
                 // the implementations are usages of the definition
-                return implementations.all { impl -> processor.process(ReadAction.compute<UsageInfo, RuntimeException> { UsageInfo(impl) }) }
+                return implementations.all { impl -> processor.process(ReadAction.computeBlocking<UsageInfo, RuntimeException> { UsageInfo(impl) }) }
             }
         }
     }

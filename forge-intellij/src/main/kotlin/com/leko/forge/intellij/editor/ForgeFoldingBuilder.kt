@@ -34,12 +34,12 @@ class ForgeFoldingBuilder : FoldingBuilderEx(), DumbAware {
 
         // the declarations are the children of the Root rule
         val declarations = root.node.getChildren(null)
-            .firstOrNull { (it.elementType as? ForgeRuleType)?.debugName == "Root" }
+            .firstOrNull { (it.elementType as? ForgeRuleType)?.ruleName == "Root" }
             ?.psi?.children.orEmpty()
         for (decl in declarations) {
             // the body: after the first `=` (or `->` of a rule) directly in the declaration
             val separator = decl.node.getChildren(null).firstOrNull {
-                it.elementType == assign || (it.elementType == arrow && (decl.node.elementType as? ForgeRuleType)?.debugName == "ParseRuleDef")
+                it.elementType == assign || (it.elementType == arrow && (decl.node.elementType as? ForgeRuleType)?.ruleName == "ParseRuleDef")
             } ?: continue
             val start = separator.textRange.endOffset
             add(decl.node, TextRange(start, decl.textRange.endOffset), " ...")
@@ -61,7 +61,7 @@ class ForgeFoldingBuilder : FoldingBuilderEx(), DumbAware {
         })
 
         // the imports at the top
-        val imports = declarations.filter { (it.node.elementType as? ForgeRuleType)?.debugName == "ImportDecl" }
+        val imports = declarations.filter { (it.node.elementType as? ForgeRuleType)?.ruleName == "ImportDecl" }
         if (imports.size > 1) {
             val first = imports.first()
             val range = TextRange(first.textRange.startOffset + "import ".length, imports.last().textRange.endOffset)

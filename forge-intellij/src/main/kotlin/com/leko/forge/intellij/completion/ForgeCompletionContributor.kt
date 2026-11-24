@@ -14,7 +14,6 @@ import com.intellij.codeInsight.lookup.LookupElementBuilder
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.project.Project
-import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.leko.forge.intellij.lexer.ForgeTokenTypes
 import com.leko.forge.intellij.parser.ForgeFile
@@ -34,8 +33,6 @@ class ForgeCompletionContributor : CompletionContributor() {
         val candidates = ForgeCompletion(text, parameters.offset, path?.let(::File), ForgeImports::read).candidates()
         result.addAllElements(candidates.map(::lookup))
     }
-
-    override fun invokeAutoPopup(position: PsiElement, typeChar: Char): Boolean = typeChar == '.' || typeChar == '@'
 
     private fun lookup(candidate: ForgeCandidate): LookupElement {
         var builder = LookupElementBuilder.create(candidate.name)

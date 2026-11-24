@@ -6,9 +6,9 @@ import com.intellij.psi.tree.IFileElementType
 import com.leko.forge.intellij.ForgeLanguage
 import org.antlr.v4.runtime.ParserRuleContext
 
-/** A node of ForgeParser's parse tree: a rule, or an alternative labeled with `# name`. */
-class ForgeRuleType(val contextClass: Class<out ParserRuleContext>, debugName: String) :
-    IElementType(debugName, ForgeLanguage)
+/** A node of ForgeParser's parse tree: a rule, or an alternative labeled with `# name`; [ruleName] says which. */
+class ForgeRuleType(val contextClass: Class<out ParserRuleContext>, val ruleName: String) :
+    IElementType(ruleName, ForgeLanguage)
 
 /** What a name is, e.g. the name of a node declaration or a type in a type reference; it decides its color. */
 enum class ForgeNameRole {

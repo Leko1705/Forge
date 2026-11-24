@@ -21,7 +21,7 @@ object ForgeImports {
      * UTF-16 chars, like the editor, so that the columns of the compiler's spans are offsets in the editor's lines.
      */
     fun read(file: File): CharStream {
-        val text = ReadAction.compute<String, RuntimeException> {
+        val text = ReadAction.computeBlocking<String, RuntimeException> {
             LocalFileSystem.getInstance().findFileByIoFile(file)
                 ?.let { FileDocumentManager.getInstance().getCachedDocument(it) }
                 ?.text

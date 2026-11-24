@@ -74,7 +74,7 @@ class ForgeDocumentationProvider : AbstractDocumentationProvider() {
             private val arrow = ForgeTokenTypes.of(ForgeLexer.ARROW)
             private val lbrace = ForgeTokenTypes.of(ForgeLexer.LBRACE)
 
-            private fun PsiElement.rule(): String? = (node.elementType as? ForgeRuleType)?.debugName
+            private fun PsiElement.rule(): String? = (node.elementType as? ForgeRuleType)?.ruleName
 
             private fun oneLine(text: String) = text.replace(Regex("\\s+"), " ").trim()
 

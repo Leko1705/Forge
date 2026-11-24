@@ -13,7 +13,7 @@ import com.intellij.execution.configurations.RunConfiguration
 import com.intellij.execution.configurations.RunProfileState
 import com.intellij.execution.configurations.RuntimeConfigurationError
 import com.intellij.execution.process.KillableColoredProcessHandler
-import com.intellij.execution.process.ProcessAdapter
+import com.intellij.execution.process.ProcessListener
 import com.intellij.execution.process.ProcessEvent
 import com.intellij.execution.process.ProcessHandler
 import com.intellij.execution.process.ProcessTerminatedListener
@@ -133,7 +133,7 @@ class ForgeRunConfiguration(project: Project, factory: ConfigurationFactory, nam
                 val handler = KillableColoredProcessHandler(commandLine())
                 ProcessTerminatedListener.attach(handler)
                 // the generated files appear in the project
-                handler.addProcessListener(object : ProcessAdapter() {
+                handler.addProcessListener(object : ProcessListener {
                     override fun processTerminated(event: ProcessEvent) {
                         val output = outputPath()
                         LocalFileSystem.getInstance().refreshAndFindFileByNioFile(output)?.refresh(true, true)
