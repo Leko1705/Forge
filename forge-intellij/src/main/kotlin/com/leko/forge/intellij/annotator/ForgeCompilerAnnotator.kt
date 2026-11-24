@@ -16,6 +16,8 @@ import com.leko.forge.context.Context
 import com.leko.forge.enter.Enter
 import com.leko.forge.enter.MemberEnter
 import com.leko.forge.intellij.parser.ForgePsiParser
+import com.leko.forge.intellij.semantics.ForgeImports
+import com.leko.forge.intellij.semantics.ForgeSemantics
 import com.leko.forge.model.SourceSpan
 import com.leko.forge.parse.ImportException
 import com.leko.forge.parse.parseForgeImports
@@ -60,8 +62,6 @@ class ForgeCompilerAnnotator : ExternalAnnotator<ForgeSource, List<ForgeProblem>
     companion object {
         private val LOG = logger<ForgeCompilerAnnotator>()
 
-        /** The compiler keeps the attributes of the trees in one global table, so analyses run one at a time. */
-        private val lock = Any()
 
         fun analyze(source: ForgeSource): List<ForgeProblem> {
             val tokens = ForgePsiParser.antlrTokens(source.text)
@@ -92,10 +92,10 @@ class ForgeCompilerAnnotator : ExternalAnnotator<ForgeSource, List<ForgeProblem>
             if (problems.isNotEmpty()) return problems
 
             val diagnostics = try {
-                synchronized(lock) {
+                synchronized(ForgeSemantics.lock) {
                     try {
                         // without a file, the imports are skipped above; the standard library is always added
-                        val root = (source.file ?: File("<editor>")).parseForgeImports(main)
+                        val root = (source.file ?: File("<editor>")).parseForgeImports(main, ForgeImports::read)
                         val context = Context()
                         Enter.instance(context).enter(root)
                         MemberEnter.instance(context).enter(root)

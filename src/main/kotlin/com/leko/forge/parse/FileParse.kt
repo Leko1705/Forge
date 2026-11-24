@@ -24,9 +24,13 @@ fun File.parseForge(): ForgeParser.RootContext = parseForgeImports(parseChecked(
 
 /**
  * Like [File.parseForge], for [main], the already parsed text of this file (e.g. the unsaved text of an editor):
- * the imported files and the standard library are added. The imported files are read from disk.
+ * the imported files and the standard library are added. The imported files are read with [read], from disk by
+ * default; an IDE reads the text of its editors.
  */
-fun File.parseForgeImports(main: ForgeParser.RootContext): ForgeParser.RootContext {
+fun File.parseForgeImports(
+    main: ForgeParser.RootContext,
+    read: (File) -> CharStream = { CharStreams.fromFileName(it.absolutePath) },
+): ForgeParser.RootContext {
     val seen = mutableSetOf(this.canonicalFile)
     val imported = mutableListOf(parseStd())
 
@@ -39,7 +43,7 @@ fun File.parseForgeImports(main: ForgeParser.RootContext): ForgeParser.RootConte
             if (!target.isFile) {
                 throw ImportException("${file.name}:${decl.start.line}:${decl.start.charPositionInLine}: can not import '$path': ${target.path} does not exist")
             }
-            val ast = parseChecked(target)
+            val ast = parseChecked(target, read(target))
             collect(target, ast)
             imported += ast
         }
@@ -69,8 +73,8 @@ private val stdText: String by lazy {
 
 private fun parseStd(): ForgeParser.RootContext = parseForge(CharStreams.fromString(stdText, STD_SOURCE))
 
-private fun parseChecked(file: File): ForgeParser.RootContext {
-    val lexer = ForgeLexer(CharStreams.fromFileName(file.absolutePath))
+private fun parseChecked(file: File, input: CharStream = CharStreams.fromFileName(file.absolutePath)): ForgeParser.RootContext {
+    val lexer = ForgeLexer(input)
     val parser = ForgeParser(CommonTokenStream(lexer))
     val root = parser.root()
     // the syntax errors were reported by ANTLR; the analysis would fail on the incomplete tree

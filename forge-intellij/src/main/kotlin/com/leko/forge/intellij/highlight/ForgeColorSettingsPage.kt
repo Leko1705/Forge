@@ -9,6 +9,7 @@ import com.leko.forge.intellij.ForgeIcons
 import com.leko.forge.intellij.parser.ForgeNameRole
 import com.leko.forge.intellij.parser.ForgePsiParser
 import com.leko.forge.intellij.parser.nameRole
+import com.leko.forge.intellij.semantics.ForgeSemantics
 import org.antlr.v4.runtime.ParserRuleContext
 import org.antlr.v4.runtime.tree.ParseTree
 import org.antlr.v4.runtime.tree.TerminalNode
@@ -42,12 +43,12 @@ class ForgeColorSettingsPage : ColorSettingsPage {
         AttributesDescriptor("Functions//Function declaration", ForgeColors.FUNCTION_DECLARATION),
         AttributesDescriptor("Functions//Function call", ForgeColors.FUNCTION_CALL),
         AttributesDescriptor("Functions//Method call", ForgeColors.METHOD_CALL),
-        AttributesDescriptor("Property (val)", ForgeColors.PROPERTY),
+        AttributesDescriptor("Property (val, computed)", ForgeColors.PROPERTY),
         AttributesDescriptor("Constant", ForgeColors.CONSTANT),
         AttributesDescriptor("Field or child", ForgeColors.FIELD),
         AttributesDescriptor("Parameter", ForgeColors.PARAMETER),
         AttributesDescriptor("Local variable", ForgeColors.LOCAL_VARIABLE),
-        AttributesDescriptor("Attribute (syn, inh, circular, coll)", ForgeColors.ATTRIBUTE),
+        AttributesDescriptor("Attribute (syn, inh, circular, coll; computed)", ForgeColors.ATTRIBUTE),
         AttributesDescriptor("Graphs//Port", ForgeColors.PORT),
         AttributesDescriptor("Graphs//Graph", ForgeColors.GRAPH),
         AttributesDescriptor("Parsers//Parser", ForgeColors.PARSER),
@@ -64,18 +65,23 @@ class ForgeColorSettingsPage : ColorSettingsPage {
     override fun getAdditionalHighlightingTagToDescriptorMap(): Map<String, TextAttributesKey> =
         ForgeNameRole.entries.associate { tag(it) to ForgeColors.of(it) }
 
-    /** The demo, with the names tagged by their role as the parser finds them, as the annotator colors them. */
+    /**
+     * The demo, with the names tagged as the annotator colors them: by what the compiler resolves them to, or by
+     * their role in the grammar.
+     */
     override fun getDemoText(): String = tagNames(DEMO)
 
     private fun tag(role: ForgeNameRole) = "forge_" + role.name.lowercase()
 
     private fun tagNames(text: String): String {
         val (tree, _) = ForgePsiParser.parseAntlr(text)
+        val semantics = ForgeSemantics.compute(text, null) { error("the demo imports nothing") }
         val names = mutableListOf<Pair<IntRange, ForgeNameRole>>()
         fun visit(node: ParseTree) {
             if (node is TerminalNode) {
-                val role = (node.parent as? ParserRuleContext)?.let { nameRole(it, node.symbol) } ?: return
-                names += node.symbol.startIndex..node.symbol.stopIndex to role
+                val grammarRole = (node.parent as? ParserRuleContext)?.let { nameRole(it, node.symbol) } ?: return
+                val role = semantics.resolutions[node.symbol.startIndex]?.role ?: grammarRole
+                if (role != ForgeNameRole.IDENTIFIER) names += node.symbol.startIndex..node.symbol.stopIndex to role
                 return
             }
             for (i in 0 until node.childCount) visit(node.getChild(i))
@@ -93,7 +99,7 @@ class ForgeColorSettingsPage : ColorSettingsPage {
 
     private companion object {
         val DEMO = """
-            import "jvm.forge"
+            import "std"
 
             /* The tree of a small language. */
             node Program(decls: List<Decl>)
@@ -102,6 +108,7 @@ class ForgeColorSettingsPage : ColorSettingsPage {
             node Expr
             node Num(value: int): Expr
             node Add(left: Expr, right: Expr): Expr
+            node Named
             for Function impl Named
 
             enum Type { INT, ERROR(msg: str) }
@@ -111,12 +118,14 @@ class ForgeColorSettingsPage : ColorSettingsPage {
             // attributes
             syn Expr.type: Type
             syn Num.type: Type = Type.INT
-            syn Add.type: Type = if left.type == right.type then left.type else Type.ERROR("mismatch")
+            syn Add.type: Type = if this.left.type == this.right.type then this.left.type else Type.ERROR("mismatch")
             inh depth: int = 0
-            inh Add.depth { left <- depth + 1  right <- depth + 1 }
+            inh Add.depth { left <- this.depth + 1  right <- this.depth + 1 }
             circular(false) Expr.reachable: bool = this.reachable
             coll Program.errors: List<Diagnostic> = []
-            contrib Add -> this.root.errors as e = Diagnostic("bad", 1)
+            inh program: Program? = null
+            inh Program.program { decls[i] <- this }
+            contrib Add -> this.program!!.errors as e = e ++ [Diagnostic("bad", 1)]
 
             fun Type.repr(): str = match this { Type.INT -> "int"  Type.ERROR(m) -> m  _ -> "?" }
             fun <T> List<T>.second(): T? = this[1]
@@ -131,9 +140,11 @@ class ForgeColorSettingsPage : ColorSettingsPage {
 
             // parsers
             parser Lang skip '\s+' keywords 'if'
-            rule Lang.expr: Expr @infixLeft(10) -> l: expr '\+' r: expr { Add(l, r) } | n: '[0-9]+' { Num(n.toInt()) }
+            rule Lang.expr: Expr
+            rule Lang.expr: Expr @infixLeft(10) -> l: expr '\+' r: expr { Add(l, r) }
+            rule Lang.expr: Num -> n: '[0-9]+' { Num(n.toInt()) }
             parser ClassFile binary
-            rule ClassFile.magic: int -> 0xCAFEBABE @u2[2]
+            rule ClassFile.version: int -> 0xCAFEBABE minor: @u2 major: @u2 { major }
         """.trimIndent()
     }
 }

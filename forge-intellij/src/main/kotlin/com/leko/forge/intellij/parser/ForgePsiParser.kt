@@ -80,7 +80,7 @@ class ForgePsiParser : PsiParser {
                     val mark = role?.let { builder.mark() }
                     reportErrors(builder.currentOffset)
                     while (!builder.eof() && builder.currentOffset <= token.stopIndex) consume()
-                    mark?.done(ForgeElementTypes.of(role))
+                    mark?.done(ForgeElementTypes.of(role, isDeclaration(context, token)))
                 }
                 is ParserRuleContext -> {
                     val start = tree.start

@@ -9,6 +9,7 @@ import org.antlr.v4.runtime.CharStreams
 import org.antlr.v4.runtime.CommonTokenStream
 import org.antlr.v4.runtime.RecognitionException
 import org.antlr.v4.runtime.Recognizer
+import com.intellij.openapi.vfs.newvfs.impl.VfsRootAccess
 import com.intellij.psi.TokenType
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.PsiErrorElement
@@ -138,12 +139,12 @@ class ForgePluginTest : BasePlatformTestCase() {
             "Num" to ForgeNameRole.TYPE_REFERENCE, "double" to ForgeNameRole.ATTRIBUTE, "int" to ForgeNameRole.BUILTIN_TYPE,
             "twice" to ForgeNameRole.FUNCTION_CALL, "value" to ForgeNameRole.FIELD,
             "twice" to ForgeNameRole.FUNCTION_DECLARATION, "x" to ForgeNameRole.PARAMETER, "int" to ForgeNameRole.BUILTIN_TYPE,
-            "int" to ForgeNameRole.BUILTIN_TYPE,
+            "int" to ForgeNameRole.BUILTIN_TYPE, "x" to ForgeNameRole.IDENTIFIER,
             "Color" to ForgeNameRole.TYPE_DECLARATION, "RED" to ForgeNameRole.ENUM_CONSTANT,
             "op" to ForgeNameRole.SOFT_KEYWORD, "Color" to ForgeNameRole.TYPE_REFERENCE, "plus" to ForgeNameRole.FUNCTION_DECLARATION,
             // `Color.RED` in an expression: what `Color` is only the analysis knows
             "o" to ForgeNameRole.PARAMETER, "Color" to ForgeNameRole.TYPE_REFERENCE, "Color" to ForgeNameRole.TYPE_REFERENCE,
-            "RED" to ForgeNameRole.FIELD,
+            "Color" to ForgeNameRole.IDENTIFIER, "RED" to ForgeNameRole.FIELD,
         ), roles)
     }
 
@@ -158,6 +159,8 @@ class ForgePluginTest : BasePlatformTestCase() {
     }
 
     fun testCorrectProgramsHaveNoCompilerErrors() {
+        // the imports are read through the IDE's file system
+        VfsRootAccess.allowRootAccess(testRootDisposable, root.absolutePath)
         for (path in listOf("examples/kiln/kiln.forge", "src/test/forge/conformance.forge", "src/test/forge/flow.forge")) {
             val file = File(root, path)
             val problems = ForgeCompilerAnnotator.analyze(ForgeSource(file.readText(), file))

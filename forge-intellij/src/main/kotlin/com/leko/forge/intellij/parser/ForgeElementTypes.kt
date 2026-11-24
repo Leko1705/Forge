@@ -16,10 +16,13 @@ enum class ForgeNameRole {
     ENUM_CONSTANT, FUNCTION_DECLARATION, FUNCTION_CALL, METHOD_CALL, PROPERTY,
     CONSTANT, FIELD, PARAMETER, LOCAL_VARIABLE, ATTRIBUTE, PORT, GRAPH,
     PARSER, PARSER_RULE, ANNOTATION, SOFT_KEYWORD,
+    /** An identifier in an expression: a variable, a field, an attribute, a constant, ... */
+    IDENTIFIER,
 }
 
-/** A name with a [role]; it holds one IDENT token. */
-class ForgeNameType(val role: ForgeNameRole) : IElementType("NAME_$role", ForgeLanguage)
+/** A name with a [role]; it holds one IDENT token, and [declares][declaration] or uses something. */
+class ForgeNameType(val role: ForgeNameRole, val declaration: Boolean) :
+    IElementType((if (declaration) "DECLARATION_" else "NAME_") + role, ForgeLanguage)
 
 object ForgeElementTypes {
     @JvmField val FILE = IFileElementType(ForgeLanguage)
@@ -32,10 +35,11 @@ object ForgeElementTypes {
                 ForgeRuleType(it as Class<out ParserRuleContext>, it.simpleName.removeSuffix("Context"))
             }
 
-    private val nameTypes: Map<ForgeNameRole, ForgeNameType> = ForgeNameRole.entries.associateWith(::ForgeNameType)
+    private val nameTypes: Map<Pair<ForgeNameRole, Boolean>, ForgeNameType> =
+        ForgeNameRole.entries.flatMap { listOf(it to true, it to false) }.associateWith { ForgeNameType(it.first, it.second) }
 
     fun of(context: ParserRuleContext): IElementType =
         ruleTypes[context.javaClass] ?: error("not a context of ForgeParser: ${context.javaClass}")
 
-    fun of(role: ForgeNameRole): ForgeNameType = nameTypes.getValue(role)
+    fun of(role: ForgeNameRole, declaration: Boolean): ForgeNameType = nameTypes.getValue(role to declaration)
 }

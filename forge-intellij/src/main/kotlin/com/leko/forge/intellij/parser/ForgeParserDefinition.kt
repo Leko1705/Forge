@@ -17,6 +17,8 @@ import com.leko.forge.intellij.ForgeFileType
 import com.leko.forge.intellij.ForgeLanguage
 import com.leko.forge.intellij.lexer.ForgeLexerAdapter
 import com.leko.forge.intellij.lexer.ForgeTokenTypes
+import com.leko.forge.intellij.psi.ForgeDeclaredName
+import com.leko.forge.intellij.psi.ForgeNameReference
 
 class ForgeFile(viewProvider: FileViewProvider) : PsiFileBase(viewProvider, ForgeLanguage) {
     override fun getFileType(): FileType = ForgeFileType
@@ -33,6 +35,9 @@ class ForgeParserDefinition : ParserDefinition {
     override fun getWhitespaceTokens(): TokenSet = ForgeTokenTypes.WHITESPACES
     override fun getCommentTokens(): TokenSet = ForgeTokenTypes.COMMENTS
     override fun getStringLiteralElements(): TokenSet = ForgeTokenTypes.STRINGS
-    override fun createElement(node: ASTNode): PsiElement = ForgePsiElement(node)
+    override fun createElement(node: ASTNode): PsiElement {
+        val type = node.elementType as? ForgeNameType ?: return ForgePsiElement(node)
+        return if (type.declaration) ForgeDeclaredName(node) else ForgeNameReference(node)
+    }
     override fun createFile(viewProvider: FileViewProvider): PsiFile = ForgeFile(viewProvider)
 }

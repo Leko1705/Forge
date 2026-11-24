@@ -49,13 +49,15 @@ object ForgeColors {
     val FUNCTION_DECLARATION = key("FUNCTION_DECLARATION", Default.FUNCTION_DECLARATION)
     val FUNCTION_CALL = key("FUNCTION_CALL", Default.FUNCTION_CALL)
     val METHOD_CALL = key("METHOD_CALL", Default.INSTANCE_METHOD)
-    val PROPERTY = key("PROPERTY", Default.INSTANCE_FIELD)
+    // vals and attributes are computed, not stored: italic like Kotlin's extension properties (static fields are
+    // italic in the bundled schemes), so that they differ from the fields of nodes and records
+    val PROPERTY = key("PROPERTY", Default.STATIC_FIELD)
     val CONSTANT = key("CONSTANT", Default.CONSTANT)
     val FIELD = key("FIELD", Default.INSTANCE_FIELD)
     val PARAMETER = key("PARAMETER", Default.PARAMETER)
     val LOCAL_VARIABLE = key("LOCAL_VARIABLE", Default.LOCAL_VARIABLE)
-    val ATTRIBUTE = key("ATTRIBUTE", Default.INSTANCE_FIELD)
-    val PORT = key("PORT", Default.STATIC_FIELD)
+    val ATTRIBUTE = key("ATTRIBUTE", Default.STATIC_FIELD)
+    val PORT = key("PORT", Default.CONSTANT)
     val GRAPH = key("GRAPH", Default.GLOBAL_VARIABLE)
     val PARSER = key("PARSER", Default.CLASS_NAME)
     val PARSER_RULE = key("PARSER_RULE", Default.FUNCTION_DECLARATION)
@@ -84,6 +86,7 @@ object ForgeColors {
         ForgeNameRole.PARSER_RULE -> PARSER_RULE
         ForgeNameRole.ANNOTATION -> ANNOTATION
         ForgeNameRole.SOFT_KEYWORD -> SOFT_KEYWORD
+        ForgeNameRole.IDENTIFIER -> IDENTIFIER
     }
 }
 

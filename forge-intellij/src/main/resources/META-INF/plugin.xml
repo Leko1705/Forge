@@ -10,6 +10,8 @@
         <li>the syntax errors of the compiler's parser while typing;</li>
         <li>the errors and warnings of the compiler's analysis (types, attributes, cycles, flows, imports, ...)
             where the compiler reports them;</li>
+        <li>navigation (Ctrl+Click, Go to Declaration) and Find Usages, as the compiler resolves the names, also into
+            imported files and the standard library; attributes and vals, which are computed, are italic;</li>
         <li>brace matching, commenting and quote pairing.</li>
     </ul>
     ]]></description>
@@ -30,5 +32,7 @@
         <lang.braceMatcher language="Forge" implementationClass="com.leko.forge.intellij.editor.ForgeBraceMatcher"/>
         <lang.commenter language="Forge" implementationClass="com.leko.forge.intellij.editor.ForgeCommenter"/>
         <lang.quoteHandler language="Forge" implementationClass="com.leko.forge.intellij.editor.ForgeQuoteHandler"/>
+        <lang.findUsagesProvider language="Forge"
+                                 implementationClass="com.leko.forge.intellij.psi.ForgeFindUsagesProvider"/>
     </extensions>
 </idea-plugin>

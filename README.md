@@ -329,6 +329,12 @@ the compiler itself, so the editor sees what `forge -f` sees:
 - **Syntax errors** of the compiler's parser while typing.
 - **Errors and warnings of the analysis** (Enter, MemberEnter, Attr, Dependency, with the imported files and the
   standard library) where the compiler reports them; an error in an imported file is shown on its `import`.
+- **Navigation and usages**: Ctrl+Click (Go to Declaration) on a name goes to what the compiler resolves it to,
+  also into imported files and the standard library; Ctrl+Click on a declaration, Find Usages (`Alt+F7`) and
+  Rename (`Shift+F6`) find its uses. The names are resolved by the compiler's analysis, so while a file has syntax
+  errors, it resolves nothing.
+- **Computed values are italic**: attributes (`syn`, `inh`, `circular`, `coll`) and `val` properties, where they are
+  declared and where they are used, so `this.type` (an attribute) and `this.left` (a child) look different.
 - Brace matching, commenting (`Ctrl+/`) and quote pairing.
 
 ```

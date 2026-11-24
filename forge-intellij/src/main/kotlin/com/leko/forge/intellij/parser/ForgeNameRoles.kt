@@ -100,5 +100,36 @@ fun nameRole(context: ParserRuleContext, token: Token): ForgeNameRole? = when (c
     is ForgeParser.PatternVariableContext -> LOCAL_VARIABLE.takeIf { token === context.name }
     is ForgeParser.DefinedParameterContext -> LOCAL_VARIABLE.takeIf { token === context.name }
     is ForgeParser.ListComprehensionContext -> LOCAL_VARIABLE.takeIf { token === context.name || token === context.acc }
+    // what an identifier in an expression is, only the analysis knows (ForgeSemantics)
+    is ForgeParser.IdentifierContext -> IDENTIFIER
     else -> null
+}
+
+/** Whether [token], a name with a [nameRole] directly below [context], declares something, or uses a declaration. */
+fun isDeclaration(context: ParserRuleContext, token: Token): Boolean = when (context) {
+    is ForgeParser.RecordContext -> token === context.name
+    is ForgeParser.RecordFieldContext -> token === context.name
+    is ForgeParser.EnumContext -> token === context.name
+    is ForgeParser.EnumItemContext -> token === context.name
+    is ForgeParser.ConstDefContext -> token === context.name
+    is ForgeParser.ParameterContext -> token === context.name
+    is ForgeParser.FunctionContext -> token === context.name || context.typeParams.any { it === token }
+    is ForgeParser.NodeDefContext -> token === context.name
+    is ForgeParser.SynDefContext -> token === context.attrName
+    is ForgeParser.InhDefContext -> token === context.attrName
+    is ForgeParser.CircularDefContext -> token === context.attrName
+    is ForgeParser.CollContext -> token === context.collName
+    is ForgeParser.ContribContext -> token === context.alias
+    is ForgeParser.PortDefContext -> true
+    is ForgeParser.GraphDefContext -> token === context.name
+    is ForgeParser.FlowBinderContext -> true
+    is ForgeParser.FlowVertexContext -> token === context.name
+    is ForgeParser.FlowForContext -> token === context.name
+    is ForgeParser.ParserDefContext -> token === context.name
+    is ForgeParser.ParseRuleDefContext -> token === context.ruleName
+    is ForgeParser.ParserLabeledContext -> token === context.label
+    is ForgeParser.PatternVariableContext -> true
+    is ForgeParser.DefinedParameterContext -> true
+    is ForgeParser.ListComprehensionContext -> true
+    else -> false
 }
