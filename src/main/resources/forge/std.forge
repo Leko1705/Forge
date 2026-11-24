@@ -169,12 +169,12 @@ fun <T, K> List<T>.groupBy(key: (T) -> K): Map<K, List<T>> = (acc ++ {k: (if k i
 fun <T> List<T>.joinWith(separator: str, f: (T) -> str): str = this.map(f).join(separator)
 
 /** The elements in ascending order; equal elements keep their order. */
-fun <T: Comparable> List<T>.sorted(): List<T> = this.sortedWith({ a, b -> a.compareTo(b) })
+fun <T: Comparable> List<T>.sorted(): List<T> = this.sortedWith { a, b -> a.compareTo(b) }
 /** The elements in the ascending order of [key]; equal ones keep their order. */
-fun <T, K: Comparable> List<T>.sortedBy(key: (T) -> K): List<T> = this.sortedWith({ a, b -> key(a).compareTo(key(b)) })
+fun <T, K: Comparable> List<T>.sortedBy(key: (T) -> K): List<T> = this.sortedWith { a, b -> key(a).compareTo(key(b)) }
 /** The elements in the order of [compare] (below 0: the first comes first); equal ones keep their order. */
 fun <T> List<T>.sortedWith(compare: (T, T) -> int): List<T> =
-    (acc.filter({ e -> compare(e, x) <= 0 }) ++ [x] ++ acc.filter({ e -> compare(e, x) > 0 })) for x in this with acc = empty
+    (acc.filter { compare(it, x) <= 0 } ++ [x] ++ acc.filter { compare(it, x) > 0 }) for x in this with acc = empty
     where empty: List<T> = []
 /** The largest element by [key]; null for an empty list. */
 fun <T, K: Comparable> List<T>.maxBy(key: (T) -> K): T? = match this.sortedBy(key).reversed() {

@@ -114,6 +114,12 @@ fun lambdas(): str = (compose({ x: int -> x + 1 }, { x -> x * 2 }))(5).str() + "
     + " " + {"a": 1}.mapValues({ v -> v + 1 })["a"].str() + " " + {"k": 2}.entries().map({ e -> e.0 + e.1.str() }).join("")
 fun <A, B, C> compose(f: (A) -> B, g: (B) -> C): (A) -> C = { x -> g(f(x)) }
 fun apply2(f: (str, str) -> str, a: str, b: str): str = f(a, b)
+// a lambda after a call is its last argument; without `->` its parameter is `it`
+fun repeat(n: int, f: (int) -> str): str = acc + f(i) for i in [0:n] with acc = ""
+fun now(f: () -> int): int = f()
+fun trailing(): str = [1, 2, 3].map { it * 10 }.filter { x -> x > 10 }.map { it.str() }.join(",")
+    + " " + repeat(3) { i -> "<${i}>" } + " " + "${now { 42 }} ${[3, 1, 2].sortedBy { -it }.map { it.str() }.join("")}"
+    + " " + [1, 2, 3, 4].fold(0) { acc, x -> acc + x }.str() + " " + match [1].map { it + 1 } { [2] -> "two"  _ -> "?" }
 fun nested(): str = "${"a${"b${1}"}"}" + " ${[1, 2].size} ${{ x: int -> x }(3)}"
 
 fun report(): List<str> = [
@@ -123,6 +129,7 @@ fun report(): List<str> = [
     longs(),
     lambdas(),
     nested(),
+    trailing(),
     "${area(10)}",
     "${chain()}",
     swapped((1, "a")).0,

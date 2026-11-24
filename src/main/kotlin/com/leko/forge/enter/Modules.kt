@@ -380,7 +380,8 @@ class Modules private constructor(context: Context) {
                 }
                 is ForgeParser.LambdaContext -> {
                     ctx.lambdaParam().forEach { p -> p.ty?.let { type(it, typeParams) } }
-                    expression(ctx.body, locals + ctx.lambdaParam().mapNotNull { it.name?.text }, typeParams)
+                    val implicit = if (ctx.ARROW() == null) listOf("it") else emptyList()
+                    expression(ctx.body, locals + ctx.lambdaParam().mapNotNull { it.name?.text } + implicit, typeParams)
                     return
                 }
                 is ForgeParser.WhereExprContext -> {

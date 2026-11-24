@@ -20,7 +20,7 @@ Options: `-f` files, `-d` output directory, `-o` output name, `-p` package (name
   index out of bounds) is folded.
 - **Dead code elimination**: everything the compiled file declares is kept; of the files it imports, only what is
   used: functions, attributes with their equations, graphs and parser rules. `-keep f,Recv.g,attr,P,P.rule` keeps
-  more, e.g. a parser the program around the generated code uses (`-keep ClassFile` for the Kiln driver).
+  more, e.g. a parser the program around the generated code uses (`-keep jvm::ClassFile` for the Kiln driver; a declaration of a module by its qualified name).
 
 A file can use the declarations of others: `import "jvm.forge"` (relative to the importing file) at the top
 makes the declarations of the imported file part of this one, which is then compiled to one Kotlin file.
@@ -175,6 +175,19 @@ twice(adder(3), 1)                                    // 7
 [3, 1, 2].map({ x -> x * x }).filter({ x -> x > 1 })  // [9, 4]
 ```
 
+As in Kotlin, a lambda that is the last argument can follow the call: `xs.map() { x -> x * 2 }`, also without the
+parentheses, `xs.map { x -> x * 2 }`, and with other arguments before it: `xs.fold(0) { acc, x -> acc + x }`. Such a
+lambda can leave out its parameter and `->`; it then has one parameter, `it`, if a function of one parameter is
+expected (`xs.map { it * 2 }`, `xs.filter { it > 0 }`), else none (`run { 42 }`). In parentheses a lambda always has
+its `->`: `{ x }` there is a set.
+
+```
+fun repeat(n: int, f: (int) -> str): str = acc + f(i) for i in [0:n] with acc = ""
+repeat(3) { i -> "<${i}>" }                            // "<0><1><2>"
+[1, 2, 3].map { it * 10 }.filter { it > 10 }           // [20, 30]
+names.joinWith(", ") { it.upper() }
+```
+
 In Kotlin a function value is a Kotlin function type (`(Int) -> Int`); in the other targets a value of the runtime
 (`__Fn` in Java, `rt::fn` in C++, `rt::func` in Rust, `Fn` in OCaml, a function in Python and JavaScript).
 
@@ -259,7 +272,8 @@ Modules name types, functions, constants, parsers, graphs and traits. Members ar
 no module: fields, attributes, methods (`fun Point.plus(...)` in a module is a method of `Point` everywhere), rules
 of parsers; inherited attributes and ports have global names. A qualified name is written without spaces; `head :: tail`
 in a list pattern has them. In the generated code, `geometry::Point` is `geometry__Point`, so names in modules may not
-contain `__`.
+contain `__`. A Kotlin program around the generated code can import such a name under its own:
+`import kiln.jvm__ClassFile as ClassFile`.
 
 ### long
 

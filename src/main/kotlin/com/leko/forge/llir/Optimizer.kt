@@ -16,7 +16,9 @@ class Optimizer private constructor(private val context: Context) {
     }
 
     fun optimize(module: LLIRModule): LLIRModule {
-        val keep = Options.instance(context).get("-keep").orEmpty().flatMap { it.split(',') }.map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+        val keep = Options.instance(context).get("-keep").orEmpty().flatMap { it.split(',') }.map { it.trim() }.filter { it.isNotEmpty() }
+            // a declaration of a module by its qualified name: jvm::ClassFile
+            .map { it.replace("::", com.leko.forge.types.MODULE_SEPARATOR) }.toSet()
         val phases = listOf(ConstantFolding, DeadCodeElimination(keep))
 
         var module = module

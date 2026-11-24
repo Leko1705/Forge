@@ -414,7 +414,7 @@ data class FoldOp(val iterable: Value, val initAcc: Value, val item: String, val
 
 // ---- local bindings, functions as values, tuples ----
 /** `body where name = value`: [value] is computed once, then [body] with [name] bound to it. */
-data class Let(val name: String, val value: Value, val body: Value) : Value { override val type: Type get() = body.type }
+data class Let(val name: String, val value: Value, val body: Value, val valueType: Type = value.type) : Value { override val type: Type get() = body.type }
 /** `{ a, b -> body }`: a function value; it sees the variables, parameters and `this` where it is written. */
 data class Lambda(val params: List<LocalRef>, val body: Value, override val type: FunctionType) : Value
 /** Calls the function value [function]. */

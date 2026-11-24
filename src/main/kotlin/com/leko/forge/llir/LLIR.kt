@@ -248,7 +248,9 @@ class LLIR private constructor(private val context: Context) {
         program.attributes += module.inherited.keys
         program.graphs += module.graphs.map { it.name }
         program.parsers += module.parsers.map { it.name }
-        val keep = Options.instance(context).get("-keep").orEmpty().flatMap { it.split(',') }.map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+        val keep = Options.instance(context).get("-keep").orEmpty().flatMap { it.split(',') }.map { it.trim() }.filter { it.isNotEmpty() }
+            // a declaration of a module by its qualified name: jvm::ClassFile
+            .map { it.replace("::", com.leko.forge.types.MODULE_SEPARATOR) }.toSet()
         return DeadCodeElimination(keep).apply(module.copy(main = program)).first.copy(main = module.main)
     }
 
@@ -861,14 +863,15 @@ class LLIR private constructor(private val context: Context) {
                 val symbols = TreeAttributes.attributes[b]?.get("symbols") as List<VarSymbol>
                 val value = b.value.transform()
                 result = if (b.name != null) {
-                    Let(symbols.single().name, value, result)
+                    Let(symbols.single().name, value, result, symbols.single().type)
                 } else {
                     // (a, b) = pair: the tuple once, then its elements
                     val tuple = "__t" + (destructured++)
-                    val tupleRef = LocalRef(tuple, value.type)
+                    // the type Attr gave it: that of a call of a generic function is instantiated, the call's is not
+                    val tupleRef = LocalRef(tuple, b.value.type)
                     Let(tuple, value, symbols.withIndex().reversed().fold(result) { acc, (i, sym) ->
-                        Let(sym.name, TupleGet(tupleRef, i, sym.type), acc)
-                    })
+                        Let(sym.name, TupleGet(tupleRef, i, sym.type), acc, sym.type)
+                    }, b.value.type)
                 }
             }
             return result

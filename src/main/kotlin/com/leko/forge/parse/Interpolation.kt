@@ -33,6 +33,10 @@ fun postParse(root: ParserRuleContext, listener: org.antlr.v4.runtime.ANTLRError
     var errors = 0
     fun walk(t: ParseTree) {
         if (t is ForgeParser.StringValueContext) errors += expand(t, listener)
+        if (t is ForgeParser.TrailingLambdaContext) {
+            walk(trailingLambda(t))
+            return
+        }
         for (i in 0 until t.childCount) walk(t.getChild(i))
         // bottom up: a where moved out of an `if` may move out of the enclosing one
         if (t is ForgeParser.WhereExprContext) flatten(t)
@@ -73,6 +77,28 @@ private fun replaceChild(parent: ParserRuleContext, old: ParserRuleContext, new:
         }
         c = c.superclass
     }
+}
+
+/**
+ * `f(x) { y -> ... }`, `f { ... }`: the lambda after a call becomes a lambda among its arguments, the last one. One
+ * without `->` (`xs.map { it * 2 }`) is a lambda without the arrow; Attr gives it the parameter `it`, if one is expected.
+ */
+private fun trailingLambda(t: ForgeParser.TrailingLambdaContext): ForgeParser.LambdaContext {
+    val call = t.parent as ParserRuleContext
+    val lambda = ForgeParser.LambdaContext(ForgeParser.ExpressionContext(call, t.invokingState))
+    lambda.start = t.start
+    lambda.stop = t.stop
+    for (child in t.children.orEmpty()) {
+        lambda.addAnyChild(child)
+        when (child) {
+            is ParserRuleContext -> child.parent = lambda
+            is org.antlr.v4.runtime.tree.TerminalNodeImpl -> child.parent = lambda
+        }
+    }
+    lambda.body = t.body
+    val index = call.children.indexOfFirst { it === t }
+    call.children[index] = lambda
+    return lambda
 }
 
 /** `e where a = (v where b = w)` written without parentheses: the bindings of the inner `where` move out. */

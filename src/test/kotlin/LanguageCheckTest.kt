@@ -55,6 +55,21 @@ class LanguageCheckTest {
     }
 
     @Test
+    fun trailingLambdas() {
+        assertOk("fun f(xs: List<int>): List<str> = xs.map { it + 1 }.filter { x -> x > 1 }.map() { it.str() }")
+        assertOk("fun apply(f: (int) -> int): int = f(1)\nfun g(): int = apply { it * 2 } + apply { x -> x }")
+        assertOk("fun now(f: () -> int): int = f()\nfun g(): int = now { 42 }")
+        assertOk("fun g(xs: List<int>): int = xs.fold(0) { acc, x -> acc + x }")
+        // a block after a match is its cases, also after a name or a call
+        assertOk("fun f(x: int): int = match x { a -> a }\nfun g(xs: List<int>): int = match xs.reversed() { [a] -> a  _ -> 0 }")
+        assertOk("fun g(xs: List<int>): str = match xs.map { it } { [1] -> \"one\"  _ -> \"\" }")
+        // flows: the blocks of `if` and `for`
+        assertOk("node F(body: S)\nnode S\nnode A(): S\nport p\ngraph cfg: F\nflow cfg: F(_, ) { entry(this); this -> next }\n" +
+            "flow cfg: A { entry(this); if bound(p) { this -> p } else { this -> next } }".replace("(_, )", "(_)"))
+        assertError("expected type '(int, int) -> int'", "fun f(g: (int, int) -> int): int = 1\nfun h(): int = f { 3 }")
+    }
+
+    @Test
     fun genericTypes() {
         assertOk("record Pair<A, B> { a: A, b: B }\nfun f(): Pair<int, str> = Pair(1, \"x\")\nfun g(p: Pair<int, str>): str = p.b")
         assertOk("enum Option<T> { NONE, SOME(v: T) }\nfun f(): Option<int> = Option.NONE\nfun g(o: Option<int>): int = match o { Option.SOME(v) -> v  _ -> 0 }")

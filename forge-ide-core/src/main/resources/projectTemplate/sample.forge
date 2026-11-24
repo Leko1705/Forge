@@ -20,9 +20,9 @@ syn Neg.value: int = -this.operand.value
 /** The expression as text, with parentheses around every operation. */
 syn Expr.text: str
 syn Num.text: str = this.digits
-syn Add.text: str = "(" + this.left.text + " + " + this.right.text + ")"
-syn Mul.text: str = "(" + this.left.text + " * " + this.right.text + ")"
-syn Neg.text: str = "-" + this.operand.text
+syn Add.text: str = "(${this.left.text} + ${this.right.text})"
+syn Mul.text: str = "(${this.left.text} * ${this.right.text})"
+syn Neg.text: str = "-${this.operand.text}"
 
 // whitespace is skipped between the terminals; the operators have precedences
 parser Calc skip '\s+'
@@ -37,4 +37,4 @@ rule Calc.expr: Expr @infixLeft(10) -> l: expr '\+' r: expr { Add(l, r) }
 rule Calc.expr: Expr @infixLeft(20) -> l: expr '\*' r: expr { Mul(l, r) }
 
 /** Every expression of [source] with its value: `(1 + (2 * 3)) = 7`. */
-fun evaluate(source: str): List<str> = e.text + " = " + e.value.str() for e in Calc.program(source).exprs
+fun evaluate(source: str): List<str> = Calc.program(source).exprs.map { "${it.text} = ${it.value}" }

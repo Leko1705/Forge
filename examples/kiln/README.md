@@ -88,7 +88,8 @@ source ──Kiln parser──▶ Kiln tree ──attributes──▶ diagnostic
                                   └──syn code──▶ JVM IR tree (jvm.forge) ──attributes──▶ class file bytes
 ```
 
-`kiln.forge` starts with `import "jvm.forge"`, so both are one program. `compile(name, source)` wraps the
+`kiln.forge` starts with `import "jvm.forge"` and `use jvm`, so both are one program, and Kiln uses the declarations
+of the module `jvm` (all of jvm.forge is in `mod jvm { ... }`) by their names. `compile(name, source)` wraps the
 parsed program in a `Module` node, and `Module.compiled` returns the diagnostics and, if there are no
 errors, the bytes of the class file.
 

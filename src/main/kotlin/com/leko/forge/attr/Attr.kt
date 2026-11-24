@@ -1726,18 +1726,28 @@ class Attr private constructor(context: Context) {
 
         override fun visitLambda(ctx: ForgeParser.LambdaContext): Type {
             val expected = env.value.expected.let { if (it is OptionalType) it.elem else it } as? FunctionType
+            // a lambda after a call without `->`: `it` if a function of one parameter is expected, else no parameter
+            val implicit = ctx.ARROW() == null && expected?.parameters?.size == 1
             val params = ctx.lambdaParam()
-            val fits = expected != null && expected.parameters.size == params.size
-            val paramTypes = params.mapIndexed { i, p ->
+            val fits = expected != null && expected.parameters.size == params.size + (if (implicit) 1 else 0)
+            var paramTypes = params.mapIndexed { i, p ->
                 val declared = p.ty?.let { chk.checkExists(it.toType().withTypeParams(currentTypeParams), it) }
                 declared ?: expected?.parameters?.getOrNull(i)?.takeIf { fits && it.known() } ?: run {
                     log.diag(canNotInferLambdaParameter(p.span, p.name?.text ?: "_"))
                     ErrorType
                 }
             }
+            if (implicit) {
+                val it = expected!!.parameters[0].takeIf { it.known() } ?: run {
+                    log.diag(canNotInferLambdaParameter(ctx.span, "it"))
+                    ErrorType
+                }
+                paramTypes = listOf(it)
+            }
             var result: Type = ErrorType
             withPending(emptySet()) { withChildScope {
-                val symbols = params.zip(paramTypes).map { (p, t) ->
+                val symbols = if (implicit) listOf(VarSymbol("it", paramTypes[0], ctx.LBRACE().span).also { env.value.scope.enter(it) })
+                else params.zip(paramTypes).map { (p, t) ->
                     VarSymbol(p.name?.text ?: "_", t, p.span).also { if (p.name != null) env.value.scope.enter(it) }
                 }
                 ctx.attach("params", symbols)

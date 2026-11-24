@@ -196,11 +196,14 @@ expression
     | LBRACE expression COLON expression (COMMA expression COLON expression)* RBRACE  # mapLiteral
     | LBRACE (expression (COMMA expression)*)? RBRACE                        # setLiteral
     | MATCH switch=expression LBRACE (matchCase)* (UNDERSCORE ARROW alt=expression)? RBRACE  # match
-    | name=IDENT LPAREN (expression (COMMA expression)*)? RPAREN             # functionCall
+    // f(x), f(x) { y -> ... }, f { ... }: a lambda after the call is its last argument
+    | name=IDENT LPAREN (expression (COMMA expression)*)? RPAREN trailingLambda?  # functionCall
+    | name=IDENT trailingLambda                                              # functionCall
     | IDENT                                                                  # identifier
 
     // postfix
-    | receiver=expression DOT name=IDENT LPAREN (expression (COMMA expression)*)? RPAREN  # methodCall
+    | receiver=expression DOT name=IDENT LPAREN (expression (COMMA expression)*)? RPAREN trailingLambda?  # methodCall
+    | receiver=expression DOT name=IDENT trailingLambda                      # methodCall
     | receiver=expression DOT name=IDENT                                     # fieldAccess
     // t.0; `t.0.1` is lexed with a float
     | receiver=expression DOT (index=INT | path=FLOAT)                        # tupleAccess
@@ -241,6 +244,10 @@ expression
     ;
 
 lambdaParam: (name=IDENT | UNDERSCORE) (COLON ty=type)?;
+
+// the lambda after a call: `xs.map { x -> x * 2 }`; without `->` it has the parameter `it` (or none): `xs.map { it * 2 }`.
+// After parsing it becomes a lambda argument of the call (Interpolation.kt).
+trailingLambda: LBRACE ((lambdaParam (COMMA lambdaParam)*)? ARROW)? body=expression RBRACE;
 
 // x: int = 1   /   (a, b) = pair
 binding: (name=IDENT | LPAREN names+=IDENT (COMMA names+=IDENT)+ RPAREN) (COLON ty=type)? ASSIGN value=expression;

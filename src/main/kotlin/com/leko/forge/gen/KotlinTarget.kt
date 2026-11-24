@@ -859,7 +859,7 @@ object KotlinTarget : Target {
                 is Float2Long -> postfix(value.value, "toLong()")
 
                 is Let -> {
-                    sb.append("run { val ${id(value.name)}: ${typeRepr(value.value.type)} = ")
+                    sb.append("run { val ${id(value.name)}: ${typeRepr(value.valueType)} = ")
                     value(value.value)
                     sb.append("; ")
                     value(value.body)
