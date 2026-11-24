@@ -74,10 +74,14 @@ class ForgeDeclarationElement(private val name: ForgeDeclaredName) : StructureVi
         override fun getIcon(unused: Boolean): Icon = ForgeSymbols.icon(name)
     }
 
-    /** The fields of a record or a node, the constants of an enum. */
+    /** The fields of a record or a node, the constants of an enum; the declarations of a module, the members of a trait. */
     override fun getChildren(): Array<TreeElement> {
-        if (name.role != ForgeNameRole.NODE_DECLARATION && name.role != ForgeNameRole.TYPE_DECLARATION) return emptyArray()
         val decl: PsiElement = name.parent ?: return emptyArray()
+        if (name.role == ForgeNameRole.MODULE || name.role == ForgeNameRole.TRAIT) {
+            return decl.children.mapNotNull { it.children.filterIsInstance<ForgeDeclaredName>().firstOrNull() }
+                .map(::ForgeDeclarationElement).toTypedArray()
+        }
+        if (name.role != ForgeNameRole.NODE_DECLARATION && name.role != ForgeNameRole.TYPE_DECLARATION) return emptyArray()
         return PsiTreeUtil.findChildrenOfType(decl, ForgeDeclaredName::class.java)
             .filter { it !== name && (it.role == ForgeNameRole.FIELD || it.role == ForgeNameRole.ENUM_CONSTANT || ForgeSymbols.isNodeChild(it)) }
             .filter { it.parent?.parent === decl }

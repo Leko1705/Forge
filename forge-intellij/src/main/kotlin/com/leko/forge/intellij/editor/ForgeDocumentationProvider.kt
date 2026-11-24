@@ -102,8 +102,12 @@ class ForgeDocumentationProvider : AbstractDocumentationProvider() {
             }
 
             /** The declaration of the whole file [element] is in: a child of the Root rule. */
+            /** The declaration [element] is in: one of the file or of a module (a module for its own name). */
             private fun topLevel(element: PsiElement): PsiElement? =
-                generateSequence(element) { it.parent }.firstOrNull { it.parent?.rule() == "Root" }
+                generateSequence(element) { it.parent }.firstOrNull {
+                    it.parent?.rule() == "Root" || (it.parent?.rule() == "ModDef" && it.rule() != "ModDef") ||
+                        (it.rule() == "ModDef" && it === element.parent)
+                }
 
             private fun type(name: ForgeNameElement): String? {
                 val document = name.containingFile.viewProvider.document ?: return null
@@ -120,6 +124,8 @@ class ForgeDocumentationProvider : AbstractDocumentationProvider() {
                     ForgeNameRole.TYPE_DECLARATION -> if (decl.rule() == "Enum") "enum" else "record"
                     ForgeNameRole.TYPE_PARAMETER -> "type parameter of ${header(decl)}"
                     ForgeNameRole.ENUM_CONSTANT -> "enum constant"
+                    ForgeNameRole.MODULE -> "module"
+                    ForgeNameRole.TRAIT -> "trait"
                     ForgeNameRole.FUNCTION_DECLARATION -> if (decl.text.startsWith("ext")) "external function" else "function"
                     ForgeNameRole.PROPERTY -> "property (computed at each use)"
                     ForgeNameRole.CONSTANT -> "constant"

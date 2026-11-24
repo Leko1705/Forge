@@ -78,6 +78,13 @@ class ForgePsiParser : PsiParser {
                         role != null -> mark?.done(ForgeElementTypes.of(role, isDeclaration(context, token)))
                     }
                 }
+                // "a ${x}": the expressions in the string are inside its token, which stays a leaf
+                is ForgeParser.StringValueContext -> {
+                    advanceTo(tree.start.startIndex)
+                    val mark = builder.mark()
+                    visit(tree.STRING())
+                    mark.done(ForgeElementTypes.of(tree))
+                }
                 is ParserRuleContext -> {
                     val start = tree.start
                     val stop = tree.stop

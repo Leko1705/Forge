@@ -274,6 +274,8 @@ class ForgeFeatures(private val workspace: ForgeWorkspace) {
         ForgeNameRole.ENUM_CONSTANT -> SymbolKind.EnumMember
         ForgeNameRole.FIELD -> SymbolKind.Field
         ForgeNameRole.GRAPH -> SymbolKind.Namespace
+        ForgeNameRole.MODULE -> SymbolKind.Module
+        ForgeNameRole.TRAIT -> SymbolKind.Interface
         ForgeNameRole.PARAMETER -> if (declarations.isNodeChild(entry.name)) SymbolKind.Field else SymbolKind.Variable
         else -> SymbolKind.Variable
     }
@@ -352,7 +354,7 @@ class ForgeFeatures(private val workspace: ForgeWorkspace) {
          */
         val TYPES = listOf(
             "class", "struct", "type", "typeParameter", "enumMember", "function", "method", "property", "variable",
-            "parameter", "keyword", "decorator", "attribute", "port", "graph", "parser", "rule",
+            "parameter", "keyword", "decorator", "attribute", "port", "graph", "parser", "rule", "namespace", "interface",
         )
         val MODIFIERS = listOf("declaration", "readonly", "defaultLibrary")
         val LEGEND = SemanticTokensLegend(TYPES, MODIFIERS)
@@ -379,6 +381,8 @@ class ForgeFeatures(private val workspace: ForgeWorkspace) {
             ForgeNameRole.PARSER_RULE to "rule",
             ForgeNameRole.ANNOTATION to "decorator",
             ForgeNameRole.SOFT_KEYWORD to "keyword",
+            ForgeNameRole.MODULE to "namespace",
+            ForgeNameRole.TRAIT to "interface",
         )
     }
 }

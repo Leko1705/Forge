@@ -39,6 +39,8 @@ class ForgeColorSettingsPage : ColorSettingsPage {
         AttributesDescriptor("Types//Type reference", ForgeColors.TYPE_REFERENCE),
         AttributesDescriptor("Types//Builtin type", ForgeColors.BUILTIN_TYPE),
         AttributesDescriptor("Types//Type parameter", ForgeColors.TYPE_PARAMETER),
+        AttributesDescriptor("Types//Trait", ForgeColors.TRAIT),
+        AttributesDescriptor("Module", ForgeColors.MODULE),
         AttributesDescriptor("Enum constant", ForgeColors.ENUM_CONSTANT),
         AttributesDescriptor("Functions//Function declaration", ForgeColors.FUNCTION_DECLARATION),
         AttributesDescriptor("Functions//Function call", ForgeColors.FUNCTION_CALL),

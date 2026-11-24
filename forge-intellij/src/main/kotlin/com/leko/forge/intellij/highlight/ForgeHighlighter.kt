@@ -66,6 +66,9 @@ object ForgeColors {
     val PARSER_RULE = key("PARSER_RULE", Default.FUNCTION_DECLARATION)
     val ANNOTATION = key("ANNOTATION", Default.METADATA)
     val SOFT_KEYWORD = key("SOFT_KEYWORD", Default.KEYWORD)
+    // modules are like packages, traits like interfaces
+    val MODULE = key("MODULE", Default.IDENTIFIER)
+    val TRAIT = key("TRAIT", Default.INTERFACE_NAME)
 
     fun of(role: ForgeNameRole): TextAttributesKey = when (role) {
         ForgeNameRole.NODE_DECLARATION -> NODE
@@ -89,6 +92,8 @@ object ForgeColors {
         ForgeNameRole.PARSER_RULE -> PARSER_RULE
         ForgeNameRole.ANNOTATION -> ANNOTATION
         ForgeNameRole.SOFT_KEYWORD -> SOFT_KEYWORD
+        ForgeNameRole.MODULE -> MODULE
+        ForgeNameRole.TRAIT -> TRAIT
         ForgeNameRole.IDENTIFIER -> IDENTIFIER
     }
 }

@@ -517,7 +517,8 @@ the compiler itself, so the editor sees what `forge -f` sees:
   records and enum constants, with the argument of the caret; also while the call is typed.
 - **Quick fixes** (`Alt+Enter`) for errors of the compiler: `left` -> `this.left` for a child or an attribute, create
   a missing node, implement a `syn` attribute a node is missing (`fail("not implemented")` until it is written).
-- **Structure view** (`Alt+7`) of the declarations, with the fields, children and enum constants of a type, and
+- **Structure view** (`Alt+7`) of the declarations, with the fields, children and enum constants of a type, the
+  declarations of modules and the members of traits, and
   **Go to Symbol / Go to Class** (`Ctrl+Alt+Shift+N`, `Ctrl+N`) over the declarations of all .forge files.
 - **Formatting** (Reformat Code) and indentation on Enter, in the style of the examples: declarations at the start
   of a line, their further lines indented once, and the insides of brackets that span lines once more; spaces after
@@ -531,6 +532,9 @@ the compiler itself, so the editor sees what `forge -f` sees:
   compiler of the plugin (copied to `lib/forge-compiler.jar`) on `src/main/forge`; for Kotlin it compiles the
   generated code with `src/main/kotlin` and `./gradlew run` runs it. The Gradle build is imported when the IDE has
   the Gradle plugin.
+- Modules, traits, lambda parameters and `where` bindings have colors of their own roles, and names in modules are
+  resolved and completed by their qualified names (`geometry::Point`). A string with expressions (`"${x}"`) is one
+  token in the editor; the expressions in it are checked and their errors shown, but not colored.
 - Block comments have the color of doc comments.
 - Brace matching, commenting (`Ctrl+/`) and quote pairing.
 
@@ -559,8 +563,9 @@ forge-ide-core, for VS Code and other editors (Neovim, Helix, Zed, Emacs, ...). 
 - **Go to definition** (also into imported files, the standard library and the files of `import`s), **find
   references** (in the open files) and **hover** documentation (signature, doc comment, kind, type, what a
   declaration implements or overrides).
-- **Document symbols** (the outline, with fields, children and enum constants), **semantic tokens** (names colored by
-  what the compiler resolves them to: `attribute`, `port`, `graph`, `parser` and `rule` are token types of their own)
+- **Document symbols** (the outline, with fields, children and enum constants, modules with their declarations, traits
+  with their members), **semantic tokens** (names colored by what the compiler resolves them to: `attribute`, `port`,
+  `graph`, `parser` and `rule` are token types of their own; modules are `namespace`s, traits `interface`s)
   and **folding** of declarations and block comments.
 
 ```
