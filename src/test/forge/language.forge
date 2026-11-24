@@ -110,6 +110,15 @@ fun <T: Keyed> howMany(x: T, key: str): int = x[key]
 fun operators(): str = "${initial(Word("forge"))} ${howMany(Counts(["a", "b", "a"]), "a")} ${Word("ab")[1]} " +
     "${Money(1) < Money(2)} ${"b" < "a"} ${largest(Word("x")[0], "y")}"
 
+// a `val` of a trait: an attribute of a node (also an abstract syn of an interface) or a field
+trait Totaled { val total: int }
+trait Labeled { val label: str }
+record Tag { label: str }
+node Leaf(label: str)
+fun <T: Totaled> totals(xs: List<T>): int = xs.fold(0) { acc, x -> acc + x.total }
+fun <T: Labeled> labels(xs: List<T>): str = xs.joinWith("") { it.label }
+fun values(): str = "${totals([Num(1), Num(2)])} ${totals([Add(Num(1), Num(2)) as Expr, Num(4)])} ${labels([Tag("a"), Tag("b")])} ${labels([Leaf("c")])}"
+
 // ---- more -----------------------------------------------------------------------------------------------
 
 fun tuples(): str = match (1, ("a", 2L)) {
@@ -138,6 +147,7 @@ fun report(): List<str> = [
     modules(),
     traits(),
     operators(),
+    values(),
     tuples(),
     longs(),
     lambdas(),

@@ -130,8 +130,19 @@ class LLIR private constructor(private val context: Context) {
     private fun witnessValue(w: Witness): Value {
         val type = witnessType(w.member, w.actual)
         w.typeParam?.let { return Parameter(witnessName(it, w.trait.name, w.member.name), type) }
-        val sym = w.symbol ?: return Panic("no ${w.member.name} for ${w.actual}")
         val self = LocalRef("__self", w.actual)
+        // an attribute or a field: the witness reads it (an attribute's value stays cached)
+        when (val value = w.value) {
+            is AttributeSymbol -> return Lambda(listOf(self), AccessNodeAttr(self, value.name, value.type), type)
+            is VarSymbol -> {
+                val owner = resolve.resolve(w.actual)
+                val read = if (owner is NodeSymbol) AccessNodeField(node(owner), self, value.name, value.type)
+                    else AccessRecordField(record(owner as RecordSymbol), self, value.name, value.type)
+                return Lambda(listOf(self), read, type)
+            }
+            else -> {}
+        }
+        val sym = w.symbol ?: return Panic("no ${w.member.name} for ${w.actual}")
         val params = type.parameters.drop(1).mapIndexed { i, t -> LocalRef("__p$i", t) }
         return Lambda(listOf(self) + params, invoke(sym, self, params, w.nested.map { witnessValue(it) }), type)
     }

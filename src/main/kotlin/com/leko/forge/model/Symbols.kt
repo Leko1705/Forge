@@ -393,6 +393,8 @@ data class Witness(
     val typeParam: String?,
     /** The witnesses [symbol] itself receives, if it is a generic function with traits. */
     val nested: List<Witness> = emptyList(),
+    /** For a `val` member: the attribute or the field of the type argument that is it, instead of a [symbol]. */
+    val value: Symbol? = null,
 )
 
 /** The hidden parameter of a generic function for a member of a trait of one of its type parameters. */

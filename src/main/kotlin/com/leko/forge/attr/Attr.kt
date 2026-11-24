@@ -345,7 +345,16 @@ class Attr private constructor(context: Context) {
                 return Witness(trait, member, actual, null, actual.name)
             }
             val self = mapOf(SELF to actual)
-            val found = (if (actual is OptionalType) null else resolve.resolve(actual, member.name, Kind.VAL, if (member.isProperty) Kind.VAL else Kind.MTH)) as? FunctionSymbol
+            val resolved = if (actual is OptionalType) null else resolve.resolve(actual, member.name, Kind.VAL, if (member.isProperty) Kind.VAL else Kind.MTH)
+            // a `val` member: also an attribute of a node (syn, circular, coll; inherited ones are read on `this`
+            // only) or a field of a record or a node, which are read like a field too
+            if (member.isProperty && (resolved is NodeBoundAttributeSymbol || resolved is VarSymbol)) {
+                if (types.isAssignable(member.returnType.substitute(self), resolved.type)) return Witness(trait, member, actual, null, null, value = resolved)
+                log.diag(boundNotSatisfied(ctx.span, actual, displayName(trait.name),
+                    "'${member.name}' of $actual is a ${resolved.type}, not a ${member.returnType.substitute(self)}"))
+                return Witness(trait, member, actual, null, null)
+            }
+            val found = resolved as? FunctionSymbol
             // an operator of the trait needs an operator of the type
             val ok = found != null && (!member.isOperator || found.isOperator) && found.params.size == member.params.size &&
                 found.params.zip(member.params).all { (p, m) -> types.isAssignable(p.type, m.type.substitute(self)) } &&

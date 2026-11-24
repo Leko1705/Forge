@@ -246,6 +246,17 @@ trait Keyed { op fun get(key: str): int }            // x["a"] is an int
 fun <T: Indexed> initial(x: T): str = x[0]
 ```
 
+A `val` member can also be an attribute of a node (`syn`, `circular` or `coll`; also an abstract `syn` of a node
+interface, for an argument of the interface's type) or a field of a record or a node, if its type fits: what is read
+like a field. Inherited attributes do not count, as they are read on `this` only.
+
+```
+trait Totaled { val total: int }
+syn Expr.total: int                        // abstract: each node has its own equation
+fun <T: Totaled> sum(xs: List<T>): int = xs.fold(0) { acc, x -> acc + x.total }
+sum([Add(Num(1), Num(2)) as Expr, Num(4)])  // 7: the attribute, cached as always
+```
+
 The rules of operator functions hold for `op fun` members too: the name of an operator, its number of parameters, an
 int from `compareTo` and a bool from `contains`. So `largest(3, 8)`, `largest("pear", "apple")` and `largest(Money(150), Money(99))`
 (with an `op fun Money.compareTo(other: Money): int`) all work, while `largest([1], [2])` is an error that names the missing

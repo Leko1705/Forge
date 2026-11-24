@@ -127,6 +127,17 @@ class LanguageCheckTest {
     }
 
     @Test
+    fun attributesAndFieldsAreValsOfTraits() {
+        val program = "trait Typed { val type: str }\nfun <T: Typed> typed(x: T): str = x.type\nnode Expr\nnode Num(v: int): Expr\n" +
+            "syn Expr.type: str\nsyn Num.type: str = \"int\"\nrecord R { type: str }\n"
+        assertOk(program + "fun f(e: Expr): str = typed(Num(1)) + typed(e) + typed(R(\"r\"))")
+        assertOk("trait Sized { val size: int }\nfun <T: Sized> s(x: T): int = x.size\nnode N(size: int)\nfun f(): int = s(N(1))")
+        assertError("'type' of R is a int, not a str", program.replace("record R { type: str }", "record R { type: int }") + "fun f(): str = typed(R(1))")
+        // an inherited attribute is read on `this` only
+        assertError("it needs val A.env: int", "trait E { val env: int }\nfun <T: E> f(x: T): int = x.env\nnode A(n: int)\ninh env: int = 0\nfun g(): int = f(A(1))")
+    }
+
+    @Test
     fun modules() {
         assertOk("mod a { record R { x: int }\nfun make(): R = R(1) }\nfun f(): int = a::make().x")
         assertOk("mod a { record R { x: int } }\nuse a\nfun f(r: R): int = r.x")
