@@ -2,6 +2,7 @@ package com.leko.forge.intellij.psi
 
 import com.intellij.extapi.psi.ASTWrapperPsiElement
 import com.intellij.lang.ASTNode
+import com.intellij.navigation.ItemPresentation
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiElement
@@ -19,6 +20,8 @@ import com.leko.forge.intellij.parser.ForgeNameType
 import com.leko.forge.intellij.semantics.ForgeImports
 import com.leko.forge.intellij.semantics.ForgeResolution
 import com.leko.forge.intellij.semantics.ForgeSemantics
+import com.leko.forge.intellij.structure.ForgeSymbols
+import javax.swing.Icon
 
 /** A name: one IDENT token with its role in the grammar. */
 sealed class ForgeNameElement(node: ASTNode) : ASTWrapperPsiElement(node) {
@@ -44,6 +47,13 @@ class ForgeDeclaredName(node: ASTNode) : ForgeNameElement(node), PsiNameIdentifi
     override fun getNameIdentifier(): PsiElement? = identifier
     override fun setName(name: String): PsiElement = rename(name)
     override fun getTextOffset(): Int = textRange.startOffset
+
+    /** In Go to Symbol: the name, the declaration and the file. */
+    override fun getPresentation(): ItemPresentation = object : ItemPresentation {
+        override fun getPresentableText(): String? = name
+        override fun getLocationString(): String = ForgeSymbols.header(this@ForgeDeclaredName) + " (" + containingFile.name + ")"
+        override fun getIcon(unused: Boolean): Icon = ForgeSymbols.icon(this@ForgeDeclaredName)
+    }
 }
 
 /** A name that uses a declaration; Ctrl+Click goes to it. */

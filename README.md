@@ -346,6 +346,8 @@ the compiler itself, so the editor sees what `forge -f` sees:
   rules); in expressions the locals in scope, constants, functions, nodes and records (with parentheses), and
   keywords; types in type positions; the nodes, attributes, parsers and rules a declaration names (`syn Num.`
   offers the attributes `Num` implements); `@u2`, `@infixLeft`, ...; top level keywords at the start of a line.
+- **Structure view** (`Alt+7`) of the declarations, with the fields, children and enum constants of a type, and
+  **Go to Symbol / Go to Class** (`Ctrl+Alt+Shift+N`, `Ctrl+N`) over the declarations of all .forge files.
 - **Formatting** (Reformat Code) and indentation on Enter, in the style of the examples: declarations at the start
   of a line, their further lines indented once, and the insides of brackets that span lines once more; spaces after
   commas and around `=`, `->`, `<-` and the comparison and logic operators.
