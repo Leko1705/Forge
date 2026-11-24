@@ -217,3 +217,49 @@ class ForgeRenameTest : com.intellij.testFramework.fixtures.BasePlatformTestCase
         assertTrue(validator.isIdentifier("kind", null))
     }
 }
+
+class ForgeLastGoodAnalysisTest : com.intellij.testFramework.fixtures.BasePlatformTestCase() {
+    private val program = """
+        node Expr
+        node Num(value: int): Expr
+        syn Expr.type: str
+        syn Num.type: str = if this.value > 0 then "pos" else "neg"
+        syn Num.double: int = this.value * 2
+    """.trimIndent()
+
+    private fun type(offset: Int, text: String) {
+        com.intellij.openapi.command.WriteCommandAction.runWriteCommandAction(project) {
+            myFixture.editor.document.insertString(offset, text)
+        }
+        com.intellij.psi.PsiDocumentManager.getInstance(project).commitAllDocuments()
+    }
+
+    fun testNamesStayResolvedWhileADeclarationIsTyped() {
+        val file = myFixture.configureByText("a.forge", program)
+        assertFalse(com.leko.forge.intellij.semantics.ForgeSemantics.of(file).resolutions.isEmpty())
+        // lines above, and an incomplete declaration below: the file can not be analyzed now
+        type(0, "// the tree\n\n")
+        type(myFixture.editor.document.textLength, "\nsyn Num.triple: int = if this.value > 0 then 1")
+        val text = myFixture.editor.document.text
+        assertNull("the compiler can not analyze it", com.leko.forge.intellij.semantics.ForgeSemantics.analyze(text, null, { error("") }) { it })
+
+        // `this.value` in the line of double: still goes to the field, which moved down two lines
+        myFixture.editor.caretModel.moveToOffset(text.indexOf("this.value * 2") + "this.".length)
+        val target = myFixture.elementAtCaret
+        assertEquals(text.indexOf("value: int"), target.textOffset)
+        // the gutter icons are still there
+        assertTrue(myFixture.findAllGutters().any { it.tooltipText == "Is implemented in syn Num.type" })
+        // a changed line has nothing of the old analysis
+        val semantics = com.leko.forge.intellij.semantics.ForgeSemantics.of(file)
+        assertTrue(semantics.resolutions.keys.none { it >= text.indexOf("syn Num.triple") })
+    }
+
+    fun testLineMap() {
+        val map = com.leko.forge.intellij.semantics.ForgeLineMap.between("a\nb\nc\nd", "x\na\nB\nc\nd\ne")!!
+        assertEquals(2, map.line(1))
+        assertNull(map.line(2))
+        assertEquals(4, map.line(3))
+        assertEquals(5, map.line(4))
+        assertEquals("x\na\nB\nc\nd\ne".indexOf("c"), map.offset("a\nb\nc\nd".indexOf("c")))
+    }
+}

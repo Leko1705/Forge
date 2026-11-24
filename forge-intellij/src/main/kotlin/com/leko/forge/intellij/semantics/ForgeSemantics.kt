@@ -3,6 +3,7 @@ package com.leko.forge.intellij.semantics
 import ForgeParser
 import com.intellij.openapi.diagnostic.ControlFlowException
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.util.Key
 import com.intellij.psi.PsiFile
 import com.intellij.psi.util.CachedValueProvider
 import com.intellij.psi.util.CachedValuesManager
@@ -67,6 +68,25 @@ class ForgeSemantics(
     val declarationTypes: Map<Pair<Int, Int>, String> = emptyMap(),
 ) {
 
+    /** These semantics in a changed text: what is on lines that are still there, moved with them; the rest is gone. */
+    fun moved(map: ForgeLineMap): ForgeSemantics {
+        fun ForgeResolution.moved(): ForgeResolution? =
+            if (source != null) this else map.line(line)?.let { copy(line = it) }
+        fun ForgeRelated.moved(): ForgeRelated? = resolution.moved()?.let { copy(resolution = it) }
+        return ForgeSemantics(
+            resolutions = resolutions.entries.mapNotNull { (offset, r) ->
+                val newOffset = map.offset(offset) ?: return@mapNotNull null
+                r.moved()?.let { newOffset to it }
+            }.toMap(),
+            hierarchy = hierarchy.entries.mapNotNull { (offset, h) ->
+                map.offset(offset)?.let { it to h.copy(supers = h.supers.mapNotNull { r -> r.moved() }, subs = h.subs.mapNotNull { r -> r.moved() }) }
+            }.toMap(),
+            declarationTypes = declarationTypes.entries.mapNotNull { (position, type) ->
+                map.line(position.first)?.let { (it to position.second) to type }
+            }.toMap(),
+        )
+    }
+
     companion object {
         private val LOG = logger<ForgeSemantics>()
 
@@ -75,13 +95,30 @@ class ForgeSemantics(
 
         private val EMPTY = ForgeSemantics(emptyMap())
 
-        /** The semantics of [file], computed once for each version of the program. */
+        /** The last semantics of a file that could be analyzed, with its text. */
+        private val LAST_GOOD = Key.create<Pair<String, ForgeSemantics>>("forge.lastGoodSemantics")
+
+        /**
+         * The semantics of [file], computed once for each version of the program. While the file can not be
+         * analyzed (e.g. while a declaration is typed, with syntax errors), those of its last version that could
+         * be, moved to where its lines are now: what is on the lines that did not change keeps working.
+         */
         fun of(file: PsiFile): ForgeSemantics = CachedValuesManager.getCachedValue(file) {
             val path = file.originalFile.virtualFile?.takeIf { it.isInLocalFileSystem }?.path
-            CachedValueProvider.Result.create(
-                compute(file.text, path?.let(::File), ForgeImports::read),
-                PsiModificationTracker.MODIFICATION_COUNT,
-            )
+            val text = file.text
+            val computed = analyze(text, path?.let(::File), ForgeImports::read) { semanticsOf(it) }
+            val semantics = if (computed != null) {
+                file.putUserData(LAST_GOOD, text to computed)
+                computed
+            } else {
+                file.getUserData(LAST_GOOD)?.let { (oldText, old) -> ForgeLineMap.between(oldText, text)?.let(old::moved) } ?: EMPTY
+            }
+            CachedValueProvider.Result.create(semantics, PsiModificationTracker.MODIFICATION_COUNT)
+        }
+
+        private fun semanticsOf(analysis: ForgeAnalysis): ForgeSemantics {
+            val collector = Collector(analysis.context).apply { visit(analysis.main) }
+            return ForgeSemantics(collector.resolutions, Hierarchy(analysis.context, analysis.root).compute(), collector.declarationTypes)
         }
 
         /**
@@ -90,10 +127,7 @@ class ForgeSemantics(
          * the analysis is not possible, e.g. for a missing import, or fails on an incomplete tree.
          */
         fun compute(text: String, file: File?, read: (File) -> CharStream): ForgeSemantics =
-            analyze(text, file, read) { analysis ->
-                val collector = Collector(analysis.context).apply { visit(analysis.main) }
-                ForgeSemantics(collector.resolutions, Hierarchy(analysis.context, analysis.root).compute(), collector.declarationTypes)
-            } ?: EMPTY
+            analyze(text, file, read, ::semanticsOf) ?: EMPTY
 
         /**
          * Runs the compiler's analysis on [text] (see [compute]) and then [block], while the attributes of the
