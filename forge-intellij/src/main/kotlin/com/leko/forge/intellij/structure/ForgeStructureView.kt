@@ -14,9 +14,9 @@ import com.intellij.pom.Navigatable
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.util.PsiTreeUtil
+import com.leko.forge.ide.parser.ForgeNameRole
 import com.leko.forge.intellij.ForgeIcons
 import com.leko.forge.intellij.parser.ForgeFile
-import com.leko.forge.intellij.parser.ForgeNameRole
 import com.leko.forge.intellij.parser.ForgeRuleType
 import com.leko.forge.intellij.psi.ForgeDeclaredName
 import javax.swing.Icon

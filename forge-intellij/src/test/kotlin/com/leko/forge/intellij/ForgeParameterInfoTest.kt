@@ -12,7 +12,7 @@ class ForgeParameterInfoTest : BasePlatformTestCase() {
     override fun setUp() {
         super.setUp()
         // the standard library is in the jar of the compiler, which tests may not read unless allowed
-        val jar = com.leko.forge.intellij.semantics.ForgeSemantics::class.java.getResource("/forge/std.forge")!!.path.substringAfter("file:").substringBefore("!")
+        val jar = com.leko.forge.ide.semantics.ForgeSemantics::class.java.getResource("/forge/std.forge")!!.path.substringAfter("file:").substringBefore("!")
         com.intellij.openapi.vfs.newvfs.impl.VfsRootAccess.allowRootAccess(testRootDisposable, jar)
     }
 

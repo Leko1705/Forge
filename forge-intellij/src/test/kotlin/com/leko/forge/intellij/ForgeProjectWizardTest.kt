@@ -1,15 +1,16 @@
 package com.leko.forge.intellij
 
 import com.intellij.ide.wizard.GeneratorNewProjectWizard
-import com.intellij.lang.annotation.HighlightSeverity
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
-import com.leko.forge.intellij.annotator.ForgeCompilerAnnotator
-import com.leko.forge.intellij.annotator.ForgeSource
+import com.leko.forge.ide.diagnostics.ForgeDiagnostics
+import com.leko.forge.ide.diagnostics.ForgeSeverity
+import com.leko.forge.ide.diagnostics.ForgeSource
+import com.leko.forge.ide.project.ForgeProjectKind
+import com.leko.forge.ide.project.ForgeProjectOptions
+import com.leko.forge.ide.project.ForgeProjectTemplate
+import com.leko.forge.ide.project.ForgeTarget
+import com.leko.forge.intellij.semantics.ForgeImports
 import com.leko.forge.intellij.wizard.ForgeNewProjectWizard
-import com.leko.forge.intellij.wizard.ForgeProjectKind
-import com.leko.forge.intellij.wizard.ForgeProjectOptions
-import com.leko.forge.intellij.wizard.ForgeProjectTemplate
-import com.leko.forge.intellij.wizard.ForgeTarget
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -24,7 +25,7 @@ class ForgeProjectWizardTest : BasePlatformTestCase() {
             val options = ForgeProjectOptions("my-lang", kind, target)
             val files = ForgeProjectTemplate.textFiles(options)
             val program = files.getValue("src/main/forge/my_lang.forge")
-            val errors = ForgeCompilerAnnotator.analyze(ForgeSource(program, null)).filter { it.severity == HighlightSeverity.ERROR }
+            val errors = ForgeDiagnostics.analyze(ForgeSource(program, null), ForgeImports).filter { it.severity == ForgeSeverity.ERROR }
             assertEquals("$kind $target", emptyList<Any>(), errors)
             assertTrue("-t ${target.id}" in files.getValue("build.gradle.kts").replace("\", \"", " "))
             assertEquals(target == ForgeTarget.KOTLIN, "src/main/kotlin/mylang/Main.kt" in files)

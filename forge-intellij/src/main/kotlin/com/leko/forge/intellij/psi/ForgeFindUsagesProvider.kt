@@ -5,9 +5,9 @@ import com.intellij.lang.cacheBuilder.WordsScanner
 import com.intellij.lang.findUsages.FindUsagesProvider
 import com.intellij.psi.PsiElement
 import com.intellij.psi.tree.TokenSet
+import com.leko.forge.ide.parser.ForgeNameRole
 import com.leko.forge.intellij.lexer.ForgeLexerAdapter
 import com.leko.forge.intellij.lexer.ForgeTokenTypes
-import com.leko.forge.intellij.parser.ForgeNameRole
 
 class ForgeFindUsagesProvider : FindUsagesProvider {
     override fun getWordsScanner(): WordsScanner = DefaultWordsScanner(

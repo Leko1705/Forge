@@ -4,7 +4,7 @@ import com.intellij.lang.annotation.AnnotationHolder
 import com.intellij.lang.annotation.Annotator
 import com.intellij.lang.annotation.HighlightSeverity
 import com.intellij.psi.PsiElement
-import com.leko.forge.intellij.parser.ForgeNameRole
+import com.leko.forge.ide.parser.ForgeNameRole
 import com.leko.forge.intellij.psi.ForgeNameElement
 
 /**

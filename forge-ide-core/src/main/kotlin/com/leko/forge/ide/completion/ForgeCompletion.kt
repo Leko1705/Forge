@@ -1,4 +1,4 @@
-package com.leko.forge.intellij.completion
+package com.leko.forge.ide.completion
 
 import ForgeLexer
 import ForgeParser
@@ -7,18 +7,18 @@ import com.leko.forge.attr.SymTab
 import com.leko.forge.attr.TypeMap
 import com.leko.forge.attr.symbol
 import com.leko.forge.attr.typeOrNull
-import com.leko.forge.intellij.parser.ForgeNameRole
-import com.leko.forge.intellij.parser.ForgePsiParser
-import com.leko.forge.intellij.parser.isDeclaration
-import com.leko.forge.intellij.parser.nameRole
-import com.leko.forge.intellij.semantics.ForgeAnalysis
-import com.leko.forge.intellij.semantics.ForgeSemantics
+import com.leko.forge.ide.ForgeHost
+import com.leko.forge.ide.parser.ForgeAntlr
+import com.leko.forge.ide.parser.ForgeNameRole
+import com.leko.forge.ide.parser.isDeclaration
+import com.leko.forge.ide.parser.nameRole
+import com.leko.forge.ide.semantics.ForgeAnalysis
+import com.leko.forge.ide.semantics.ForgeSemantics
 import com.leko.forge.model.*
 import com.leko.forge.types.ErrorType
 import com.leko.forge.types.FunctionType
 import com.leko.forge.types.OptionalType
 import com.leko.forge.types.Type
-import org.antlr.v4.runtime.CharStream
 import org.antlr.v4.runtime.ParserRuleContext
 import org.antlr.v4.runtime.Token
 import org.antlr.v4.runtime.tree.ParseTree
@@ -45,26 +45,27 @@ data class ForgeCandidate(
 )
 
 /**
- * The completions at [offset] of [text], the text of the file with IntelliJ's dummy identifier at the caret. The
+ * The completions at [offset] of [text], the text of the file with a dummy identifier at the caret
+ * (IntelliJ inserts its own, which starts with [DUMMY_PREFIX]; other editors insert [DUMMY_PREFIX]). The
  * program is analyzed with the compiler: members after a `.` are those the compiler resolves for the type of the
  * receiver (fields, attributes, vals, methods, enum constants, rules), names are the declarations of the program
  * and the locals in scope, and keywords fit where they are.
  */
-class ForgeCompletion(private val text: String, private val offset: Int, private val file: File?, private val read: (File) -> CharStream) {
+class ForgeCompletion(private val text: String, private val offset: Int, private val file: File?, private val host: ForgeHost) {
 
     fun candidates(): List<ForgeCandidate> {
         // the program as it is, with the dummy identifier: what an expression is, what a receiver's type is
-        ForgeSemantics.analyze(text, file, read) { analysis -> complete(analysis, full = true) }?.let { return it }
+        ForgeSemantics.analyze(text, file, host) { analysis -> complete(analysis, full = true) }?.let { return it }
         // an incomplete declaration can not be analyzed: the rest of the program can, without it
         val (start, end) = declarationRange()
         val blanked = text.substring(0, start) + text.substring(start, end).replace(Regex("[^\\n]"), " ") + text.substring(end)
-        val globals = ForgeSemantics.analyze(blanked, file, read) { analysis -> Globals(analysis) }
+        val globals = ForgeSemantics.analyze(blanked, file, host) { analysis -> Globals(analysis) }
         return complete(null, full = false, globals)
     }
 
     // ---- the place of the caret ------------------------------------------------------------------------------
 
-    private val tokens: List<Token> = ForgePsiParser.antlrTokens(text)
+    private val tokens: List<Token> = ForgeAntlr.tokens(text)
 
     /** The token at the caret (the dummy identifier, with what was typed before it) and its index. */
     private val caretIndex: Int = tokens.indexOfFirst { it.type != Token.EOF && it.startIndex <= offset && offset <= it.stopIndex + 1 && it.type == ForgeLexer.IDENT }
@@ -122,7 +123,7 @@ class ForgeCompletion(private val text: String, private val offset: Int, private
 
     private fun complete(analysis: ForgeAnalysis?, full: Boolean, given: Globals? = null): List<ForgeCandidate> {
         val globals = given ?: analysis?.let(::Globals)
-        val tree = analysis?.main ?: ForgePsiParser.parseAntlr(text).first
+        val tree = analysis?.main ?: ForgeAntlr.parse(text).first
         val terminal = terminal(tree)
         val context = terminal?.parent as? ParserRuleContext
         val token = terminal?.symbol
@@ -339,7 +340,7 @@ class ForgeCompletion(private val text: String, private val offset: Int, private
     private fun keyword(name: String) = ForgeCandidate(name, ForgeCandidateKind.KEYWORD)
 
     companion object {
-        /** IntelliJ's dummy identifier, which a local never declares. */
+        /** The start of the dummy identifier at the caret (IntelliJ's), which a local never declares. */
         const val DUMMY_PREFIX = "IntellijIdeaRulezzz"
 
         val TOP_LEVEL_KEYWORDS = listOf(

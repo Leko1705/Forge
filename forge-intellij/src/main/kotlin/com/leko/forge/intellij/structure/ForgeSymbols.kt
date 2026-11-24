@@ -1,7 +1,7 @@
 package com.leko.forge.intellij.structure
 
 import com.intellij.icons.AllIcons
-import com.leko.forge.intellij.parser.ForgeNameRole
+import com.leko.forge.ide.parser.ForgeNameRole
 import com.leko.forge.intellij.psi.ForgeDeclaredName
 import javax.swing.Icon
 

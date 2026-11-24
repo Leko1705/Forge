@@ -13,10 +13,10 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.TokenType
 import com.intellij.psi.tree.IElementType
+import com.leko.forge.ide.parser.ForgeNameRole
 import com.leko.forge.intellij.lexer.ForgeLexerAdapter
 import com.leko.forge.intellij.lexer.ForgeTokenType
 import com.leko.forge.intellij.lexer.ForgeTokenTypes
-import com.leko.forge.intellij.parser.ForgeNameRole
 
 /** The colors of Forge; they default to the colors of the same constructs in other languages. */
 object ForgeColors {

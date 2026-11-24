@@ -21,12 +21,12 @@ repositories {
 }
 
 dependencies {
-    // the compiler; it is bundled with the plugin together with the ANTLR runtime (not the ANTLR tool)
-    implementation(project(":")) {
+    // the IDE-independent editor support with the compiler; they are bundled with the plugin together with the
+    // ANTLR runtime (not the ANTLR tool)
+    implementation(project(":forge-ide-core")) {
         exclude(group = "org.antlr", module = "antlr4")
         exclude(group = "org.jetbrains.kotlin")
     }
-    implementation("org.antlr:antlr4-runtime:4.13.1")
 
     testImplementation(kotlin("test"))
     testImplementation("junit:junit:4.13.2")

@@ -11,8 +11,8 @@ import com.intellij.psi.PsiManager
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.util.indexing.FileBasedIndex
+import com.leko.forge.ide.parser.ForgeNameRole
 import com.leko.forge.intellij.lexer.ForgeTokenTypes
-import com.leko.forge.intellij.parser.ForgeNameRole
 import com.leko.forge.intellij.parser.ForgeRuleType
 import com.leko.forge.intellij.psi.ForgeDeclaredName
 import com.leko.forge.intellij.psi.ForgeNameReference

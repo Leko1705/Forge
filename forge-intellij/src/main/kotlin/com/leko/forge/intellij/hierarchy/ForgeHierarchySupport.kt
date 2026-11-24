@@ -12,19 +12,19 @@ import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.usageView.UsageInfo
 import com.intellij.util.Processor
+import com.leko.forge.ide.parser.ForgeNameRole
+import com.leko.forge.ide.semantics.ForgeHierarchy
+import com.leko.forge.ide.semantics.ForgeRelated
 import com.leko.forge.intellij.lexer.ForgeTokenTypes
-import com.leko.forge.intellij.parser.ForgeNameRole
 import com.leko.forge.intellij.psi.ForgeDeclaredName
 import com.leko.forge.intellij.psi.ForgeNameElement
 import com.leko.forge.intellij.psi.ForgeReference
-import com.leko.forge.intellij.semantics.ForgeHierarchy
+import com.leko.forge.intellij.semantics.ForgeFileSemantics
 import com.leko.forge.intellij.semantics.ForgeImports
-import com.leko.forge.intellij.semantics.ForgeRelated
-import com.leko.forge.intellij.semantics.ForgeSemantics
 
 /** The hierarchy of the declaration [element] names, if it has one. */
 val ForgeNameElement.hierarchy: ForgeHierarchy?
-    get() = ForgeSemantics.of(containingFile).hierarchy[textRange.startOffset]
+    get() = ForgeFileSemantics.of(containingFile).hierarchy[textRange.startOffset]
 
 /** The name element of a related declaration, in its file. */
 fun ForgeRelated.element(context: PsiFile): PsiElement? {

@@ -1,13 +1,6 @@
-package com.leko.forge.intellij.semantics
+package com.leko.forge.ide.semantics
 
 import ForgeParser
-import com.intellij.openapi.diagnostic.ControlFlowException
-import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.util.Key
-import com.intellij.psi.PsiFile
-import com.intellij.psi.util.CachedValueProvider
-import com.intellij.psi.util.CachedValuesManager
-import com.intellij.psi.util.PsiModificationTracker
 import com.leko.forge.analysis.Dependency
 import com.leko.forge.attr.Attr
 import com.leko.forge.attr.SymTab
@@ -19,14 +12,14 @@ import com.leko.forge.attr.local
 import com.leko.forge.context.Context
 import com.leko.forge.enter.Enter
 import com.leko.forge.enter.MemberEnter
-import com.leko.forge.intellij.parser.ForgeNameRole
-import com.leko.forge.intellij.parser.ForgePsiParser
-import com.leko.forge.intellij.parser.nameRole
-import com.leko.forge.intellij.parser.typeParameterDeclaration
+import com.leko.forge.ide.ForgeHost
+import com.leko.forge.ide.parser.ForgeAntlr
+import com.leko.forge.ide.parser.ForgeNameRole
+import com.leko.forge.ide.parser.nameRole
+import com.leko.forge.ide.parser.typeParameterDeclaration
 import com.leko.forge.model.*
 import com.leko.forge.model.span
 import com.leko.forge.parse.parseForgeImports
-import org.antlr.v4.runtime.CharStream
 import org.antlr.v4.runtime.CommonTokenStream
 import org.antlr.v4.runtime.ListTokenSource
 import org.antlr.v4.runtime.ParserRuleContext
@@ -34,6 +27,7 @@ import org.antlr.v4.runtime.Token
 import org.antlr.v4.runtime.tree.ParseTree
 import org.antlr.v4.runtime.tree.TerminalNode
 import java.io.File
+import java.util.logging.Level
 
 /**
  * What a name refers to, as the compiler resolved it: the declaration at [line]:[column] (ANTLR's: lines from 1,
@@ -58,6 +52,17 @@ data class ForgeRelated(val resolution: ForgeResolution, val abstract: Boolean, 
 data class ForgeHierarchy(val abstract: Boolean, val supers: List<ForgeRelated>, val subs: List<ForgeRelated>)
 
 /**
+ * Where the lines of an old text are in a new one, for [ForgeSemantics.moved]: lines from 1, as ANTLR's. `null` for
+ * the lines that changed and for the offsets on them.
+ */
+interface ForgeLineMapping {
+    /** The new line of [line]. */
+    fun line(line: Int): Int?
+    /** The new offset of [offset] of the old text. */
+    fun offset(offset: Int): Int?
+}
+
+/**
  * The names of a file the compiler resolved, by the offset where they start, and the [hierarchy] of the
  * declarations of the file, by the offset of their names.
  */
@@ -69,7 +74,7 @@ class ForgeSemantics(
 ) {
 
     /** These semantics in a changed text: what is on lines that are still there, moved with them; the rest is gone. */
-    fun moved(map: ForgeLineMap): ForgeSemantics {
+    fun moved(map: ForgeLineMapping): ForgeSemantics {
         fun ForgeResolution.moved(): ForgeResolution? =
             if (source != null) this else map.line(line)?.let { copy(line = it) }
         fun ForgeRelated.moved(): ForgeRelated? = resolution.moved()?.let { copy(resolution = it) }
@@ -88,33 +93,11 @@ class ForgeSemantics(
     }
 
     companion object {
-        private val LOG = logger<ForgeSemantics>()
-
         /** The compiler keeps the attributes of the trees in one global table, so analyses run one at a time. */
         val lock = Any()
 
-        private val EMPTY = ForgeSemantics(emptyMap())
-
-        /** The last semantics of a file that could be analyzed, with its text. */
-        private val LAST_GOOD = Key.create<Pair<String, ForgeSemantics>>("forge.lastGoodSemantics")
-
-        /**
-         * The semantics of [file], computed once for each version of the program. While the file can not be
-         * analyzed (e.g. while a declaration is typed, with syntax errors), those of its last version that could
-         * be, moved to where its lines are now: what is on the lines that did not change keeps working.
-         */
-        fun of(file: PsiFile): ForgeSemantics = CachedValuesManager.getCachedValue(file) {
-            val path = file.originalFile.virtualFile?.takeIf { it.isInLocalFileSystem }?.path
-            val text = file.text
-            val computed = analyze(text, path?.let(::File), ForgeImports::read) { semanticsOf(it) }
-            val semantics = if (computed != null) {
-                file.putUserData(LAST_GOOD, text to computed)
-                computed
-            } else {
-                file.getUserData(LAST_GOOD)?.let { (oldText, old) -> ForgeLineMap.between(oldText, text)?.let(old::moved) } ?: EMPTY
-            }
-            CachedValueProvider.Result.create(semantics, PsiModificationTracker.MODIFICATION_COUNT)
-        }
+        /** No resolved names: for a file that can not be analyzed. */
+        val EMPTY = ForgeSemantics(emptyMap())
 
         private fun semanticsOf(analysis: ForgeAnalysis): ForgeSemantics {
             val collector = Collector(analysis.context).apply { visit(analysis.main) }
@@ -123,25 +106,27 @@ class ForgeSemantics(
 
         /**
          * Analyzes [text], the text of [file] (`null` if it is not on disk; then its imports can not be found),
-         * with the compiler, and records what its names resolve to. Imported files are read with [read]. Empty if
+         * with the compiler, and records what its names resolve to. Imported files are read by [host]. Empty if
          * the analysis is not possible, e.g. for a missing import, or fails on an incomplete tree.
          */
-        fun compute(text: String, file: File?, read: (File) -> CharStream): ForgeSemantics =
-            analyze(text, file, read, ::semanticsOf) ?: EMPTY
+        fun compute(text: String, file: File?, host: ForgeHost): ForgeSemantics = computeOrNull(text, file, host) ?: EMPTY
+
+        /** The semantics of [text] (see [compute]); `null` if it can not be analyzed. */
+        fun computeOrNull(text: String, file: File?, host: ForgeHost): ForgeSemantics? = analyze(text, file, host, ::semanticsOf)
 
         /**
          * Runs the compiler's analysis on [text] (see [compute]) and then [block], while the attributes of the
          * trees are there; `null` if the analysis is not possible or fails.
          */
-        fun <T> analyze(text: String, file: File?, read: (File) -> CharStream, block: (ForgeAnalysis) -> T): T? {
-            val tokens = ForgePsiParser.antlrTokens(text)
+        fun <T> analyze(text: String, file: File?, host: ForgeHost, block: (ForgeAnalysis) -> T): T? {
+            val tokens = ForgeAntlr.tokens(text)
             val parser = ForgeParser(CommonTokenStream(ListTokenSource(tokens)))
             parser.removeErrorListeners()
             val main = parser.root()
             if (file == null && main.importDecl().any { it.path.text != "\"std\"" }) return null
             return synchronized(lock) {
                 try {
-                    val root = (file ?: File("<editor>")).parseForgeImports(main, read)
+                    val root = (file ?: File("<editor>")).parseForgeImports(main, host::read)
                     val context = Context()
                     Enter.instance(context).enter(root)
                     MemberEnter.instance(context).enter(root)
@@ -149,9 +134,9 @@ class ForgeSemantics(
                     Dependency.instance(context).check(root)
                     block(ForgeAnalysis(context, main, root, tokens))
                 } catch (e: Throwable) {
-                    if (e is ControlFlowException) throw e
+                    if (host.cancels(e)) throw e
                     // the analysis needs a complete tree; while the file is edited, it may not be
-                    if (parser.numberOfSyntaxErrors == 0) LOG.debug("the Forge analysis failed", e)
+                    if (parser.numberOfSyntaxErrors == 0) host.log(Level.FINE, "the Forge analysis failed", e)
                     null
                 } finally {
                     clearTreeAttributes()

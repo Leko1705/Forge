@@ -404,3 +404,8 @@ the compiler itself, so the editor sees what `forge -f` sees:
 
 Install the zip with Settings | Plugins | ⚙ | Install Plugin from Disk. The build downloads the IntelliJ Platform
 from JetBrains.
+
+The part of the editor support that does not depend on IntelliJ is in [forge-ide-core](forge-ide-core): the lexer
+and parser as editors need them, the compiler's diagnostics, what names resolve to, the hierarchy of declarations,
+completion and the project template. The plugin adapts it to IntelliJ; other editors (e.g. through a language
+server) can build on it too. `./gradlew :forge-ide-core:test` tests it without an IDE.

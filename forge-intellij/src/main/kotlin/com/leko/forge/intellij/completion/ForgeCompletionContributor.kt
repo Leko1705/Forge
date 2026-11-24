@@ -15,6 +15,9 @@ import com.intellij.icons.AllIcons
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiFile
+import com.leko.forge.ide.completion.ForgeCandidate
+import com.leko.forge.ide.completion.ForgeCandidateKind
+import com.leko.forge.ide.completion.ForgeCompletion
 import com.leko.forge.intellij.lexer.ForgeTokenTypes
 import com.leko.forge.intellij.parser.ForgeFile
 import com.leko.forge.intellij.semantics.ForgeImports
@@ -30,7 +33,7 @@ class ForgeCompletionContributor : CompletionContributor() {
         if (type in ForgeTokenTypes.COMMENTS || type in ForgeTokenTypes.STRINGS) return
         val text = position.containingFile.text
         val path = parameters.originalFile.virtualFile?.takeIf { it.isInLocalFileSystem }?.path
-        val candidates = ForgeCompletion(text, parameters.offset, path?.let(::File), ForgeImports::read).candidates()
+        val candidates = ForgeCompletion(text, parameters.offset, path?.let(::File), ForgeImports).candidates()
         result.addAllElements(candidates.map(::lookup))
     }
 

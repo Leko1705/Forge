@@ -4,6 +4,7 @@ import ForgeLexer
 import com.intellij.psi.TokenType
 import com.intellij.psi.tree.IElementType
 import com.intellij.psi.tree.TokenSet
+import com.leko.forge.ide.lexer.ForgeEditorLexer
 import com.leko.forge.intellij.ForgeLanguage
 
 /** A token of the compiler's lexer, ForgeLexer; [antlrType] is its ANTLR token type. */
@@ -35,13 +36,10 @@ object ForgeTokenTypes {
     @JvmField val STRINGS = TokenSet.create(STRING, REGEX_STRING)
 
     /** The tokens ForgeLexer skips; the parser does not see them. */
-    fun isHidden(type: IElementType): Boolean = type == WS || type == LINE_COMMENT || type == BLOCK_COMMENT
+    fun isHidden(type: IElementType): Boolean = type is ForgeTokenType && ForgeEditorLexer.isHidden(type.antlrType)
 
     /** The keywords, which are the tokens whose literal name is a word: 'node', 'fun', '!in', 'List', ... */
-    @JvmField val KEYWORDS: TokenSet = TokenSet.create(*(1..ForgeLexer.VOCABULARY.maxTokenType).filter { type ->
-        val literal = ForgeLexer.VOCABULARY.getLiteralName(type) ?: return@filter false
-        literal.trim('\'').trimStart('!').let { it.isNotEmpty() && it.all(Char::isLetter) }
-    }.map(::of).toTypedArray())
+    @JvmField val KEYWORDS: TokenSet = TokenSet.create(*ForgeEditorLexer.KEYWORDS.sorted().map(::of).toTypedArray())
 
     @JvmField val NUMBERS = TokenSet.create(
         of(ForgeLexer.INT), of(ForgeLexer.FLOAT), of(ForgeLexer.HEX), of(ForgeLexer.BIN), of(ForgeLexer.OCT),

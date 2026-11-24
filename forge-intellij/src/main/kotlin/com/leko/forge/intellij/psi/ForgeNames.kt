@@ -13,13 +13,13 @@ import com.intellij.psi.PsiReference
 import com.intellij.psi.PsiReferenceBase
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.util.IncorrectOperationException
+import com.leko.forge.ide.parser.ForgeNameRole
+import com.leko.forge.ide.semantics.ForgeResolution
 import com.leko.forge.intellij.ForgeFileType
 import com.leko.forge.intellij.lexer.ForgeTokenTypes
-import com.leko.forge.intellij.parser.ForgeNameRole
 import com.leko.forge.intellij.parser.ForgeNameType
+import com.leko.forge.intellij.semantics.ForgeFileSemantics
 import com.leko.forge.intellij.semantics.ForgeImports
-import com.leko.forge.intellij.semantics.ForgeResolution
-import com.leko.forge.intellij.semantics.ForgeSemantics
 import com.leko.forge.intellij.structure.ForgeSymbols
 import javax.swing.Icon
 
@@ -31,7 +31,7 @@ sealed class ForgeNameElement(node: ASTNode) : ASTWrapperPsiElement(node) {
     val identifier: PsiElement? get() = node.findChildByType(ForgeTokenTypes.IDENT)?.psi
 
     /** What the compiler resolved this name to; `null` if it did not, or the program can not be analyzed now. */
-    val resolution: ForgeResolution? get() = ForgeSemantics.of(containingFile).resolutions[textRange.startOffset]
+    val resolution: ForgeResolution? get() = ForgeFileSemantics.of(containingFile).resolutions[textRange.startOffset]
 
     override fun getName(): String? = identifier?.text
 

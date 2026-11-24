@@ -1,6 +1,8 @@
 package com.leko.forge.intellij.semantics
 
 import com.intellij.openapi.application.ReadAction
+import com.intellij.openapi.diagnostic.ControlFlowException
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.LocalFileSystem
@@ -8,25 +10,42 @@ import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiManager
+import com.leko.forge.ide.ForgeHost
 import com.leko.forge.parse.STD_SOURCE
+import java.util.logging.Level
 import org.antlr.v4.runtime.ANTLRInputStream
 import org.antlr.v4.runtime.CharStream
 import java.io.File
 
-/** The files of a program in the IDE: imported files as the editor has them, and the bundled standard library. */
-object ForgeImports {
+/**
+ * The files of a program in the IDE: imported files as the editor has them, and the bundled standard library. As
+ * the [ForgeHost] of the analysis, it also lets IntelliJ cancel an analysis, and logs to the IDE's log.
+ */
+object ForgeImports : ForgeHost {
+    private val LOG = logger<ForgeImports>()
 
     /**
      * The text of an imported file: of its editor if it is open (it may not be saved), from disk otherwise. As
      * UTF-16 chars, like the editor, so that the columns of the compiler's spans are offsets in the editor's lines.
      */
-    fun read(file: File): CharStream {
+    override fun read(file: File): CharStream {
         val text = ReadAction.computeBlocking<String, RuntimeException> {
             LocalFileSystem.getInstance().findFileByIoFile(file)
                 ?.let { FileDocumentManager.getInstance().getCachedDocument(it) }
                 ?.text
         } ?: file.readText()
         return ANTLRInputStream(text).apply { name = file.absolutePath }
+    }
+
+    override fun cancels(e: Throwable): Boolean = e is ControlFlowException
+
+    override fun log(level: Level, message: String, e: Throwable?) {
+        when {
+            level.intValue() >= Level.SEVERE.intValue() -> LOG.error(message, e)
+            level.intValue() >= Level.WARNING.intValue() -> LOG.warn(message, e)
+            level.intValue() >= Level.INFO.intValue() -> LOG.info(message, e)
+            else -> LOG.debug(message, e)
+        }
     }
 
     /** The standard library bundled with the compiler, read-only. */

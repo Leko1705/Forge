@@ -1,4 +1,4 @@
-package com.leko.forge.intellij.wizard
+package com.leko.forge.ide.project
 
 import java.nio.file.Files
 import java.nio.file.Path
