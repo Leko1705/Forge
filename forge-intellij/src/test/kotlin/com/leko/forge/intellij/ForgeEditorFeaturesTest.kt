@@ -207,6 +207,9 @@ class ForgeEditorFeaturesTest : BasePlatformTestCase() {
         // the whole call in the color of TODO comments
         val todo = infos.single { it.forcedTextAttributesKey == com.leko.forge.intellij.highlight.ForgeColors.TODO_CALL }
         assertEquals("TODO(\"later\")", todo.text)
+        // nothing else colors the name: the call is yellow from `TODO` to `)`
+        val name = myFixture.file.text.indexOf("TODO")
+        assertEquals(listOf(todo), infos.filter { it.startOffset <= name && name < it.endOffset && (it.forcedTextAttributesKey != null || it.forcedTextAttributes != null) })
         assertEquals(com.intellij.openapi.editor.colors.CodeInsightColors.TODO_DEFAULT_ATTRIBUTES, todo.forcedTextAttributesKey.fallbackAttributeKey)
         // `_` is plain text
         assertEquals(0, com.leko.forge.intellij.highlight.ForgeSyntaxHighlighter()
