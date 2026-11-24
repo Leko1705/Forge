@@ -50,6 +50,10 @@
         <lang.quoteHandler language="Forge" implementationClass="com.leko.forge.intellij.editor.ForgeQuoteHandler"/>
         <lang.findUsagesProvider language="Forge"
                                  implementationClass="com.leko.forge.intellij.psi.ForgeFindUsagesProvider"/>
+        <renamePsiElementProcessor implementation="com.leko.forge.intellij.hierarchy.ForgeRenameProcessor"/>
+        <lang.namesValidator language="Forge" implementationClass="com.leko.forge.intellij.hierarchy.ForgeNamesValidator"/>
+        <lang.elementManipulator forClass="com.leko.forge.intellij.psi.ForgeImportPath"
+                                 implementationClass="com.leko.forge.intellij.psi.ForgeImportPathManipulator"/>
         <findUsagesHandlerFactory implementation="com.leko.forge.intellij.hierarchy.ForgeFindUsagesHandlerFactory"/>
         <codeInsight.lineMarkerProvider language="Forge"
                                         implementationClass="com.leko.forge.intellij.hierarchy.ForgeLineMarkerProvider"/>

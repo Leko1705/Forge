@@ -18,6 +18,7 @@ import com.leko.forge.intellij.ForgeLanguage
 import com.leko.forge.intellij.lexer.ForgeLexerAdapter
 import com.leko.forge.intellij.lexer.ForgeTokenTypes
 import com.leko.forge.intellij.psi.ForgeDeclaredName
+import com.leko.forge.intellij.psi.ForgeImportPath
 import com.leko.forge.intellij.psi.ForgeNameReference
 
 class ForgeFile(viewProvider: FileViewProvider) : PsiFileBase(viewProvider, ForgeLanguage) {
@@ -36,6 +37,7 @@ class ForgeParserDefinition : ParserDefinition {
     override fun getCommentTokens(): TokenSet = ForgeTokenTypes.COMMENTS
     override fun getStringLiteralElements(): TokenSet = ForgeTokenTypes.STRINGS
     override fun createElement(node: ASTNode): PsiElement {
+        if (node.elementType == ForgeElementTypes.IMPORT_PATH) return ForgeImportPath(node)
         val type = node.elementType as? ForgeNameType ?: return ForgePsiElement(node)
         return if (type.declaration) ForgeDeclaredName(node) else ForgeNameReference(node)
     }

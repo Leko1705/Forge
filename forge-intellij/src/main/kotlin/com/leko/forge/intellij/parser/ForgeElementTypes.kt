@@ -27,6 +27,9 @@ class ForgeNameType(val role: ForgeNameRole, val declaration: Boolean) :
 object ForgeElementTypes {
     @JvmField val FILE = IFileElementType(ForgeLanguage)
 
+    /** The path of an `import`, the string: it refers to the imported file. */
+    @JvmField val IMPORT_PATH = IElementType("IMPORT_PATH", ForgeLanguage)
+
     private val ruleTypes: Map<Class<*>, ForgeRuleType> =
         ForgeParser::class.java.declaredClasses
             .filter { ParserRuleContext::class.java.isAssignableFrom(it) }

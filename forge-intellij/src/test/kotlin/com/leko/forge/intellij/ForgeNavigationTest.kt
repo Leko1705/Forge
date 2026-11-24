@@ -169,3 +169,51 @@ class ForgeNavigationTest : BasePlatformTestCase() {
         assertEquals(emptyList<Any>(), errors)
     }
 }
+
+class ForgeRenameTest : com.intellij.testFramework.fixtures.BasePlatformTestCase() {
+    private val program = """
+        node Expr
+        node Num(value: int): Expr
+        node Add(left: Expr, right: Expr): Expr
+        syn Expr.type: str
+        syn Num.type: str = "int"
+        syn Add.type: str = if this.left.type == this.right.type then this.left.type else "error"
+        syn Add.ok: bool = this.type == "int"
+        parser Lang skip '\s+'
+        rule Lang.expr: Expr
+        rule Lang.expr: Num -> n: '[0-9]+' { Num(n.toInt()) }
+        rule Lang.expr: Add -> '\(' l: expr '\+' r: expr '\)' { Add(l, r) }
+        rule Lang.program: Expr -> e: expr { e }
+    """.trimIndent()
+
+    private fun renameAt(marker: String, newName: String): String {
+        val offset = program.indexOf(marker) + marker.length
+        myFixture.configureByText("a.forge", program.substring(0, offset) + "<caret>" + program.substring(offset))
+        myFixture.renameElementAtCaret(newName)
+        return myFixture.editor.document.text
+    }
+
+    fun testRenamingADefinitionRenamesItsImplementations() {
+        val expected = program.replace(Regex("\\.type\\b"), ".kind")
+        assertEquals(expected, renameAt("syn Expr.", "kind"))
+        // the program still compiles
+        assertEquals(emptyList<Any>(), com.leko.forge.intellij.annotator.ForgeCompilerAnnotator.analyze(
+            com.leko.forge.intellij.annotator.ForgeSource(expected, null)).filter { it.severity == com.intellij.lang.annotation.HighlightSeverity.ERROR })
+    }
+
+    fun testRenamingAnImplementationRenamesTheDefinition() {
+        assertEquals(program.replace(Regex("\\.type\\b"), ".kind"), renameAt("syn Num.", "kind"))
+    }
+
+    fun testRenamingARuleRenamesItsAlternatives() {
+        assertEquals(program.replace(Regex("\\bexpr\\b"), "term"), renameAt("rule Lang.", "term"))
+    }
+
+    fun testKeywordsAreNoNames() {
+        val validator = com.leko.forge.intellij.hierarchy.ForgeNamesValidator()
+        assertTrue(validator.isKeyword("node", null))
+        assertFalse(validator.isIdentifier("syn", null))
+        assertFalse(validator.isIdentifier("2x", null))
+        assertTrue(validator.isIdentifier("kind", null))
+    }
+}

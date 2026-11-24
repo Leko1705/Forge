@@ -96,10 +96,14 @@ class ForgePsiParser : PsiParser {
                     advanceTo(token.startIndex)
                     val context = tree.parent as? ParserRuleContext
                     val role = context?.let { nameRole(it, token) }
-                    val mark = role?.let { builder.mark() }
+                    val importPath = context is ForgeParser.ImportDeclContext && token === context.path
+                    val mark = if (role != null || importPath) builder.mark() else null
                     reportErrors(builder.currentOffset)
                     while (!builder.eof() && builder.currentOffset <= token.stopIndex) consume()
-                    mark?.done(ForgeElementTypes.of(role, isDeclaration(context, token)))
+                    when {
+                        importPath -> mark?.done(ForgeElementTypes.IMPORT_PATH)
+                        role != null -> mark?.done(ForgeElementTypes.of(role, isDeclaration(context, token)))
+                    }
                 }
                 is ParserRuleContext -> {
                     val start = tree.start
