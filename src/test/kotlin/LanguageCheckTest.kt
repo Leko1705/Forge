@@ -61,11 +61,11 @@ class LanguageCheckTest {
         assertOk("fun now(f: () -> int): int = f()\nfun g(): int = now { 42 }")
         assertOk("fun g(xs: List<int>): int = xs.fold(0) { acc, x -> acc + x }")
         // a block after a match is its cases, also after a name or a call
-        assertOk("fun f(x: int): int = match x { a -> a }\nfun g(xs: List<int>): int = match xs.reversed() { [a] -> a  _ -> 0 }")
+        assertOk("fun f(x: int, a: int): int = match x { a -> a  _ -> 0 }\nfun g(xs: List<int>): int = match xs.reversed() { [a] -> a  _ -> 0 }")
         assertOk("fun g(xs: List<int>): str = match xs.map { it } { [1] -> \"one\"  _ -> \"\" }")
         // flows: the blocks of `if` and `for`
-        assertOk("node F(body: S)\nnode S\nnode A(): S\nport p\ngraph cfg: F\nflow cfg: F(_, ) { entry(this); this -> next }\n" +
-            "flow cfg: A { entry(this); if bound(p) { this -> p } else { this -> next } }".replace("(_, )", "(_)"))
+        assertOk("node F(body: S)\nnode S\nnode A(): S\nport p\ngraph cfg: F\nflow cfg: F(_) { entry(this); this -> next }\n" +
+            "flow cfg: A { entry(this); if bound(p) { this -> p } else { this -> next } }")
         assertError("expected type '(int, int) -> int'", "fun f(g: (int, int) -> int): int = 1\nfun h(): int = f { 3 }")
     }
 
