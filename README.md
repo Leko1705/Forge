@@ -53,13 +53,14 @@ A `val` is a property of a record, an enum or a builtin type (`val <T> List<T>.l
 Constants are inlined: the generated code has no variable for a constant, every use of it is its value. The value
 can not use `this` or local variables, and a constant whose value depends on itself is an error.
 
-Types: `int`, `float`, `bool`, `str`, `List<T>`, `Set<T>`, `Map<K, V>`, `T?`, nodes, enums, records, `Vertex`,
-`Graph`, `Edge`. A list of different nodes has their most specific common interface as element type, e.g.
+Types: `int`, `long`, `float`, `bool`, `str`, `List<T>`, `Set<T>`, `Map<K, V>`, `T?`, tuples `(int, str)`,
+functions `(int) -> str`, nodes, enums and records (also generic ones: `Pair<int, str>`), `Vertex`, `Graph`, `Edge`. A list of different nodes has their most specific common interface as element type, e.g.
 `[Push(1), Label("end")]` is a `List<Insn>` if both are `Insn`s.
 Expressions: arithmetic, shifts `<<`, `>>` (keeps the sign) and `>>>`, `++` (lists, sets, maps), `x in xs`, `a ?: b`,
 `x!!`, `v as T`, `v is T`, `if .. then .. else`, `match` (enum variants, lists `[a, b]`, `head :: tail`, values, guards
-`p if cond`), comprehensions (`f(x) for x in xs`, folds `acc + x for x in xs with acc = 0`, also over sets).
-Comments: `//` and `/* */`.
+`p if cond`), comprehensions (`f(x) for x in xs`, folds `acc + x for x in xs with acc = 0`, also over sets), local
+bindings `e where x = 1`, lambdas `{ x -> x + 1 }`, tuples `(a, b)` and `t.0`, strings with expressions `"n = ${n}"`.
+Comments: `//` and `/* */`. Each of these is described [below](#local-bindings-where).
 
 | Literal or access     | Meaning                                                                                 |
 |-----------------------|-----------------------------------------------------------------------------------------|
@@ -102,13 +103,16 @@ comes first.
 
 | Of        | Functions and properties                                                                                       |
 |-----------|-------------------------------------------------------------------------------------------------------|
-| `int`, `float`, `bool` | `str()`: as text (floats like Kotlin's `Float.toString`)                                |
-| `int`, `float` | `max(other)`, `min(other)`; `int.abs()`                                                          |
-| `str`     | `size`, `toInt()`, `toFloat()` (fail unless the whole text is a number), `indexOf(t)` (-1 if absent), `startsWith(t)`, `endsWith(t)`, `replace(a, b)`, `upper()`, `lower()`, `trim()`, `split(separator)`, `code(i)`, `utf8()` (the bytes), `unescape()` (`\n \t \r \0`; `\x` is x) |
+| `int`, `long`, `float`, `bool` | `str()`: as text (floats like Kotlin's `Float.toString`)                        |
+| `int`, `long`, `float` | `max(other)`, `min(other)`, `compareTo(other)`; `int.abs()`, `long.abs()`                |
+| `str`     | `str()` (itself), `compareTo(other)` (by the codes of the characters), `size`, `toInt()`, `toLong()`, `toFloat()` (fail unless the whole text is a number), `indexOf(t)` (-1 if absent), `startsWith(t)`, `endsWith(t)`, `replace(a, b)`, `upper()`, `lower()`, `trim()`, `split(separator)`, `code(i)`, `utf8()` (the bytes), `unescape()` (`\n \t \r \0`; `\x` is x) |
 | `List<T>` | `size`, `indexOf(x)`, `reversed()`, `toSet()`; `List<str>.join(separator)`; `union(other)`: the elements, then those of `other` not in it (no duplicates); `minus(other)`, also `xs - ys`; `distinct()` (first occurrences, in order); `disjoint(other)` |
-| `List<int>`, `List<float>` | `sum()`, `max()`, `min()` (fail for an empty list)                                   |
+| `List<T>`, with functions | `map(f)`, `filter(p)`, `flatMap(f)`, `fold(init, f)`, `any(p)`, `all(p)`, `count(p)`, `find(p)` (`null` if none), `groupBy(key)`, `sortedWith(compare)`, `sortedBy(key)` (a `Comparable` key), `maxBy(key)`, `minBy(key)`, `joinWith(separator, f)`; `sorted()` of `Comparable` elements (all sorts are stable) |
+| `List<T>`, with tuples | `withIndex()`: `[(0, a), (1, b)]`; `zip(other)`: `[(a, x), (b, y)]`                       |
+| `List<int>`, `List<long>`, `List<float>` | `sum()`; `max()`, `min()` of ints and floats (fail for an empty list)   |
 | `Set<T>`  | `size`, `toList()`, `remove(x)`                                                                                |
-| `Map<K, V>` | `size`, `keys()`, `values()` (lists, in the order of the map), `remove(key)`                                 |
+| `Map<K, V>` | `size`, `keys()`, `values()` (lists, in the order of the map), `remove(key)`, `entries()` (`(key, value)` tuples), `mapValues(f)` |
+| traits    | `Comparable` (`compareTo(other: Self): int`: int, long, float, str), `Printable` (`str(): str`: int, long, float, bool, str) |
 | -         | `char(code)`: a character as a str; `fail(message)`: stops with an error (`ForgeError`, `IllegalStateException` in Kotlin, a panic in Rust). Its type is `Nothing`, which fits wherever a value is expected: `x ?: fail("missing")`, `if b == 0 then fail("division by zero") else a / b` |
 
 Part of the language rather than of std.forge: the operators and the graph declarations (`Graph`, `Edge`, `Vertex`, `graphOf`, `Span`, `spanOf`).
@@ -137,6 +141,139 @@ A method declared for a specific receiver (`List<int>.second()`) comes first.
 
 Strings are UTF-16 in Kotlin, Java and JavaScript, code points in Python and bytes of UTF-8 in C++, Rust and OCaml: sizes,
 indexes, `code`, `upper`, `lower` and `trim` agree for ASCII text.
+
+### Local bindings: `where`
+
+`e where x = 1, y: int = x + 1` names values for `e`. A binding may have a type (`y: int`); without one its type is
+that of its value. The bindings see each other in any order: their values are computed once, in the order of their
+dependencies (a binding that depends on itself is an error). A tuple can be taken apart: `where (name, age) = person`.
+
+```
+fun area(d: int): int = r * r * 3 where r = d / 2
+fun norm(v: Vec): int = x + y where x = v.x.abs(), y = v.y.abs()
+fun swap(t: (int, str)): (str, int) = (b, a) where (a, b) = t
+```
+
+A `where` is for the whole expression before it, also the whole `if ... else` or comprehension it ends:
+`if c then x else x + 1 where x = f()` and `f(e) for e in xs with acc = 0 where k = 2` see `x` and `k` everywhere.
+`a where x = 1 where y = 2` is `a where x = 1, y = 2`; in parentheses a `where` is just for what is in them.
+
+### Functions as values
+
+A function type is written `(int, str) -> bool`; `() -> int` takes nothing. A lambda is `{ x, y -> x + y }`; the types
+of its parameters come from where it is used (`xs.map({ x -> x * 2 })`), or are written: `{ x: int -> x * 2 }`. A
+function value is called like a function, `f(x)`, also as a field of a record (`r.handler(x)`) or as any expression
+in parentheses (`(make())(x)`). A top level function is a value too: `xs.map(double)`; a generic one gets its type
+arguments from the type expected there. Lambdas see the variables, parameters and `this` where they are written, also
+in attribute equations (`syn Add.scaled: (int) -> int = { k -> k * this.value }`). Function values can not be compared.
+
+```
+fun twice(f: (int) -> int, x: int): int = f(f(x))
+fun adder(n: int): (int) -> int = { x -> x + n }
+fun <A, B, C> compose(f: (A) -> B, g: (B) -> C): (A) -> C = { x -> g(f(x)) }
+twice(adder(3), 1)                                    // 7
+[3, 1, 2].map({ x -> x * x }).filter({ x -> x > 1 })  // [9, 4]
+```
+
+In Kotlin a function value is a Kotlin function type (`(Int) -> Int`); in the other targets a value of the runtime
+(`__Fn` in Java, `rt::fn` in C++, `rt::func` in Rust, `Fn` in OCaml, a function in Python and JavaScript).
+
+### Generic records and enums, tuples
+
+Records and enums can have type parameters; they are inferred where a value is made, from its fields and from the
+type expected there. A type parameter that neither binds is `Nothing`: `Option.NONE` is an `Option<Nothing>`, which
+is an `Option<int>`, as generic records and enums are covariant (their values are immutable).
+
+```
+record Pair<A, B> { first: A, second: B }
+enum Option<T> { NONE, SOME(value: T) }
+enum Result<T, E> { OK(value: T), ERR(error: E) }
+
+fun <A, B> Pair<A, B>.swap(): Pair<B, A> = Pair(this.second, this.first)
+fun <T> Option<T>.orElse(other: T): T = match this { Option.SOME(v) -> v  _ -> other }
+fun parse(s: str): Result<int, str> = if s == "" then Result.ERR("empty") else Result.OK(s.size)
+```
+
+A tuple `(1, "a")` has the type `(int, str)`; `t.0`, `t.1` are its elements (`t.1.0` of nested ones). Tuples are equal
+if their elements are, can be keys of maps and are taken apart by patterns, `match t { (0, s) -> s  (n, _) -> ... }`,
+and by `where (a, b) = t`. Nodes can not be generic: they are the tree that attributes are computed on.
+
+### Traits and bounded type parameters
+
+A type parameter can have bounds: `fun <T: Named & Sized>`. A bound is a trait or a type. A **trait** names members
+that a type must have, with `Self` for the type itself:
+
+```
+trait Named { fun name(): str }
+trait Sized { val weight: int }
+
+record Dog { label: str }
+fun Dog.name(): str = "dog " + this.label
+val Dog.weight: int = this.label.size
+
+fun <T: Named & Sized> heaviest(xs: List<T>): str = ((if x.weight > acc.weight then x else acc) for x in xs with acc = xs[0]).name()
+fun <T: Comparable> largest(a: T, b: T): T = if a > b then a else b      // `<` and `>` are compareTo
+```
+
+A type has a trait if it has its members, as methods, `op fun`s or `val`s of its own or of the standard library; it
+does not declare that it has it. So `largest(3, 8)`, `largest("pear", "apple")` and `largest(Money(150), Money(99))`
+(with a `fun Money.compareTo(other: Money): int`) all work, while `largest([1], [2])` is an error that names the missing
+`fun List<int>.compareTo(other: List<int>): int`. Inside the function, the members of the traits can be used on values
+of the type parameter, also through operators (`a < b` with `compareTo`) and in strings (`"${x}"` with `str()`); a
+generic function that calls another passes its bounds on, and must have them itself (`<T: Named>`).
+
+A function receives the members of the traits of its type parameters as hidden parameters (witnesses), so they work
+the same in every target, without virtual dispatch: `largest(3, 8)` passes `int.compareTo`.
+
+A type as bound, `fun <T: Expr>`, makes the members of `Expr` (fields, attributes, methods) members of `T`, and a `T` an
+`Expr`: `fun <T: Expr> sum(xs: List<T>): int = (acc + x.value) for x in xs with acc = 0`.
+
+The standard library has the traits `Comparable` and `Printable` (`fun <T: Comparable> List<T>.sorted()`).
+
+### Modules
+
+`mod name { ... }` groups declarations; outside of it they are named `name::Decl`. Modules can be nested
+(`geometry::shapes::area`) and inside a module the names of the enclosing modules are visible. `use geometry` makes
+the declarations of a module usable by their names, `use geometry::shapes::Shape` only one of them; a `use` at the top
+of a file is for that file, one in a module for the module. A name that two `use`d modules declare is ambiguous and
+needs its module.
+
+```
+mod geometry {
+    record Point { x: int, y: int }
+    fun origin(): Point = Point(0, 0)
+    mod shapes {
+        enum Shape { CIRCLE(r: int), RECT(w: int, h: int) }
+        fun area(s: Shape): int = match s { Shape.CIRCLE(r) -> 3 * r * r  Shape.RECT(w, h) -> w * h }
+        fun corner(): Point = Point(1, 1)          // Point of the enclosing module
+    }
+}
+mod catalog { record Item { code: int } }
+mod inventory { record Item { name: str } }       // another Item
+use geometry::shapes
+
+fun f(): int = geometry::origin().x + area(Shape.RECT(2, 3)) + catalog::Item(7).code
+```
+
+Modules name types, functions, constants, parsers, graphs and traits. Members are found through their owner and need
+no module: fields, attributes, methods (`fun Point.plus(...)` in a module is a method of `Point` everywhere), rules
+of parsers; inherited attributes and ports have global names. A qualified name is written without spaces; `head :: tail`
+in a list pattern has them. In the generated code, `geometry::Point` is `geometry__Point`, so names in modules may not
+contain `__`.
+
+### long
+
+`long` is a 64-bit integer, as Kotlin's `Long`: literals `1L`, and an int literal where a long is expected is one
+(`val x: long = 1`). Arithmetic on an int and a long is on longs, with a float on floats; `as` converts (`x as int`
+keeps the low 32 bits, `2.5 as long` is 2). Operations wrap around as on the JVM in every target (a `BigInt` in
+JavaScript, `Int64` in OCaml). `long.str()`, `str.toLong()`.
+
+### Strings with expressions
+
+`"total: ${a + b}!"` puts the values of expressions into a string: strs as they are, other values with their `str()`
+method (`int`, `long`, `float`, `bool`, and the types that declare one: `fun Money.str(): str = ...`). A value without
+one, like a list or an optional value, is an error. The expressions may contain strings themselves:
+`"${names.join(", ")}"`. `\$` is a `$`: `"\${x}"` is the text `${x}`.
 
 ### Attributes
 
@@ -342,7 +479,8 @@ identical output in each of them.
 ./gradlew test        # compiles src/test/forge/*.forge to Kotlin and runs the tests on the generated code
 ```
 
-`TargetsTest` also generates the conformance program and the Kiln compiler for every other target, builds them
+`TargetsTest` also generates the conformance program, the program of the language features
+(`src/test/forge/language.forge`) and the Kiln compiler for every other target, builds them
 with `python3`, `javac`, `g++`, `rustc`, `ocamlopt` and `node` and compares what they compute with the Kotlin target; a
 target whose toolchain is not installed is skipped.
 

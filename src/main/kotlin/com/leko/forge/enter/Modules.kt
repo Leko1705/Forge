@@ -145,8 +145,9 @@ class Modules private constructor(context: Context) {
         var scope: Module? = from
         var first: Module? = null
         while (scope != null && first == null) {
+            // a module of the scope, a used module (`use a::b`: then `b::x`) or one of its modules
             first = scope.modules[segments[0]]
-                ?: usesOf(scope, file).mapNotNull { it.module?.modules?.get(segments[0]) }.firstOrNull()
+                ?: usesOf(scope, file).mapNotNull { u -> u.module?.takeIf { it.name == segments[0] } ?: u.module?.modules?.get(segments[0]) }.firstOrNull()
             scope = scope.parent
         }
         var module = first ?: return null
@@ -422,7 +423,14 @@ class Modules private constructor(context: Context) {
                     t.patternArg().forEach { pattern(it, locals, bound, typeParams) }
                     return
                 }
-                is ForgeParser.ExprPatternContext -> return expression(t, locals, typeParams)
+                is ForgeParser.ExprPatternContext -> {
+                    val name = (t.expression() as? ForgeParser.IdentifierContext)?.IDENT()?.symbol
+                    if (name != null && name.text.contains("::") && name.text !in locals && findModule(module, name.text.split("::").dropLast(1), file) == null) {
+                        log.diag(moduleError(name.span, "'${name.text}' is no module name; a list pattern is written with spaces: ${name.text.replace("::", " :: ")}"))
+                        return
+                    }
+                    return expression(t, locals, typeParams)
+                }
             }
             for (i in 0 until t.childCount) pattern(t.getChild(i), locals, bound, typeParams)
         }

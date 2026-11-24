@@ -39,6 +39,30 @@ def _i32(v):
     v &= 0xFFFFFFFF
     return v - 0x100000000 if v & 0x80000000 else v
 
+def _i64(v):
+    v &= 0xFFFFFFFFFFFFFFFF
+    return v - 0x10000000000000000 if v & 0x8000000000000000 else v
+
+def _ldiv(a, b):
+    if b == 0:
+        raise ZeroDivisionError("/ by zero")
+    q = abs(a) // abs(b)
+    return _i64(q if (a >= 0) == (b >= 0) else -q)
+
+def _lmod(a, b):
+    if b == 0:
+        raise ZeroDivisionError("/ by zero")
+    return _i64(a - b * _ldiv(a, b))
+
+def _f2l(v):
+    if v != v:
+        return 0
+    if v >= 9223372036854775807:
+        return 9223372036854775807
+    if v <= -9223372036854775808:
+        return -9223372036854775808
+    return int(v)
+
 def _div(a, b):
     if b == 0:
         raise ZeroDivisionError("/ by zero")
@@ -113,6 +137,11 @@ def _index_of(xs, x):
 
 _INT = _re.compile(r"[+-]?[0-9]+")
 _FLOAT = _re.compile(r"[+-]?([0-9]+[.]?[0-9]*|[.][0-9]+)([eE][+-]?[0-9]+)?")
+
+def _to_long(s):
+    if not _INT.fullmatch(s) or not -9223372036854775808 <= int(s) <= 9223372036854775807:
+        raise ForgeError("not a long: \"" + s + "\"")
+    return int(s)
 
 def _to_int(s):
     if not _INT.fullmatch(s) or not -2147483648 <= int(s) <= 2147483647:

@@ -1336,6 +1336,8 @@ class Attr private constructor(context: Context) {
                 chk.checkAssignable(expected, ctx.splitPattern().attribType())
             } else if (ctx.listPattern() != null) {
                 chk.checkAssignable(expected, ctx.listPattern().attribType())
+            } else if (ctx.tuplePattern() != null) {
+                ctx.tuplePattern().attribType()
             } else {
                 throw AssertionError("Should not reach here")
             })

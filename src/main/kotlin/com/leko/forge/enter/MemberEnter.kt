@@ -72,7 +72,11 @@ class MemberEnter private constructor(context: Context) {
             root.enum_().flatMap { enum -> enum.enumItem().flatMap { item -> item.parameter().map { it.ty to enum.typeParams().names() } } } +
             root.inhDef().map { it.attrType to emptyList() } +
             root.constDef().mapNotNull { it.ty?.let { t -> t to emptyList() } } +
-            root.traitDef().flatMap { t -> t.traitMember().flatMap { m -> m.parameter().map { it.ty } + m.ty }.map { it to listOf(SELF) } }
+            root.traitDef().flatMap { t -> t.traitMember().flatMap { m -> m.parameter().map { it.ty } + m.ty }.map { it to listOf(SELF) } } +
+            // the types of top level functions (those of methods are checked where they are entered)
+            root.function().filter { it.receiver == null && it.property == null }.flatMap { f ->
+                (f.parameter().map { it.ty } + f.ty).map { it to f.typeParams().names() }
+            }
         for ((type, params) in types) {
             if (type != null) chk.checkExists(type.toType().withTypeParams(params), type)
         }

@@ -445,6 +445,9 @@ private class CppGeneration(private val module: LLIRModule, private val namespac
     private fun isTest(type: Type, v: String): String = when {
         type is OptionalType -> "($v.is_null() || ${isTest(type.elem, v)})"
         type == IntType -> "($v.tag == V::INT)"
+        type == LongType -> "($v.tag == V::LONG)"
+        type is TupleType -> "($v.tag == V::LIST)"
+        type is FunctionType -> "($v.tag == V::FN)"
         type == FloatType -> "($v.tag == V::FLOAT)"
         type == BoolType -> "($v.tag == V::BOOL)"
         type == StrType -> "($v.tag == V::STR)"
@@ -464,7 +467,7 @@ private class CppGeneration(private val module: LLIRModule, private val namespac
     }
 
     private fun b(v: Value) = "rt::truth(${expr(v)})"
-    private fun i(v: Value) = "rt::int_of(${expr(v)})"
+    private fun i(v: Value) = if (v.type == LongType) "rt::long_of(${expr(v)})" else "rt::int_of(${expr(v)})"
     private fun f(v: Value) = "rt::float_of(${expr(v)})"
     private fun call(fn: String, vararg args: Value) = "$fn(${args.joinToString(", ") { expr(it) }})"
     private fun list(values: List<Value>) = "{${values.joinToString(", ") { expr(it) }}}"
@@ -475,7 +478,22 @@ private class CppGeneration(private val module: LLIRModule, private val namespac
     }
 
     fun expr(v: Value): String = when (v) {
-        is Let, is Lambda, is CallValue, is TupleLiteral, is TupleGet, is LongValue, is Int2Long, is Long2Int, is Long2Float, is Float2Long -> throw IllegalStateException("TODO $v")
+        is LongValue -> if (v.value == Long.MIN_VALUE) "rt::Lg(INT64_MIN)" else "rt::Lg(INT64_C(${v.value}))"
+        is Int2Long -> call("rt::i2l", v.value)
+        is Long2Int -> call("rt::l2i", v.value)
+        is Long2Float -> call("rt::l2f", v.value)
+        is Float2Long -> call("rt::f2l", v.value)
+        is Let -> let(expr(v.value), v.name) { _ -> expr(v.body) }
+        // the variables it uses are copied into it: it may be called after they are gone
+        is Lambda -> names.scoped {
+            val args = names.fresh("args")
+            val params = v.params.mapIndexed { index, p -> "V ${names.bind(p.name)} = $args[$index]; " }.joinToString("")
+            "rt::fn([=](const rt::List& $args) -> V { ${params}return ${expr(v.body)}; })"
+        }
+        is CallValue -> "rt::call(${expr(v.function)}, ${list(v.args)})"
+        // a tuple is a list: equal as lists are
+        is TupleLiteral -> "rt::L(${list(v.elems)})"
+        is TupleGet -> "rt::tuple_get(${expr(v.tuple)}, ${v.index})"
         is IntValue -> if (v.value == Int.MIN_VALUE) "rt::I(-2147483647 - 1)" else "rt::I(${v.value})"
         is FloatValue -> "rt::F(${v.value}f)"
         is BoolValue -> "rt::B(${v.value})"
@@ -611,6 +629,8 @@ private class CppGeneration(private val module: LLIRModule, private val namespac
         fun rt(fn: String) = call("rt::$fn", *all)
         return when (b.name) {
             "int.str" -> "rt::S(std::to_string(rt::int_of(${expr(b.receiver!!)})))"
+            "long.str" -> "rt::S(std::to_string(rt::long_of(${expr(b.receiver!!)})))"
+            "str.toLong" -> rt("to_long")
             "float.str" -> "rt::S(rt::show_float(rt::float_of(${expr(b.receiver!!)})))"
             "bool.str" -> "rt::S(rt::show(${expr(b.receiver!!)}))"
             "str.toInt" -> rt("to_int")

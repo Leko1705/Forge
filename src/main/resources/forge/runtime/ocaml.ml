@@ -30,6 +30,8 @@ type v =
   | PortRef of v * port
   | FlowGraph of int
   | NoMatch
+  | Long of int64
+  | Fn of (v array -> v)   (* a function value: it receives its arguments as an array *)
 
 (** Records and enum items: [rid] is the type, [item] whether it is an enum item. *)
 and rcd = { rid : int; rname : string; fnames : string array; fields : v array; item : bool }
@@ -81,16 +83,27 @@ let items = function List a | Set a -> a | _ -> fail "a list was expected"
 let entries = function Map a -> a | _ -> fail "a map was expected"
 let node_of = function Node n -> n | _ -> fail "a node was expected"
 
-let add a b = Int (wrap (int_of a + int_of b))
-let sub a b = Int (wrap (int_of a - int_of b))
-let mul a b = Int (wrap (int_of a * int_of b))
-let div a b = let d = int_of b in if d = 0 then fail "/ by zero" else Int (wrap (int_of a / d))
-let rem a b = let d = int_of b in if d = 0 then fail "/ by zero" else Int (wrap (int_of a mod d))
-let neg a = Int (wrap (- (int_of a)))
-let land_ a b = Int (int_of a land int_of b)
-let lor_ a b = Int (int_of a lor int_of b)
-let lxor_ a b = Int (int_of a lxor int_of b)
-let lnot_ a = Int (wrap (lnot (int_of a)))
+let long_of = function Long i -> i | _ -> fail "a long was expected"
+let call f args = match f with Fn g -> g args | _ -> fail "a function was expected"
+let tuple_get t i = (items t).(i)
+
+(* of two longs the same operations on 64 bits *)
+let add a b = match a with Long x -> Long (Int64.add x (long_of b)) | _ -> Int (wrap (int_of a + int_of b))
+let sub a b = match a with Long x -> Long (Int64.sub x (long_of b)) | _ -> Int (wrap (int_of a - int_of b))
+let mul a b = match a with Long x -> Long (Int64.mul x (long_of b)) | _ -> Int (wrap (int_of a * int_of b))
+let div a b = match a with
+  | Long x -> let d = long_of b in if d = 0L then fail "/ by zero" else Long (Int64.div x d)
+  | _ -> let d = int_of b in if d = 0 then fail "/ by zero" else Int (wrap (int_of a / d))
+let rem a b = match a with
+  | Long x -> let d = long_of b in if d = 0L then fail "/ by zero" else Long (Int64.rem x d)
+  | _ -> let d = int_of b in if d = 0 then fail "/ by zero" else Int (wrap (int_of a mod d))
+let neg a = match a with Long x -> Long (Int64.neg x) | _ -> Int (wrap (- (int_of a)))
+let land_ a b = match a with Long x -> Long (Int64.logand x (long_of b)) | _ -> Int (int_of a land int_of b)
+let lor_ a b = match a with Long x -> Long (Int64.logor x (long_of b)) | _ -> Int (int_of a lor int_of b)
+let lxor_ a b = match a with Long x -> Long (Int64.logxor x (long_of b)) | _ -> Int (int_of a lxor int_of b)
+let lnot_ a = match a with Long x -> Long (Int64.lognot x) | _ -> Int (wrap (lnot (int_of a)))
+let i2l a = Long (Int64.of_int (int_of a))
+let l2i a = Int (wrap (Int64.to_int (long_of a)))
 let fadd a b = Float (f32 (float_of a +. float_of b))
 let fsub a b = Float (f32 (float_of a -. float_of b))
 let fmul a b = Float (f32 (float_of a *. float_of b))
@@ -103,11 +116,20 @@ let f2i a =
   else if f >= 2147483647.0 then Int 2147483647
   else if f <= -2147483648.0 then Int (-2147483648)
   else Int (truncate f)
+let l2f a = Float (f32 (Int64.to_float (long_of a)))
+let f2l a =
+  let f = float_of a in
+  if Float.is_nan f then Long 0L
+  else if f >= 9223372036854775807.0 then Long Int64.max_int
+  else if f <= -9223372036854775808.0 then Long Int64.min_int
+  else Long (Int64.of_float f)
 let concat a b = Str (str_of a ^ str_of b)
 
 let rec eq a b =
   match a, b with
   | Null, Null -> true
+  | Long x, Long y -> Int64.equal x y
+  | Fn f, Fn g -> f == g
   | Int x, Int y -> x = y
   | Float x, Float y -> x = y || (Float.is_nan x && Float.is_nan y)
   | Bool x, Bool y -> x = y
@@ -163,6 +185,8 @@ let rec show v =
   match v with
   | Null -> "null"
   | Int i -> string_of_int i
+  | Long i -> Int64.to_string i
+  | Fn _ -> "<function>"
   | Float f -> show_float f
   | Bool b -> if b then "true" else "false"
   | Str s -> s
@@ -204,9 +228,11 @@ let slice v lo hi =
   | _ -> let l = items v in let n = Array.length l in let a = bound lo n 0 and b = bound hi n n in List (if a >= b then [||] else Array.sub l a (b - a))
 let char_at s i = let t = str_of s in Str (String.make 1 t.[position (int_of i) (String.length t)])
 let range a b = let a = int_of a and b = int_of b in List (if b <= a then [||] else Array.init (b - a) (fun i -> Int (a + i)))
-let shl a b = Int (wrap (int_of a lsl (int_of b land 31)))
-let shr a b = Int (int_of a asr (int_of b land 31))
-let ushr a b = Int (wrap ((int_of a land 0xFFFFFFFF) lsr (int_of b land 31)))
+let shl a b = match a with Long x -> Long (Int64.shift_left x (int_of b land 63)) | _ -> Int (wrap (int_of a lsl (int_of b land 31)))
+let shr a b = match a with Long x -> Long (Int64.shift_right x (int_of b land 63)) | _ -> Int (int_of a asr (int_of b land 31))
+let ushr a b = match a with
+  | Long x -> Long (Int64.shift_right_logical x (int_of b land 63))
+  | _ -> Int (wrap ((int_of a land 0xFFFFFFFF) lsr (int_of b land 31)))
 let list_concat a b = List (Array.append (items a) (items b))
 let list_append a x = List (Array.append (items a) [| x |])
 let tail l = let a = items l in List (Array.sub a 1 (Array.length a - 1))
@@ -297,6 +323,13 @@ let to_int s =
   match int_of_string_opt (if t.[0] = '+' then String.sub t 1 (String.length t - 1) else t) with
   | Some v when v >= -2147483648 && v <= 2147483647 -> Int v
   | _ -> fail ("not an int: \"" ^ t ^ "\"")
+let to_long s =
+  let t = str_of s in
+  let from = if String.length t > 0 && (t.[0] = '+' || t.[0] = '-') then 1 else 0 in
+  if not (all_digits t from) then fail ("not a long: \"" ^ t ^ "\"");
+  match Int64.of_string_opt (if t.[0] = '+' then String.sub t 1 (String.length t - 1) else t) with
+  | Some v -> Long v
+  | None -> fail ("not a long: \"" ^ t ^ "\"")
 let to_float s =
   let t = str_of s in
   let n = String.length t in

@@ -1,5 +1,16 @@
 lexer grammar ForgeLexer;
 
+@members {
+    /** Whether a name follows (after spaces): `mod`, `use` and `trait` are keywords only then, else names. */
+    private boolean nameFollows() {
+        int i = 1;
+        while (_input.LA(i) == ' ' || _input.LA(i) == '\t') i++;
+        if (i == 1) return false;
+        int c = _input.LA(i);
+        return c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+    }
+}
+
 EXT: 'ext';
 IMPORT: 'import';
 CONST: 'const';
@@ -38,9 +49,9 @@ FLOW: 'flow';
 PORT: 'port';
 VERTEX: 'vertex';
 IS: 'is';
-MOD: 'mod';
-USE: 'use';
-TRAIT: 'trait';
+MOD: 'mod' {nameFollows()}?;
+USE: 'use' {nameFollows()}?;
+TRAIT: 'trait' {nameFollows()}?;
 
 AT: '@';
 

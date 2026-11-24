@@ -106,6 +106,7 @@ private class JavaGeneration(private val module: LLIRModule, private val outer: 
 
     private fun jtype(type: Type): String = when (type) {
         IntType -> "Integer"
+        LongType -> "Long"
         FloatType -> "Float"
         BoolType -> "Boolean"
         StrType -> "String"
@@ -571,13 +572,17 @@ private class JavaGeneration(private val module: LLIRModule, private val outer: 
 
     private fun args(values: List<Value>) = values.joinToString(", ") { expr(it) }
     private fun typedArgs(values: List<Value>, types: List<Type>) = values.zip(types).joinToString(", ") { (v, t) -> cast(t, expr(v)) }
-    private fun i(v: Value) = "__int(${expr(v)})"
+    private fun i(v: Value) = if (v.type == LongType) l(v) else "__int(${expr(v)})"
+    private fun l(v: Value) = "__long(${expr(v)})"
     private fun f(v: Value) = "__float(${expr(v)})"
     private fun b(v: Value) = "__bool(${expr(v)})"
 
     private fun isTest(type: Type, v: String): String = when {
         type is OptionalType -> "($v == null || ${isTest(type.elem, v)})"
         type == IntType -> "($v instanceof Integer)"
+        type == LongType -> "($v instanceof Long)"
+        type is TupleType -> "($v instanceof java.util.List)"
+        type is FunctionType -> "($v instanceof __Fn)"
         type == FloatType -> "($v instanceof Float)"
         type == BoolType -> "($v instanceof Boolean)"
         type == StrType -> "($v instanceof String)"
@@ -596,7 +601,21 @@ private class JavaGeneration(private val module: LLIRModule, private val outer: 
     private fun nodeClass(node: Node) = tid(node.name)
 
     fun expr(v: Value): String = when (v) {
-        is Let, is Lambda, is CallValue, is TupleLiteral, is TupleGet, is LongValue, is Int2Long, is Long2Int, is Long2Float, is Float2Long -> throw IllegalStateException("TODO $v")
+        is LongValue -> if (v.value == Long.MIN_VALUE) "Long.MIN_VALUE" else "${v.value}L"
+        is Int2Long -> "((long) ${i(v.value)})"
+        is Long2Int -> "((int) ${l(v.value)})"
+        is Long2Float -> "((float) ${l(v.value)})"
+        is Float2Long -> "((long) ${f(v.value)})"
+        is Let -> let(expr(v.value), v.name) { _ -> expr(v.body) }
+        // the arguments come in an array; the parameters stand for its elements
+        is Lambda -> names.scoped {
+            val array = names.fresh("args")
+            v.params.forEachIndexed { index, p -> names.alias(p.name, "$array[$index]") }
+            "((__Fn) (Object[] $array) -> ${expr(v.body)})"
+        }
+        is CallValue -> "((__Fn) (${expr(v.function)})).call(new Object[]{${args(v.args)}})"
+        is TupleLiteral -> "__tuple(${args(v.elems)})"
+        is TupleGet -> "__l(${expr(v.tuple)}).get(${v.index})"
         is IntValue -> if (v.value == Int.MIN_VALUE) "Integer.MIN_VALUE" else v.value.toString()
         is FloatValue -> "${v.value}f"
         is BoolValue -> v.value.toString()
@@ -658,9 +677,10 @@ private class JavaGeneration(private val module: LLIRModule, private val outer: 
         is AndInt, is IAnd -> "(${i((v as BinaryValue).lhs)} & ${i(v.rhs)})"
         is OrInt, is IOr -> "(${i((v as BinaryValue).lhs)} | ${i(v.rhs)})"
         is XorInt -> "(${i(v.lhs)} ^ ${i(v.rhs)})"
-        is ShlInt -> "(${i(v.lhs)} << ${i(v.rhs)})"
-        is ShrInt -> "(${i(v.lhs)} >> ${i(v.rhs)})"
-        is UshrInt -> "(${i(v.lhs)} >>> ${i(v.rhs)})"
+        // of a long, the shift is an int
+        is ShlInt -> "(${i(v.lhs)} << ${"__int(${expr(v.rhs)})"})"
+        is ShrInt -> "(${i(v.lhs)} >> ${"__int(${expr(v.rhs)})"})"
+        is UshrInt -> "(${i(v.lhs)} >>> ${"__int(${expr(v.rhs)})"})"
         is SetEquals -> "java.util.Objects.equals(${expr(v.lhs)}, ${expr(v.rhs)})"
         is Builtin -> builtin(v)
         is MulFloat -> "(${f(v.lhs)} * ${f(v.rhs)})"
@@ -727,8 +747,9 @@ private class JavaGeneration(private val module: LLIRModule, private val outer: 
         val a = b.args.map { expr(it) }
         val s = "((String) ($r))"
         return when (b.name) {
-            "int.str", "float.str", "bool.str" -> "String.valueOf($r)"
+            "int.str", "long.str", "float.str", "bool.str" -> "String.valueOf($r)"
             "str.toInt" -> "__toInt($r)"
+            "str.toLong" -> "__toLong($r)"
             "str.toFloat" -> "__toFloat($r)"
             "str.indexOf" -> "$s.indexOf((String) (${a[0]}))"
             "str.startsWith" -> "$s.startsWith((String) (${a[0]}))"

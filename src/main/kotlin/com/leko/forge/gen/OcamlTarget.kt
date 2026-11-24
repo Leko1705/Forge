@@ -366,6 +366,9 @@ private class OcamlGeneration(private val module: LLIRModule) {
     private fun isTest(type: Type, v: String): String = when {
         type is OptionalType -> "(Rt.is_null $v || ${isTest(type.elem, v)})"
         type == IntType -> "(match $v with Int _ -> true | _ -> false)"
+        type == LongType -> "(match $v with Long _ -> true | _ -> false)"
+        type is TupleType -> "(match $v with List _ -> true | _ -> false)"
+        type is FunctionType -> "(match $v with Fn _ -> true | _ -> false)"
         type == FloatType -> "(match $v with Float _ -> true | _ -> false)"
         type == BoolType -> "(match $v with Bool _ -> true | _ -> false)"
         type == StrType -> "(match $v with Str _ -> true | _ -> false)"
@@ -387,13 +390,27 @@ private class OcamlGeneration(private val module: LLIRModule) {
     }
 
     private fun bool(v: Value) = "Rt.truth (${expr(v)})"
-    private fun int(v: Value) = "Rt.int_of (${expr(v)})"
+    private fun int(v: Value) = if (v.type == LongType) "Rt.long_of (${expr(v)})" else "Rt.int_of (${expr(v)})"
     private fun float(v: Value) = "Rt.float_of (${expr(v)})"
     private fun call(fn: String, vararg args: Value) = "($fn ${args.joinToString(" ") { "(${expr(it)})" }})"
     private fun listOfValues(values: List<Value>) = "[| ${values.joinToString("; ") { expr(it) }} |]"
 
     fun expr(v: Value): String = when (v) {
-        is Let, is Lambda, is CallValue, is TupleLiteral, is TupleGet, is LongValue, is Int2Long, is Long2Int, is Long2Float, is Float2Long -> throw IllegalStateException("TODO $v")
+        is LongValue -> if (v.value == Long.MIN_VALUE) "(Long Int64.min_int)" else "(Long (${v.value}L))"
+        is Int2Long -> call("Rt.i2l", v.value)
+        is Long2Int -> call("Rt.l2i", v.value)
+        is Long2Float -> call("Rt.l2f", v.value)
+        is Float2Long -> call("Rt.f2l", v.value)
+        is Let -> let(expr(v.value), v.name) { _ -> expr(v.body) }
+        is Lambda -> names.scoped {
+            val args = names.fresh("args")
+            val params = v.params.mapIndexed { index, p -> "let ${names.bind(p.name)} = $args.($index) in " }.joinToString("")
+            "(Fn (fun $args -> $params${expr(v.body)}))"
+        }
+        is CallValue -> "(Rt.call (${expr(v.function)}) ${listOfValues(v.args)})"
+        // a tuple is a list: equal as lists are
+        is TupleLiteral -> "(List ${listOfValues(v.elems)})"
+        is TupleGet -> "(Rt.tuple_get (${expr(v.tuple)}) ${v.index})"
         is IntValue -> if (v.value < 0) "(Int (${v.value}))" else "(Int ${v.value})"
         is FloatValue -> "(Float (Rt.f32 (${v.value.toDouble()})))"
         is BoolValue -> "(Bool ${v.value})"
@@ -528,6 +545,8 @@ private class OcamlGeneration(private val module: LLIRModule) {
         fun rt(fn: String) = call("Rt.$fn", *all.toTypedArray())
         return when (b.name) {
             "int.str" -> "(Str (string_of_int (Rt.int_of (${expr(b.receiver!!)}))))"
+            "long.str" -> "(Str (Int64.to_string (Rt.long_of (${expr(b.receiver!!)}))))"
+            "str.toLong" -> rt("to_long")
             "float.str" -> "(Str (Rt.show_float (Rt.float_of (${expr(b.receiver!!)}))))"
             "bool.str" -> "(Str (Rt.show (${expr(b.receiver!!)})))"
             "str.toInt" -> rt("to_int")

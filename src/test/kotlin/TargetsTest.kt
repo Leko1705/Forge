@@ -92,9 +92,23 @@ class TargetsTest {
             assumeTrue(toolchain.tools.all { available(it) }, "${toolchain.tools} not installed")
             val dir = File("build/targets/${toolchain.target}/conformance$label".replace(" ", "-"))
             generate(File("src/test/forge/conformance.forge"), toolchain.target, dir, optimized)
-            File("src/test/targets/${toolchain.target}").listFiles()!!.forEach { it.copyTo(File(dir, it.name), overwrite = true) }
+            File("src/test/targets/${toolchain.target}").listFiles()!!.filter { it.isFile }.forEach { it.copyTo(File(dir, it.name), overwrite = true) }
             val output = run(dir, program(toolchain, dir, "main"))
             val expected = forgetest.conformance.report().joinToString("") { it + "\n" }
+            assertEquals(expected, output)
+        }
+    } }
+
+    /** The language features (src/test/forge/language.forge), with the drivers in src/test/targets/language. */
+    @TestFactory
+    fun language(): List<DynamicTest> = toolchains.flatMap { toolchain -> variants.map { (optimized, label) ->
+        DynamicTest.dynamicTest(toolchain.target + label) {
+            assumeTrue(toolchain.tools.all { available(it) }, "${toolchain.tools} not installed")
+            val dir = File("build/targets/${toolchain.target}/language$label".replace(" ", "-"))
+            generate(File("src/test/forge/language.forge"), toolchain.target, dir, optimized)
+            File("src/test/targets/language/${toolchain.target}").listFiles()!!.forEach { it.copyTo(File(dir, it.name), overwrite = true) }
+            val output = run(dir, program(toolchain, dir, "main"))
+            val expected = forgetest.language.report().joinToString("") { it + "\n" }
             assertEquals(expected, output)
         }
     } }

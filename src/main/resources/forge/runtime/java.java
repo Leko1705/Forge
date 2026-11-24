@@ -9,6 +9,8 @@
     public interface __Fn0 { Object get(); }
     public interface __Fn1 { Object apply(Object a); }
     public interface __Fn2 { Object apply(Object a, Object b); }
+    /** A function value of Forge: its arguments in an array. */
+    public interface __Fn { Object call(Object... args); }
 
     static Object __panic(String message) { throw new ForgeError(message); }
 
@@ -28,6 +30,9 @@
     static Object __then(Object first, __Fn0 next) { return next.get(); }
     static boolean __bool(Object v) { return (Boolean) v; }
     static int __int(Object v) { return (Integer) v; }
+    static long __long(Object v) { return (Long) v; }
+    /** A tuple: an unmodifiable list, so that tuples are equal if their elements are. */
+    static java.util.List<Object> __tuple(Object... elements) { return java.util.Collections.unmodifiableList(java.util.Arrays.asList(elements)); }
     static float __float(Object v) { return (Float) v; }
 
     static Object __nn(Object v) {
@@ -81,6 +86,11 @@
     static java.util.Set<Object> __setRemove(Object a, Object x) { java.util.LinkedHashSet<Object> r = new java.util.LinkedHashSet<>(__s(a)); r.remove(x); return r; }
     static java.util.Map<Object, Object> __mapRemove(Object m, Object k) { java.util.LinkedHashMap<Object, Object> r = new java.util.LinkedHashMap<>(__m(m)); r.remove(k); return r; }
     static java.util.List<Object> __reversed(Object l) { java.util.ArrayList<Object> r = new java.util.ArrayList<>(__l(l)); java.util.Collections.reverse(r); return r; }
+    static Long __toLong(Object s) {
+        String t = (String) s;
+        if (!t.matches("[+-]?[0-9]+")) throw new ForgeError("not a long: \"" + t + "\"");
+        try { return Long.parseLong(t); } catch (NumberFormatException e) { throw new ForgeError("not a long: \"" + t + "\""); }
+    }
     static Integer __toInt(Object s) {
         String t = (String) s;
         if (!t.matches("[+-]?[0-9]+")) throw new ForgeError("not an int: \"" + t + "\"");

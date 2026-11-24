@@ -34,7 +34,95 @@ fun <T: Comparable> maxOf(xs: List<T>): T? = match xs.sorted().reversed() {
 
 fun <T: Printable> describe(x: T): str = "value ${x.str()}!"
 
+// ---- modules ------------------------------------------------------------------------------------------
+
+mod geometry {
+    record Point { x: int, y: int }
+    fun origin(): Point = Point(0, 0)
+    fun Point.plus(o: Point): Point = Point(this.x + o.x, this.y + o.y)
+    const unit = 1
+    mod shapes {
+        enum Shape { CIRCLE(r: int), RECT(w: int, h: int) }
+        fun area(s: Shape): int = match s {
+            Shape.CIRCLE(r) -> 3 * r * r
+            Shape.RECT(w, h) -> w * h
+        }
+        // the enclosing module's names are visible inside
+        fun corner(): Point = Point(unit, unit)
+    }
+}
+mod inventory {
+    record Item { name: str }
+    fun item(n: str): Item = Item(n)
+}
+mod catalog {
+    record Item { code: int }
+    fun item(c: int): Item = Item(c)
+}
+use geometry::shapes
+use inventory::Item
+
+fun modules(): str = "${geometry::origin().plus(geometry::Point(2, 3)).y} ${shapes::area(Shape.RECT(2, 3))} " +
+    "${geometry::shapes::area(geometry::shapes::Shape.CIRCLE(1))} ${corner().x} " +
+    Item("apple").name + inventory::item("pear").name + " ${catalog::item(7).code}"
+
+// ---- traits and bounds --------------------------------------------------------------------------------
+
+trait Named { fun name(): str }
+trait Sized { val weight: int }
+record Dog { label: str }
+fun Dog.name(): str = "dog " + this.label
+val Dog.weight: int = this.label.size
+record Money { cents: int }
+fun Money.str(): str = "\$${this.cents / 100}.${this.cents % 100}"
+fun Money.compareTo(other: Money): int = this.cents - other.cents
+
+fun <T: Named & Sized> heaviest(xs: List<T>): str = ((if x.weight > acc.weight then x else acc) for x in xs with acc = xs[0]).name()
+fun <T: Named> names(xs: List<T>): str = xs.map({ x -> x.name() }).join(", ")
+// a bound passed on to another generic function
+fun <T: Named & Sized> both(xs: List<T>): str = names(xs) + " / " + heaviest(xs)
+fun <T: Comparable> largest(a: T, b: T): T = if a > b then a else b
+fun <T: Printable> shown(xs: List<T>): str = xs.map({ x -> "<${x}>" }).join("")
+
+node Expr
+node Num(value: int): Expr
+node Add(l: Expr, r: Expr): Expr
+syn Expr.total: int
+syn Num.total: int = this.value
+syn Add.total: int = this.l.total + this.r.total
+// a type as bound: its members are those of the type
+fun <T: Expr> sum(xs: List<T>): int = (acc + x.total) for x in xs with acc = 0
+// a lambda in an attribute sees `this`
+syn Add.scaled: (int) -> int = { k -> k * this.total }
+
+fun traits(): str = both([Dog("rex"), Dog("bo")]) + " " + "${largest(3, 8)} ${largest("pear", "apple")} ${largest(Money(150), Money(99))} " +
+    shown([Money(205), Money(1)]) + " " + "${sum([Num(1), Num(2)])} ${sum([Add(Num(1), Num(2))])} ${Add(Num(2), Num(3)).scaled(4)}"
+
+// ---- more -----------------------------------------------------------------------------------------------
+
+fun tuples(): str = match (1, ("a", 2L)) {
+    (0, _) -> "zero"
+    (n, (s, l)) if n > 0 -> "${n} ${s} ${l + 1} ${(1, (2, 3)).1.0}"
+    _ -> "other"
+}
+fun longs(): str = "${(7 as long) * 3000000000L} ${(5000000000L as int)} ${(2.5 as long)} ${(3L as float)} ${-(1L << 63)} " +
+    "${"123456789012".toLong() + 1} ${[1L, 2L].sum()} ${(-7L) / 2L} ${(-7L) % 2L} ${(-1L) >>> 60} ${(-16L) >> 2} ${7L & 3} ${9223372036854775807L}"
+fun lambdas(): str = (compose({ x: int -> x + 1 }, { x -> x * 2 }))(5).str() + " " + apply2({ a, b -> a + b }, "x", "y")
+    + " " + [1, 2, 3].any({ x -> x > 2 }).str() + [1, 2, 3].all({ x -> x > 2 }).str() + " " + [1, 2, 3].count({ x -> x != 2 }).str()
+    + " " + ([1, 2, 3].find({ x -> x > 1 }) ?: 0).str() + " " + [[1], [2, 3]].flatMap({ xs -> xs }).size.str()
+    + " " + [(1, "a"), (2, "b")].map({ p -> p.1 }).join("") + " " + ["x", "y"].withIndex().map({ p -> "${p.0}${p.1}" }).join("")
+    + " " + {"a": 1}.mapValues({ v -> v + 1 })["a"].str() + " " + {"k": 2}.entries().map({ e -> e.0 + e.1.str() }).join("")
+fun <A, B, C> compose(f: (A) -> B, g: (B) -> C): (A) -> C = { x -> g(f(x)) }
+fun apply2(f: (str, str) -> str, a: str, b: str): str = f(a, b)
+fun nested(): str = "${"a${"b${1}"}"}" + " ${[1, 2].size} ${{ x: int -> x }(3)}"
+
 fun report(): List<str> = [
+    modules(),
+    traits(),
+    tuples(),
+    longs(),
+    lambdas(),
+    nested(),
     "${area(10)}",
     "${chain()}",
     swapped((1, "a")).0,

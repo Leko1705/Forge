@@ -179,6 +179,36 @@ internal class TargetSupport(val module: LLIRModule) {
         walk(pattern, subject)
     }
 
+    // ---- lambdas ---------------------------------------------------------------------------------
+
+    /**
+     * The names of the variables and parameters a value refers to (also those it binds itself), and `this` if it
+     * uses it: what a lambda may capture, for targets that copy what a closure captures.
+     */
+    fun referencedNames(v: Value): Set<String> = buildSet {
+        v.forEachValue { x ->
+            when (x) {
+                is LocalRef -> add(x.name)
+                is Parameter -> add(x.name)
+                is This, is AccessParentInhAttr, is BoundCheck -> add("this")
+                is Match -> x.cases.forEach { c -> patternNames(c.pattern, this) }
+                else -> {}
+            }
+        }
+    }
+
+    private fun patternNames(p: MatchPattern, into: MutableSet<String>) {
+        when (p) {
+            is BindPattern -> into += p.variable.name
+            is ConstructorPattern -> p.args.forEach { patternNames(it, into) }
+            is ListPattern -> p.elements.forEach { patternNames(it, into) }
+            is SplitPattern -> { patternNames(p.head, into); patternNames(p.tail, into) }
+            is TuplePattern -> p.elements.forEach { patternNames(it, into) }
+            is ValuePattern -> p.value.forEachValue { x -> if (x is LocalRef) into += x.name; if (x is Parameter) into += x.name }
+            WildcardPattern -> {}
+        }
+    }
+
     // ---- grammars --------------------------------------------------------------------------------
 
     fun terminals(parser: ParserDecl): List<GTerminal> = collect(parser).filterIsInstance<GTerminal>().distinct()

@@ -27,7 +27,14 @@ pub mod rt {
         PortRef(Rc<(V, V)>),
         FlowGraph(usize),
         NoMatch,
+        Long(i64),
+        /** A function value: it receives its arguments as a slice. */
+        Func(Rc<dyn Fn(&[V]) -> V>),
     }
+
+    pub fn func(f: impl Fn(&[V]) -> V + 'static) -> V { V::Func(Rc::new(f)) }
+    pub fn call(f: &V, args: &[V]) -> V { match f { V::Func(g) => g(args), _ => fail("a function was expected") } }
+    pub fn tuple_get(t: &V, index: usize) -> V { items(t)[index].clone() }
 
     /** Records and enum items: [rid] is the type, [item] whether it is an enum item. */
     pub struct Rec { pub rid: i32, pub name: &'static str, pub names: &'static [&'static str], pub fields: Vec<V>, pub item: bool }
@@ -61,6 +68,7 @@ pub mod rt {
 
     pub fn truth(v: &V) -> bool { match v { V::Bool(b) => *b, _ => fail("a bool was expected") } }
     pub fn int_of(v: &V) -> i32 { match v { V::Int(i) => *i, _ => fail("an int was expected") } }
+    pub fn long_of(v: &V) -> i64 { match v { V::Long(i) => *i, _ => fail("a long was expected") } }
     pub fn float_of(v: &V) -> f32 { match v { V::Float(f) => *f, _ => fail("a float was expected") } }
     pub fn str_of(v: &V) -> &str { match v { V::Str(s) => s, _ => fail("a str was expected") } }
     pub fn items(v: &V) -> &Vec<V> { match v { V::List(l) | V::Set(l) => l, _ => fail("a list was expected") } }
@@ -70,16 +78,28 @@ pub mod rt {
 
     // ---- arithmetic -----------------------------------------------------------------------
 
-    pub fn add(a: &V, b: &V) -> V { V::Int(int_of(a).wrapping_add(int_of(b))) }
-    pub fn sub(a: &V, b: &V) -> V { V::Int(int_of(a).wrapping_sub(int_of(b))) }
-    pub fn mul(a: &V, b: &V) -> V { V::Int(int_of(a).wrapping_mul(int_of(b))) }
-    pub fn div(a: &V, b: &V) -> V { let d = int_of(b); if d == 0 { fail("/ by zero") } V::Int(int_of(a).wrapping_div(d)) }
-    pub fn rem(a: &V, b: &V) -> V { let d = int_of(b); if d == 0 { fail("/ by zero") } V::Int(int_of(a).wrapping_rem(d)) }
-    pub fn neg(a: &V) -> V { V::Int(int_of(a).wrapping_neg()) }
-    pub fn band(a: &V, b: &V) -> V { V::Int(int_of(a) & int_of(b)) }
-    pub fn bor(a: &V, b: &V) -> V { V::Int(int_of(a) | int_of(b)) }
-    pub fn bxor(a: &V, b: &V) -> V { V::Int(int_of(a) ^ int_of(b)) }
-    pub fn bnot(a: &V) -> V { V::Int(!int_of(a)) }
+    // of two longs the same operations on 64 bits
+    pub fn add(a: &V, b: &V) -> V { if let V::Long(x) = a { return V::Long(x.wrapping_add(long_of(b))) } V::Int(int_of(a).wrapping_add(int_of(b))) }
+    pub fn sub(a: &V, b: &V) -> V { if let V::Long(x) = a { return V::Long(x.wrapping_sub(long_of(b))) } V::Int(int_of(a).wrapping_sub(int_of(b))) }
+    pub fn mul(a: &V, b: &V) -> V { if let V::Long(x) = a { return V::Long(x.wrapping_mul(long_of(b))) } V::Int(int_of(a).wrapping_mul(int_of(b))) }
+    pub fn div(a: &V, b: &V) -> V {
+        if let V::Long(x) = a { let d = long_of(b); if d == 0 { fail("/ by zero") } return V::Long(x.wrapping_div(d)) }
+        let d = int_of(b); if d == 0 { fail("/ by zero") } V::Int(int_of(a).wrapping_div(d))
+    }
+    pub fn rem(a: &V, b: &V) -> V {
+        if let V::Long(x) = a { let d = long_of(b); if d == 0 { fail("/ by zero") } return V::Long(x.wrapping_rem(d)) }
+        let d = int_of(b); if d == 0 { fail("/ by zero") } V::Int(int_of(a).wrapping_rem(d))
+    }
+    pub fn neg(a: &V) -> V { if let V::Long(x) = a { return V::Long(x.wrapping_neg()) } V::Int(int_of(a).wrapping_neg()) }
+    pub fn band(a: &V, b: &V) -> V { if let V::Long(x) = a { return V::Long(x & long_of(b)) } V::Int(int_of(a) & int_of(b)) }
+    pub fn bor(a: &V, b: &V) -> V { if let V::Long(x) = a { return V::Long(x | long_of(b)) } V::Int(int_of(a) | int_of(b)) }
+    pub fn bxor(a: &V, b: &V) -> V { if let V::Long(x) = a { return V::Long(x ^ long_of(b)) } V::Int(int_of(a) ^ int_of(b)) }
+    pub fn bnot(a: &V) -> V { if let V::Long(x) = a { return V::Long(!x) } V::Int(!int_of(a)) }
+    pub fn i2l(a: &V) -> V { V::Long(int_of(a) as i64) }
+    pub fn l2i(a: &V) -> V { V::Int(long_of(a) as i32) }
+    pub fn l2f(a: &V) -> V { V::Float(long_of(a) as f32) }
+    // saturating, NaN is 0: as Kotlin's toLong
+    pub fn f2l(a: &V) -> V { V::Long(float_of(a) as i64) }
     pub fn fadd(a: &V, b: &V) -> V { V::Float(float_of(a) + float_of(b)) }
     pub fn fsub(a: &V, b: &V) -> V { V::Float(float_of(a) - float_of(b)) }
     pub fn fmul(a: &V, b: &V) -> V { V::Float(float_of(a) * float_of(b)) }
@@ -95,6 +115,8 @@ pub mod rt {
         match (a, b) {
             (V::Null, V::Null) | (V::NoMatch, V::NoMatch) => true,
             (V::Int(x), V::Int(y)) => x == y,
+            (V::Long(x), V::Long(y)) => x == y,
+            (V::Func(x), V::Func(y)) => Rc::ptr_eq(x, y),
             (V::Float(x), V::Float(y)) => x == y || (x.is_nan() && y.is_nan()),
             (V::Bool(x), V::Bool(y)) => x == y,
             (V::Str(x), V::Str(y)) => x == y,
@@ -147,6 +169,8 @@ pub mod rt {
         match v {
             V::Null => "null".into(),
             V::Int(i) => i.to_string(),
+            V::Long(i) => i.to_string(),
+            V::Func(_) => "<function>".into(),
             V::Float(f) => show_float(*f),
             V::Bool(b) => b.to_string(),
             V::Str(s) => s.to_string(),
@@ -199,9 +223,15 @@ pub mod rt {
     }
     pub fn char_at(v: &V, i: &V) -> V { let t = str_of(v).as_bytes(); let k = position(int_of(i), t.len()); s(&String::from_utf8_lossy(&t[k..k + 1])) }
     pub fn range(a: &V, b: &V) -> V { list((int_of(a)..int_of(b)).map(V::Int).collect()) }
-    pub fn shl(a: &V, b: &V) -> V { V::Int(int_of(a).wrapping_shl(int_of(b) as u32 & 31)) }
-    pub fn shr(a: &V, b: &V) -> V { V::Int(int_of(a) >> (int_of(b) & 31)) }
-    pub fn ushr(a: &V, b: &V) -> V { V::Int(((int_of(a) as u32) >> (int_of(b) as u32 & 31)) as i32) }
+    pub fn shl(a: &V, b: &V) -> V {
+        if let V::Long(x) = a { return V::Long(x.wrapping_shl(int_of(b) as u32 & 63)) }
+        V::Int(int_of(a).wrapping_shl(int_of(b) as u32 & 31))
+    }
+    pub fn shr(a: &V, b: &V) -> V { if let V::Long(x) = a { return V::Long(x >> (int_of(b) & 63)) } V::Int(int_of(a) >> (int_of(b) & 31)) }
+    pub fn ushr(a: &V, b: &V) -> V {
+        if let V::Long(x) = a { return V::Long(((*x as u64) >> (int_of(b) as u32 & 63)) as i64) }
+        V::Int(((int_of(a) as u32) >> (int_of(b) as u32 & 31)) as i32)
+    }
 
     // ---- sets
     pub fn make_set(xs: Vec<V>) -> V {
@@ -252,6 +282,12 @@ pub mod rt {
         let digits = t.strip_prefix(|c| c == '+' || c == '-').unwrap_or(t);
         if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) { fail(format!("not an int: \"{}\"", t)) }
         match t.trim_start_matches('+').parse::<i32>() { Ok(v) => V::Int(v), Err(_) => fail(format!("not an int: \"{}\"", t)) }
+    }
+    pub fn to_long(a: &V) -> V {
+        let t = str_of(a);
+        let digits = t.strip_prefix(|c| c == '+' || c == '-').unwrap_or(t);
+        if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) { fail(format!("not a long: \"{}\"", t)) }
+        match t.trim_start_matches('+').parse::<i64>() { Ok(v) => V::Long(v), Err(_) => fail(format!("not a long: \"{}\"", t)) }
     }
     pub fn to_float(a: &V) -> V {
         let t = str_of(a).as_bytes();
