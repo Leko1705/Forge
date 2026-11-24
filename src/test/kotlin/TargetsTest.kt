@@ -41,6 +41,8 @@ class TargetsTest {
             run(dir, listOf("rustc", "--edition", "2021", "-O", "$main.rs", "-o", main), timeout = 600)
             listOf("./$main")
         },
+        // an ES module, as in a browser; the package.json of the driver files makes Node load .js files as modules
+        Toolchain("javascript", listOf("node")) { _, main -> listOf("node", "$main.js") },
     )
 
     private fun available(tool: String): Boolean =

@@ -8,7 +8,7 @@ import java.nio.file.attribute.PosixFilePermission
 /** The targets of the compiler (`-t`). */
 enum class ForgeTarget(val id: String, val title: String) {
     KOTLIN("kotlin", "Kotlin"), JAVA("java", "Java"), PYTHON("python", "Python"), CPP("cpp", "C++"),
-    RUST("rust", "Rust"), OCAML("ocaml", "OCaml");
+    RUST("rust", "Rust"), OCAML("ocaml", "OCaml"), JAVASCRIPT("javascript", "JavaScript");
 
     override fun toString(): String = title
 }

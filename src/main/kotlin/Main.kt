@@ -12,7 +12,7 @@ import java.io.File
 import kotlin.system.exitProcess
 
 /**
- * `forge -f file.forge... [-t kotlin|java|python|cpp|rust|ocaml] [-d outDir] [-o outName] [-p package] [-opt]`
+ * `forge -f file.forge... [-t kotlin|java|python|cpp|rust|ocaml|javascript] [-d outDir] [-o outName] [-p package] [-opt]`
  */
 fun main(args: Array<String>) {
     val argParser = ArgumentParser(args)
@@ -21,7 +21,7 @@ fun main(args: Array<String>) {
 
     if (files.isEmpty()) {
         println("ERROR: Missing files")
-        println("usage: forge -f file.forge... [-t kotlin|java|python|cpp|rust|ocaml] [-d outDir] [-o outName] [-p package] [-opt]")
+        println("usage: forge -f file.forge... [-t kotlin|java|python|cpp|rust|ocaml|javascript] [-d outDir] [-o outName] [-p package] [-opt]")
         exitProcess(1)
     }
 

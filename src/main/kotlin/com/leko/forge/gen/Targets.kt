@@ -24,6 +24,7 @@ class Targets private constructor() {
         register(OcamlTarget)
         register(CppTarget)
         register(RustTarget)
+        register(JavaScriptTarget)
     }
 
     operator fun get(name: String): Target? = _targets[name]

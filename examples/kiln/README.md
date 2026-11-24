@@ -31,7 +31,7 @@ java -cp build/kiln Fib
 
 ## The compiler in other languages
 
-Forge generates the Kiln compiler in every target; `java`, `python`, `cpp`, `rust` and `ocaml` contain a
+Forge generates the Kiln compiler in every target; `java`, `python`, `cpp`, `rust`, `ocaml` and `javascript` contain a
 command line driver for each, and all of them write the same class files:
 
 ```bash
@@ -53,6 +53,16 @@ build/kiln-rust/kilnc examples/kiln/programs/fib.kiln -d build/kiln && java -cp 
 | `cpp`    | `g++ -std=c++17 -O1 -pthread kilnc.cpp -o kilnc && ./kilnc fib.kiln -d out`          |
 | `rust`   | `rustc -O kilnc.rs -o kilnc && ./kilnc fib.kiln -d out`                              |
 | `ocaml`  | `ocamlopt kiln.ml kilnc.ml -o kilnc && ./kilnc fib.kiln -d out`                      |
+| `javascript` | `node kilnc.js fib.kiln -d out` (Node.js 18+)                                    |
+
+The JavaScript compiler also runs in the browser: generate `kiln.js` next to
+[javascript/index.html](javascript/index.html), serve the directory and open the page, which compiles Kiln
+source and offers the class file for download:
+
+```bash
+build/install/forge/bin/forge -f examples/kiln/kiln.forge -t javascript -d build/kiln-js
+cp examples/kiln/javascript/* build/kiln-js/ && cd build/kiln-js && python3 -m http.server 8000
+```
 
 ## The Kotlin driver
 
