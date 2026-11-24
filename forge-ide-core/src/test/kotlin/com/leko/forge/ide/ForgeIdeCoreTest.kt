@@ -7,12 +7,14 @@ import com.leko.forge.ide.diagnostics.ForgeDiagnostics
 import com.leko.forge.ide.diagnostics.ForgeSeverity
 import com.leko.forge.ide.diagnostics.ForgeSource
 import com.leko.forge.ide.lexer.ForgeEditorLexer
+import com.leko.forge.ide.outline.ForgeDeclarations
 import com.leko.forge.ide.parser.ForgeAntlr
 import com.leko.forge.ide.parser.ForgeNameRole
 import com.leko.forge.ide.project.ForgeProjectKind
 import com.leko.forge.ide.project.ForgeProjectOptions
 import com.leko.forge.ide.project.ForgeProjectTemplate
 import com.leko.forge.ide.project.ForgeTarget
+import com.leko.forge.ide.semantics.ForgeLineShift
 import com.leko.forge.ide.semantics.ForgeSemantics
 import java.io.File
 import kotlin.test.Test
@@ -130,6 +132,38 @@ class ForgeIdeCoreTest {
             val errors = ForgeDiagnostics.analyze(ForgeSource(program, null), ForgeHost.DISK).filter { it.severity == ForgeSeverity.ERROR }
             assertEquals(emptyList(), errors, "$kind $target")
         }
+    }
+
+    @Test
+    fun theOutlineHasTheDeclarationsWithTheirMembers() {
+        val text = "/** The types. */\nenum Type { INT, ERROR(msg: str) }\nnode Add(left: Expr, right: Expr): Expr\nnode Expr\n" +
+            "syn Add.type: Type = this.left.type\nconst limit = 3"
+        val declarations = ForgeDeclarations(text, ForgeAntlr.parse(text).first)
+        val outline = declarations.outline()
+        assertEquals(listOf("enum Type { INT, ERROR(msg: str) }", "node Add(left: Expr, right: Expr): Expr", "node Expr", "syn Add.type: Type", "const limit"),
+            outline.map { it.label })
+        assertEquals(listOf("INT", "ERROR(msg: str)"), outline[0].children.map { it.label })
+        assertTrue(outline[0].isEnum)
+        assertEquals(listOf("left: Expr", "right: Expr"), outline[1].children.map { it.label })
+        assertTrue(outline[2].isInterface)
+        val type = declarations.info(outline[0].name)!!
+        assertEquals("enum", type.kind)
+        assertEquals("/** The types. */", type.comment)
+        val left = declarations.nameAt(text.indexOf("left"))!!
+        assertEquals("child of node Add(left: Expr, right: Expr): Expr", declarations.info(left)!!.kind)
+        assertEquals("const limit = 3", declarations.info(outline[4].name)!!.signature)
+    }
+
+    @Test
+    fun linesShiftAroundAnEdit() {
+        val map = ForgeLineShift.between("a\nb\nc\nd", "a\nB\nx\nc\nd")
+        assertEquals(1, map.line(1))
+        assertNull(map.line(2))
+        assertEquals(4, map.line(3))
+        assertEquals(5, map.line(4))
+        // "c" moved from offset 4 to 6
+        assertEquals(6, map.offset(4))
+        assertNull(map.offset(2))
     }
 
     private fun createTempDirectory(): File = kotlin.io.path.createTempDirectory("forge-ide").toFile().apply { deleteOnExit() }

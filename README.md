@@ -409,3 +409,24 @@ The part of the editor support that does not depend on IntelliJ is in [forge-ide
 and parser as editors need them, the compiler's diagnostics, what names resolve to, the hierarchy of declarations,
 completion and the project template. The plugin adapts it to IntelliJ; other editors (e.g. through a language
 server) can build on it too. `./gradlew :forge-ide-core:test` tests it without an IDE.
+
+## Language server
+
+[forge-lsp](forge-lsp) is a language server (LSP, over stdin and stdout) for `.forge` files, built on
+forge-ide-core, for VS Code and other editors (Neovim, Helix, Zed, Emacs, ...). It needs Java 21.
+
+- **Diagnostics**: the syntax errors of the compiler's parser and the errors and warnings of the analysis, with their
+  codes (`E009`); a change to an open file rechecks the open files that import it, also before it is saved.
+- **Completion** of members, names in scope and keywords, as in IntelliJ (after `.` and `@`).
+- **Go to definition** (also into imported files, the standard library and the files of `import`s), **find
+  references** (in the open files) and **hover** documentation (signature, doc comment, kind, type, what a
+  declaration implements or overrides).
+- **Document symbols** (the outline, with fields, children and enum constants), **semantic tokens** (names colored by
+  what the compiler resolves them to: `attribute`, `port`, `graph`, `parser` and `rule` are token types of their own)
+  and **folding** of declarations and block comments.
+
+```
+./gradlew :forge-lsp:serverJar   # forge-lsp/build/libs/forge-lsp-<version>-all.jar
+java -jar forge-lsp/build/libs/forge-lsp-1.0-SNAPSHOT-all.jar
+./gradlew :forge-lsp:test
+```

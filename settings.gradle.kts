@@ -7,3 +7,5 @@ rootProject.name = "Forge"
 include("forge-ide-core")
 // the IntelliJ plugin for .forge files; it uses the compiler's lexer, parser and analysis
 include("forge-intellij")
+// the language server (LSP) for .forge files, for VS Code and other editors
+include("forge-lsp")
