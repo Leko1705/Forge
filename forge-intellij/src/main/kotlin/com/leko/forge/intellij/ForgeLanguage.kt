@@ -12,6 +12,8 @@ object ForgeLanguage : Language("Forge") {
 object ForgeIcons {
     @JvmField
     val FILE: Icon = IconLoader.getIcon("/icons/forge.svg", ForgeIcons::class.java)
+    /** A method that implements a member of a trait: arrows both ways, as between a C++ declaration and its definition. */
+    val TRAIT_IMPLEMENTATION: Icon = IconLoader.getIcon("/icons/traitImplementation.svg", ForgeIcons::class.java)
 }
 
 object ForgeFileType : LanguageFileType(ForgeLanguage) {

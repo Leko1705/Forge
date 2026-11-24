@@ -1,0 +1,9 @@
+<!-- A method that implements a member of a trait: arrows both ways, as between a declaration and its definition. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 14 14">
+  <g fill="none" fill-rule="evenodd">
+    <!-- to the trait: green, right -->
+    <path fill="#57965C" d="M1 4.5 L10 4.5 L10 2 L13.5 5 L10 8 L10 5.5 L1 5.5 Z"/>
+    <!-- from the trait: red, left -->
+    <path fill="#E55765" d="M13 9.5 L4 9.5 L4 7 L0.5 10 L4 13 L4 10.5 L13 10.5 Z"/>
+  </g>
+</svg>

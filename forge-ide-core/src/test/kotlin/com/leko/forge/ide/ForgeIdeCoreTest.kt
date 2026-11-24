@@ -188,6 +188,26 @@ class ForgeIdeCoreTest {
     }
 
     @Test
+    fun methodsThatImplementTraitsAreKnown() {
+        val text = "trait Named { fun name(): str\n    val size: int }\ntrait Ord { op fun compareTo(other: Self): int }\n" +
+            "record Dog { n: str }\nfun Dog.name(): str = this.n\nval Dog.size: int = 1\n" +
+            "record Cat { n: str }\nfun Cat.name(): str = this.n\n" +
+            "record Box<T> { item: T }\nfun <T> Box<T>.name(): str = \"box\"\nval <T> Box<T>.size: int = 1\n" +
+            "fun Dog.compareTo(other: Dog): int = 0"
+        val implementations = ForgeSemantics.compute(text, null, ForgeHost.DISK).traitImplementations
+        val dogName = implementations.getValue(text.indexOf("name(): str = this.n"))
+        assertEquals(listOf("Named" to "Dog"), dogName.map { it.trait to it.type })
+        // the member it implements, where it is declared
+        assertEquals(1 to text.indexOf("name()"), dogName[0].member.line to dogName[0].member.column)
+        assertEquals(listOf("Named"), implementations.getValue(text.indexOf("size: int = 1")).map { it.trait })
+        // Cat has no size: it does not have the trait; a plain fun compareTo is no operator of Ord
+        assertNull(implementations[text.lastIndexOf("name(): str = this.n")])
+        assertNull(implementations[text.indexOf("compareTo(other: Dog)")])
+        // a generic record has it through generic methods
+        assertEquals(listOf("Box<T>"), implementations.getValue(text.indexOf("name(): str = \"box\"")).map { it.type })
+    }
+
+    @Test
     fun theOutlineHasModulesAndTraits() {
         val text = "mod geo {\n    record Point { x: int }\n    mod deep { const c = 1 }\n}\ntrait Named { fun name(): str }"
         val declarations = ForgeDeclarations(text, ForgeAntlr.parse(text).first)

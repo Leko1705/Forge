@@ -545,6 +545,10 @@ the compiler itself, so the editor sees what `forge -f` sees:
   errors, it resolves nothing.
 - **Computed values are italic**: attributes (`syn`, `inh`, `circular`, `coll`) and `val` properties, where they are
   declared and where they are used, so `this.type` (an attribute) and `this.left` (a child) look different.
+- **Trait implementations** have a gutter icon, arrows both ways as between a C++ declaration and its definition: on
+  each method or `val` that implements a member of a trait for a type that has all the members of the trait (so the
+  type satisfies `fun <T: Trait>`). The tooltip says which (`Implements Named.name: Dog is Named`); a click goes to
+  the member of the trait.
 - **Gutter icons** for implementations and overrides, as in Java and Kotlin: interface nodes and the nodes that
   implement them, a `syn` definition and the equations of the nodes below it, a `circular` attribute and its
   overrides, `inh attr` and its `inh Node.attr { ... }` equations, an abstract rule and its alternatives. Find

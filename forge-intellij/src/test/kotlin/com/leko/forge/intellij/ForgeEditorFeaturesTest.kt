@@ -90,6 +90,26 @@ class ForgeEditorFeaturesTest : BasePlatformTestCase() {
             targets.map { myFixture.editor.document.getLineNumber(it!!.textOffset) })
     }
 
+    fun testTraitImplementationsHaveGutterIcons() {
+        val text = """
+            trait Named { fun name(): str }
+            record Dog { n: str }
+            fun Dog.name(): str = this.n
+            record Cat { n: str }
+            fun Cat.other(): str = this.n
+        """.trimIndent()
+        myFixture.configureByText("t.forge", text)
+        val gutters = myFixture.findAllGutters().filterIsInstance<LineMarkerInfo.LineMarkerGutterIconRenderer<*>>()
+            .filter { it.icon === ForgeIcons.TRAIT_IMPLEMENTATION }
+        assertEquals(1, gutters.size)
+        val gutter = gutters.single()
+        assertEquals(2, myFixture.editor.document.getLineNumber(gutter.lineMarkerInfo.startOffset))
+        assertTrue(gutter.tooltipText.toString(), "Implements <b>Named.name</b>: Dog is Named" in gutter.tooltipText.toString())
+        // it leads to the member of the trait
+        val targets = (gutter.lineMarkerInfo as com.intellij.codeInsight.daemon.RelatedItemLineMarkerInfo<*>).createGotoRelatedItems().map { it.element }
+        assertEquals(listOf(0), targets.map { myFixture.editor.document.getLineNumber(it!!.textOffset) })
+    }
+
     fun testFolding() {
         myFixture.configureByText("a.forge", program)
         EditorTestUtil.buildInitialFoldingsInBackground(myFixture.editor)
