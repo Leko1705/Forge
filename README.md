@@ -316,3 +316,62 @@ identical output in each of them.
 `TargetsTest` also generates the conformance program and the Kiln compiler for every other target, builds them
 with `python3`, `javac`, `g++`, `rustc` and `ocamlopt` and compares what they compute with the Kotlin target; a
 target whose toolchain is not installed is skipped.
+
+## IntelliJ plugin
+
+[forge-intellij](forge-intellij) is a plugin for IntelliJ-based IDEs (2026.2 or newer) for `.forge` files. It uses
+the compiler itself, so the editor sees what `forge -f` sees:
+
+- **Highlighting** with the compiler's lexer (keywords, strings, regular expressions, numbers, comments) and
+  parser: names are colored by their role in the grammar (nodes, records and enums, type references, builtin types,
+  attributes, functions and calls, constants, ports and graphs, parsers, rules and `@` annotations, ...). The colors
+  are in Settings | Editor | Color Scheme | Forge.
+- **Syntax errors** of the compiler's parser while typing.
+- **Errors and warnings of the analysis** (Enter, MemberEnter, Attr, Dependency, with the imported files and the
+  standard library) where the compiler reports them; an error in an imported file is shown on its `import`.
+- **Navigation and usages**: Ctrl+Click (Go to Declaration) on a name goes to what the compiler resolves it to,
+  also into imported files and the standard library; Ctrl+Click on a declaration, Find Usages (`Alt+F7`) and
+  Rename (`Shift+F6`) find its uses. The names are resolved by the compiler's analysis, so while a file has syntax
+  errors, it resolves nothing.
+- **Computed values are italic**: attributes (`syn`, `inh`, `circular`, `coll`) and `val` properties, where they are
+  declared and where they are used, so `this.type` (an attribute) and `this.left` (a child) look different.
+- **Gutter icons** for implementations and overrides, as in Java and Kotlin: interface nodes and the nodes that
+  implement them, a `syn` definition and the equations of the nodes below it, a `circular` attribute and its
+  overrides, `inh attr` and its `inh Node.attr { ... }` equations, an abstract rule and its alternatives. Find
+  Usages of a definition also lists its implementations and their uses.
+- **Documentation on hover** (and `Ctrl+Q`): the highlighted signature, the `/** ... */` comment before the
+  declaration, what it is, the type of variables and how it relates to other declarations.
+- **Completion** (`Ctrl+Space`, and on its own after `.` and `@`): after `.` the members the compiler resolves for
+  the receiver's type (fields, attributes, `val`s, methods of the program and the standard library, enum constants,
+  rules); in expressions the locals in scope, constants, functions, nodes and records (with parentheses), and
+  keywords; types in type positions; the nodes, attributes, parsers and rules a declaration names (`syn Num.`
+  offers the attributes `Num` implements); `@u2`, `@infixLeft`, ...; top level keywords at the start of a line.
+- **Parameter info** (`Ctrl+P`, and on its own after `(`) in calls of functions, methods, constructors of nodes and
+  records and enum constants, with the argument of the caret; also while the call is typed.
+- **Quick fixes** (`Alt+Enter`) for errors of the compiler: `left` -> `this.left` for a child or an attribute, create
+  a missing node, implement a `syn` attribute a node is missing (`fail("not implemented")` until it is written).
+- **Structure view** (`Alt+7`) of the declarations, with the fields, children and enum constants of a type, and
+  **Go to Symbol / Go to Class** (`Ctrl+Alt+Shift+N`, `Ctrl+N`) over the declarations of all .forge files.
+- **Formatting** (Reformat Code) and indentation on Enter, in the style of the examples: declarations at the start
+  of a line, their further lines indented once, and the insides of brackets that span lines once more; spaces after
+  commas and around `=`, `->`, `<-` and the comparison and logic operators.
+- **Folding** of declaration bodies, blocks in braces, block comments and the imports.
+- **Compiling in the IDE**: a Forge run configuration runs the compiler of the plugin on a file (output directory,
+  package, target, `-opt`, `-keep`). Right click on a .forge file | Run, or the run icon at its first declaration,
+  creates one; the positions in the compiler's messages are links to the code.
+- **Project wizard** (File | New | Project... | Forge): a sample (an expression language with attributes and a
+  parser) or an empty program, the target language and package, and a Gradle build. The build runs the Forge
+  compiler of the plugin (copied to `lib/forge-compiler.jar`) on `src/main/forge`; for Kotlin it compiles the
+  generated code with `src/main/kotlin` and `./gradlew run` runs it. The Gradle build is imported when the IDE has
+  the Gradle plugin.
+- Block comments have the color of doc comments.
+- Brace matching, commenting (`Ctrl+/`) and quote pairing.
+
+```
+./gradlew :forge-intellij:buildPlugin   # forge-intellij/build/distributions/forge-intellij-<version>.zip
+./gradlew :forge-intellij:runIde        # starts an IDE with the plugin
+./gradlew :forge-intellij:test
+```
+
+Install the zip with Settings | Plugins | ⚙ | Install Plugin from Disk. The build downloads the IntelliJ Platform
+from JetBrains.

@@ -4,8 +4,10 @@ import com.leko.forge.attr.Resolve
 import com.leko.forge.attr.SymTab
 import com.leko.forge.context.Context
 import com.leko.forge.model.CallableSymbol
+import com.leko.forge.model.span
 import com.leko.forge.types.*
 import com.leko.forge.util.Log
+import org.antlr.v4.runtime.ParserRuleContext
 
 class Check private constructor(context: Context) {
     companion object {
@@ -25,7 +27,7 @@ class Check private constructor(context: Context) {
     fun checkAssignable(expected: Type, got: Type): Type {
         if (expected == ErrorType || got == ErrorType) return ErrorType
         if (!types.isAssignable(expected, got)) {
-            log.diag(typeMismatch(null, expected, got))
+            log.diag(typeMismatch(log.lastAnalyzedOrCurrent, expected, got))
             return ErrorType
         }
         return expected
@@ -61,6 +63,9 @@ class Check private constructor(context: Context) {
 
         return res
     }
+
+    /** [checkExists] of the type written at [at]; the diagnostics are reported there. */
+    fun checkExists(type: Type, at: ParserRuleContext?): Type = log.at(at?.span) { checkExists(type) }
 
     fun checkExists(type: Type): Type {
         return when (type) {

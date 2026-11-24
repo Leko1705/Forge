@@ -1,0 +1,40 @@
+// {{name}}.forge: a small expression language — its tree, its attributes and its parser.
+
+/** A program: a sequence of expressions. */
+node Program(exprs: List<Expr>)
+
+/** An expression; the nodes below implement it. */
+node Expr
+node Num(digits: str): Expr
+node Add(left: Expr, right: Expr): Expr
+node Mul(left: Expr, right: Expr): Expr
+node Neg(operand: Expr): Expr
+
+/** The value of an expression. */
+syn Expr.value: int
+syn Num.value: int = this.digits.toInt()
+syn Add.value: int = this.left.value + this.right.value
+syn Mul.value: int = this.left.value * this.right.value
+syn Neg.value: int = -this.operand.value
+
+/** The expression as text, with parentheses around every operation. */
+syn Expr.text: str
+syn Num.text: str = this.digits
+syn Add.text: str = "(" + this.left.text + " + " + this.right.text + ")"
+syn Mul.text: str = "(" + this.left.text + " * " + this.right.text + ")"
+syn Neg.text: str = "-" + this.operand.text
+
+// whitespace is skipped between the terminals; the operators have precedences
+parser Calc skip '\s+'
+
+rule Calc.program: Program -> exprs: expr* { Program(exprs) }
+
+rule Calc.expr: Expr
+rule Calc.expr: Num -> digits: '\d+' { Num(digits) }
+rule Calc.expr: Expr -> '\(' e: expr '\)' { e }
+rule Calc.expr: Expr @prefix(30) -> '-' e: expr { Neg(e) }
+rule Calc.expr: Expr @infixLeft(10) -> l: expr '\+' r: expr { Add(l, r) }
+rule Calc.expr: Expr @infixLeft(20) -> l: expr '\*' r: expr { Mul(l, r) }
+
+/** Every expression of [source] with its value: `(1 + (2 * 3)) = 7`. */
+fun evaluate(source: str): List<str> = e.text + " = " + e.value.str() for e in Calc.program(source).exprs

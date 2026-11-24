@@ -1,0 +1,5 @@
+<idea-plugin>
+    <extensions defaultExtensionNs="com.leko.forge">
+        <gradleLinker implementation="com.leko.forge.intellij.wizard.gradle.ForgeGradleLinkerImpl"/>
+    </extensions>
+</idea-plugin>
