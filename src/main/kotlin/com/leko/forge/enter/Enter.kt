@@ -136,6 +136,7 @@ class Enter private constructor(context: Context) {
                     type(member.ty),
                     member.property != null,
                     member.name.span,
+                    isOperator = member.op != null,
                 )
             }
             val sym = TraitSymbol(name, members, trait.name.span)

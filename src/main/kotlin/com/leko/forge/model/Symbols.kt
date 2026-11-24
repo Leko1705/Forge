@@ -232,6 +232,8 @@ data class TraitMember(
     val returnType: Type,
     val isProperty: Boolean,
     val span: SourceSpan,
+    /** `op fun`: an operator on values of a type parameter with the trait; a type needs an `op fun` for it. */
+    val isOperator: Boolean = false,
 )
 
 /** The type variable that stands for the type that has a trait, in the members of the trait. */

@@ -75,7 +75,7 @@ fun Dog.name(): str = "dog " + this.label
 val Dog.weight: int = this.label.size
 record Money { cents: int }
 fun Money.str(): str = "\$${this.cents / 100}.${this.cents % 100}"
-fun Money.compareTo(other: Money): int = this.cents - other.cents
+op fun Money.compareTo(other: Money): int = this.cents - other.cents
 
 fun <T: Named & Sized> heaviest(xs: List<T>): str = xs.fold(xs[0]) { acc, x -> if x.weight > acc.weight then x else acc }.name()
 fun <T: Named> names(xs: List<T>): str = xs.map({ x -> x.name() }).join(", ")
@@ -97,6 +97,18 @@ syn Add.scaled: (int) -> int = { k -> k * this.total }
 
 fun traits(): str = both([Dog("rex"), Dog("bo")]) + " " + "${largest(3, 8)} ${largest("pear", "apple")} ${largest(Money(150), Money(99))} " +
     shown([Money(205), Money(1)]) + " " + "${sum([Num(1), Num(2)])} ${sum([Add(Num(1), Num(2))])} ${Add(Num(2), Num(3)).scaled(4)}"
+
+// operators of traits: two traits with an `op fun get` of different signatures
+trait Indexed { op fun get(index: int): str }
+trait Keyed { op fun get(key: str): int }
+record Word { text: str }
+op fun Word.get(index: int): str = this.text[index]
+record Counts { names: List<str> }
+op fun Counts.get(key: str): int = this.names.count { it == key }
+fun <T: Indexed> initial(x: T): str = x[0]
+fun <T: Keyed> howMany(x: T, key: str): int = x[key]
+fun operators(): str = "${initial(Word("forge"))} ${howMany(Counts(["a", "b", "a"]), "a")} ${Word("ab")[1]} " +
+    "${Money(1) < Money(2)} ${"b" < "a"} ${largest(Word("x")[0], "y")}"
 
 // ---- more -----------------------------------------------------------------------------------------------
 
@@ -125,6 +137,7 @@ fun nested(): str = "${"a${"b${1}"}"}" + " ${[1, 2].size} ${{ x: int -> x }(3)}"
 fun report(): List<str> = [
     modules(),
     traits(),
+    operators(),
     tuples(),
     longs(),
     lambdas(),

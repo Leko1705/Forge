@@ -36,7 +36,11 @@ fun nameRole(context: ParserRuleContext, token: Token): ForgeNameRole? = when (c
     }
     is ForgeParser.TypeParamContext -> TYPE_PARAMETER.takeIf { token === context.name }
     is ForgeParser.TraitDefContext -> TRAIT.takeIf { token === context.name }
-    is ForgeParser.TraitMemberContext -> (if (context.property != null) PROPERTY else FUNCTION_DECLARATION).takeIf { token === context.name }
+    is ForgeParser.TraitMemberContext -> when (token) {
+        context.name -> if (context.property != null) PROPERTY else FUNCTION_DECLARATION
+        context.op -> SOFT_KEYWORD
+        else -> null
+    }
     is ForgeParser.ModDefContext -> MODULE.takeIf { token === context.name }
     is ForgeParser.UseDeclContext -> MODULE.takeIf { token === context.path }
     is ForgeParser.LambdaParamContext -> PARAMETER.takeIf { token === context.name }

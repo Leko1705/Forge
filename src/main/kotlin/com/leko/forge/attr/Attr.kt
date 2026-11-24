@@ -291,7 +291,8 @@ class Attr private constructor(context: Context) {
                         trait, m.name,
                         m.params.map { VarSymbol(it.name, it.type.substitute(self), it.span, it.varKind) },
                         m.returnType.substitute(self), m.span,
-                        isOperator = m.name in OPERATORS,
+                        // only an `op fun` of the trait is an operator: `a < b` with `op fun compareTo`
+                        isOperator = m.isOperator,
                         isProperty = m.isProperty,
                         witnessOf = owner.name,
                     )
@@ -345,11 +346,12 @@ class Attr private constructor(context: Context) {
             }
             val self = mapOf(SELF to actual)
             val found = (if (actual is OptionalType) null else resolve.resolve(actual, member.name, Kind.VAL, if (member.isProperty) Kind.VAL else Kind.MTH)) as? FunctionSymbol
-            val ok = found != null && found.params.size == member.params.size &&
+            // an operator of the trait needs an operator of the type
+            val ok = found != null && (!member.isOperator || found.isOperator) && found.params.size == member.params.size &&
                 found.params.zip(member.params).all { (p, m) -> types.isAssignable(p.type, m.type.substitute(self)) } &&
                 types.isAssignable(member.returnType.substitute(self), found.returnType)
             if (!ok) {
-                val signature = (if (member.isProperty) "val " else "fun ") + "$actual.${member.name}" +
+                val signature = (if (member.isOperator) "op " else "") + (if (member.isProperty) "val " else "fun ") + "$actual.${member.name}" +
                     (if (member.isProperty) "" else member.params.joinToString(", ", "(", ")") { "${it.name}: ${it.type.substitute(self)}" }) +
                     ": " + member.returnType.substitute(self)
                 log.diag(boundNotSatisfied(ctx.span, actual, displayName(trait.name), "it needs $signature"))

@@ -51,9 +51,10 @@ constDef
 // use jvm   -- the declarations of module jvm can be used without jvm::   /   use jvm::Insn   -- just this one
 useDecl: USE path=IDENT;
 
-// trait Ord { fun compareTo(other: Self): int }   -- what a type parameter can require: fun <T: Ord> ...
+// trait Ord { op fun compareTo(other: Self): int }   -- what a type parameter can require: fun <T: Ord> ...
+// an `op fun` member is an operator on values of the type parameter (`a < b`); the type needs an `op fun` for it
 traitDef: TRAIT name=IDENT LBRACE traitMember* RBRACE;
-traitMember: (FUN | property=VAL) name=IDENT (params=LPAREN (parameter (COMMA parameter)*)? RPAREN)? COLON ty=type;
+traitMember: (op=IDENT)? (FUN | property=VAL) name=IDENT (params=LPAREN (parameter (COMMA parameter)*)? RPAREN)? COLON ty=type;
 
 // <T, U: Ord & Show>   -- type parameters; a bound is a trait or a type (T: Expr)
 typeParams: LT typeParam (COMMA typeParam)* GT;

@@ -59,6 +59,7 @@ class MemberEnter private constructor(context: Context) {
         enterMethods(root)
         enterParserRules(root)
         enterFlows(root)
+        checkTraitMembers(root)
         checkNameClashes()
     }
 
@@ -276,17 +277,39 @@ class MemberEnter private constructor(context: Context) {
         "neg" to 0, "not" to 0,
     )
 
-    private fun checkOperator(func: ForgeParser.FunctionContext, sym: FunctionSymbol) {
-        val arity = operators[sym.name]
+    private fun checkOperator(func: ForgeParser.FunctionContext, sym: FunctionSymbol) =
+        checkOperator(func.name.span, sym.name, sym.params.map { it.type }, sym.returnType)
+
+    /**
+     * What an operator function must be: its name one of an operator, with its number of parameters; the other
+     * types are free (so traits can have operators of different signatures), except where the operator needs them.
+     */
+    private fun checkOperator(span: SourceSpan, name: String, params: List<Type>, returnType: Type) {
+        val arity = operators[name]
         when {
-            arity == null -> log.diag(invalidOperatorFunction(func.name.span,
-                "'${sym.name}' is no operator; operators are ${operators.keys.joinToString(", ")}"))
-            sym.params.size != arity -> log.diag(invalidOperatorFunction(func.name.span,
-                "operator '${sym.name}' takes $arity parameter${if (arity == 1) "" else "s"}"))
-            sym.name == "compareTo" && sym.returnType != IntType -> log.diag(invalidOperatorFunction(func.name.span, "operator 'compareTo' returns an int"))
-            sym.name == "contains" && sym.returnType != BoolType -> log.diag(invalidOperatorFunction(func.name.span, "operator 'contains' returns a bool"))
-            sym.name == "slice" && sym.params.any { it.type != OptionalType(IntType) && it.type !is TypeVar } ->
-                log.diag(invalidOperatorFunction(func.name.span, "operator 'slice' takes two int? (an omitted bound is null)"))
+            arity == null -> log.diag(invalidOperatorFunction(span,
+                "'$name' is no operator; operators are ${operators.keys.joinToString(", ")}"))
+            params.size != arity -> log.diag(invalidOperatorFunction(span,
+                "operator '$name' takes $arity parameter${if (arity == 1) "" else "s"}"))
+            name == "compareTo" && returnType != IntType -> log.diag(invalidOperatorFunction(span, "operator 'compareTo' returns an int"))
+            name == "contains" && returnType != BoolType -> log.diag(invalidOperatorFunction(span, "operator 'contains' returns a bool"))
+            name == "slice" && params.any { it != OptionalType(IntType) && it !is TypeVar } ->
+                log.diag(invalidOperatorFunction(span, "operator 'slice' takes two int? (an omitted bound is null)"))
+        }
+    }
+
+    /** `op fun` members of traits are operators: the same rules as for operator functions. */
+    private fun checkTraitMembers(root: ForgeParser.RootContext) {
+        for (trait in root.traitDef()) {
+            val sym = symTab.traits[trait.name.text] ?: continue
+            for ((member, ctx) in sym.members.zip(trait.traitMember())) {
+                val op = ctx.op ?: continue
+                when {
+                    op.text != "op" -> log.diag(invalidOperatorFunction(op.span, "unexpected '${op.text}' before 'fun'"))
+                    member.isProperty -> log.diag(invalidOperatorFunction(op.span, "an operator is a fun, not a val"))
+                    else -> checkOperator(member.span, member.name, member.params.map { it.type }, member.returnType)
+                }
+            }
         }
     }
 

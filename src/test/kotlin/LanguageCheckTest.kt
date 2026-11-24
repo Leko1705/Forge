@@ -111,6 +111,22 @@ class LanguageCheckTest {
     }
 
     @Test
+    fun operatorsOfTraits() {
+        val trait = "trait Addable { op fun plus(other: Self): Self }\nfun <T: Addable> twice(x: T): T = x + x\nrecord V { n: int }\n"
+        assertOk(trait + "op fun V.plus(o: V): V = V(this.n + o.n)\nfun f(): V = twice(V(1))")
+        // an operator of a trait needs an operator of the type; a plain fun does not do
+        assertError("it needs op fun V.plus(other: V): V", trait + "fun V.plus(o: V): V = V(this.n + o.n)\nfun f(): V = twice(V(1))")
+        // a member that is no operator can not be used as one, but an op fun of the type can be its member
+        assertError("can not apply '+'", "trait P { fun plus(other: Self): Self }\nfun <T: P> f(x: T): T = x + x")
+        assertOk("trait P { fun plus(other: Self): Self }\nfun <T: P> f(x: T): T = x.plus(x)\nrecord V { n: int }\nop fun V.plus(o: V): V = o\nfun g(): V = f(V(1))")
+        // traits may have operators of different signatures; the rules of operators hold for them
+        assertOk("trait A { op fun get(i: int): str }\ntrait B { op fun get(k: str): int }")
+        assertError("operator 'get' takes 1 parameter", "trait A { op fun get(i: int, j: int): str }")
+        assertError("operator 'compareTo' returns an int", "trait A { op fun compareTo(o: Self): bool }")
+        assertError("an operator is a fun, not a val", "trait A { op val size: int }")
+    }
+
+    @Test
     fun modules() {
         assertOk("mod a { record R { x: int }\nfun make(): R = R(1) }\nfun f(): int = a::make().x")
         assertOk("mod a { record R { x: int } }\nuse a\nfun f(r: R): int = r.x")

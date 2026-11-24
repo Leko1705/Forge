@@ -114,7 +114,7 @@ comes first.
 | `List<int>`, `List<long>`, `List<float>` | `sum()`; `max()`, `min()` of ints and floats (fail for an empty list)   |
 | `Set<T>`  | `size`, `toList()`, `remove(x)`, `map(f)` (a list), `fold(init, f)` (in the order the elements were added)                                                                                |
 | `Map<K, V>` | `size`, `keys()`, `values()` (lists, in the order of the map), `remove(key)`, `entries()` (`(key, value)` tuples), `mapValues(f)` |
-| traits    | `Comparable` (`compareTo(other: Self): int`: int, long, float, str), `Printable` (`str(): str`: int, long, float, bool, str) |
+| traits    | `Comparable` (`op fun compareTo(other: Self): int`: int, long, float, str, so also `"a" < "b"`), `Printable` (`str(): str`: int, long, float, bool, str) |
 | -         | `char(code)`: a character as a str; `fail(message)`: stops with an error (`ForgeError`, `IllegalStateException` in Kotlin, a panic in Rust). Its type is `Nothing`, which fits wherever a value is expected: `x ?: fail("missing")`, `if b == 0 then fail("division by zero") else a / b` |
 
 `map` and `fold` are Forge code too, recursive ones (they halve the list, so the depth of the recursion is the
@@ -231,13 +231,25 @@ fun Dog.name(): str = "dog " + this.label
 val Dog.weight: int = this.label.size
 
 fun <T: Named & Sized> heaviest(xs: List<T>): str = xs.fold(xs[0]) { acc, x -> if x.weight > acc.weight then x else acc }.name()
-fun <T: Comparable> largest(a: T, b: T): T = if a > b then a else b      // `<` and `>` are compareTo
+fun <T: Comparable> largest(a: T, b: T): T = if a > b then a else b      // `<` and `>` are the op fun compareTo of Comparable
 ```
 
 A type has a trait if it has its members, as methods, `op fun`s or `val`s of its own or of the standard library; it
-does not declare that it has it. So `largest(3, 8)`, `largest("pear", "apple")` and `largest(Money(150), Money(99))`
-(with a `fun Money.compareTo(other: Money): int`) all work, while `largest([1], [2])` is an error that names the missing
-`fun List<int>.compareTo(other: List<int>): int`. Inside the function, the members of the traits can be used on values
+does not declare that it has it. A member that is an `op fun` is an operator on values of the type parameter, and a
+type needs an `op fun` for it (a plain `fun` of that name is not an operator); a member that is a plain `fun` can be
+any method of that name, also an `op fun`. As traits declare their operators themselves, two traits can have
+operators of different signatures:
+
+```
+trait Indexed { op fun get(index: int): str }        // x[0] is a str
+trait Keyed { op fun get(key: str): int }            // x["a"] is an int
+fun <T: Indexed> initial(x: T): str = x[0]
+```
+
+The rules of operator functions hold for `op fun` members too: the name of an operator, its number of parameters, an
+int from `compareTo` and a bool from `contains`. So `largest(3, 8)`, `largest("pear", "apple")` and `largest(Money(150), Money(99))`
+(with an `op fun Money.compareTo(other: Money): int`) all work, while `largest([1], [2])` is an error that names the missing
+`op fun List<int>.compareTo(other: List<int>): int`. Inside the function, the members of the traits can be used on values
 of the type parameter, also through operators (`a < b` with `compareTo`) and in strings (`"${x}"` with `str()`); a
 generic function that calls another passes its bounds on, and must have them itself (`<T: Named>`).
 
