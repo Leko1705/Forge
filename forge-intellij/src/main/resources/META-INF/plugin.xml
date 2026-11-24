@@ -18,6 +18,8 @@
         <li>code completion: the members the compiler resolves after <code>.</code> (fields, attributes, vals, methods,
             enum constants, rules), locals, declarations, types and keywords;</li>
         <li>folding of declaration bodies, blocks, block comments and imports;</li>
+        <li>a run configuration that compiles a .forge file with the compiler of the plugin (right click | Run, or the
+            run icon in the gutter), with links from the compiler's messages to the code;</li>
         <li>a project wizard (File | New | Project... | Forge): a sample or empty program, the target language, and a
             Gradle build that runs the bundled compiler and, for Kotlin, runs the generated code;</li>
         <li>brace matching, commenting and quote pairing.</li>
@@ -54,6 +56,9 @@
         <lang.namesValidator language="Forge" implementationClass="com.leko.forge.intellij.hierarchy.ForgeNamesValidator"/>
         <lang.elementManipulator forClass="com.leko.forge.intellij.psi.ForgeImportPath"
                                  implementationClass="com.leko.forge.intellij.psi.ForgeImportPathManipulator"/>
+        <configurationType implementation="com.leko.forge.intellij.run.ForgeConfigurationType"/>
+        <runConfigurationProducer implementation="com.leko.forge.intellij.run.ForgeRunConfigurationProducer"/>
+        <runLineMarkerContributor language="Forge" implementationClass="com.leko.forge.intellij.run.ForgeRunLineMarkerContributor"/>
         <findUsagesHandlerFactory implementation="com.leko.forge.intellij.hierarchy.ForgeFindUsagesHandlerFactory"/>
         <codeInsight.lineMarkerProvider language="Forge"
                                         implementationClass="com.leko.forge.intellij.hierarchy.ForgeLineMarkerProvider"/>

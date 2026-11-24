@@ -12,6 +12,7 @@ import com.intellij.ide.wizard.NewProjectWizardStep
 import com.intellij.ide.wizard.RootNewProjectWizardStep
 import com.intellij.ide.wizard.setupProjectFromBuilder
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.fileEditor.FileEditorManager
@@ -129,8 +130,11 @@ class ForgeNewProjectWizard : GeneratorNewProjectWizard {
         private val LOG = logger<ForgeNewProjectWizard>()
 
         /** The jar of the Forge compiler this plugin bundles; `null` if the compiler is not in a jar (a development build). */
-        fun compilerJar(): Path? = runCatching {
-            Path.of(ForgeLexer::class.java.protectionDomain.codeSource.location.toURI())
-        }.onFailure { LOG.warn("the Forge compiler is not found", it) }.getOrNull()?.takeIf { Files.isRegularFile(it) && it.toString().endsWith(".jar") }
+        fun compilerJar(): Path? {
+            // the class loaders of plugins have no code sources: the jar is found from the class file
+            val path = PathManager.getJarPathForClass(ForgeLexer::class.java)?.let { Path.of(it) }
+            if (path == null) LOG.warn("the Forge compiler is not found")
+            return path?.takeIf { Files.isRegularFile(it) && it.toString().endsWith(".jar") }
+        }
     }
 }

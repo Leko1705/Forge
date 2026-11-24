@@ -40,9 +40,9 @@ class ForgeProjectWizardTest : BasePlatformTestCase() {
     }
 
     fun testWritingAProject() {
-        // in the IDE, the compiler is the jar in the plugin's lib; the tests load its classes from a directory
+        // the compiler is the jar in the plugin's lib (also in the tests, which run the plugin of the sandbox)
         val jar = ForgeNewProjectWizard.compilerJar()
-            ?: Files.list(Path.of(System.getProperty("forge.root"), "build/libs")).use { files -> files.filter { it.toString().endsWith(".jar") }.findFirst().get() }
+        assertNotNull("the compiler of the plugin is found", jar)
         // FORGE_WIZARD_OUT keeps the projects, e.g. to build them
         val out = System.getenv("FORGE_WIZARD_OUT")?.let { Path.of(it) } ?: Files.createTempDirectory("forge-projects")
         for (kind in ForgeProjectKind.entries) for (target in listOf(ForgeTarget.KOTLIN, ForgeTarget.JAVA)) {

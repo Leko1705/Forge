@@ -347,6 +347,9 @@ the compiler itself, so the editor sees what `forge -f` sees:
   keywords; types in type positions; the nodes, attributes, parsers and rules a declaration names (`syn Num.`
   offers the attributes `Num` implements); `@u2`, `@infixLeft`, ...; top level keywords at the start of a line.
 - **Folding** of declaration bodies, blocks in braces, block comments and the imports.
+- **Compiling in the IDE**: a Forge run configuration runs the compiler of the plugin on a file (output directory,
+  package, target, `-opt`, `-keep`). Right click on a .forge file | Run, or the run icon at its first declaration,
+  creates one; the positions in the compiler's messages are links to the code.
 - **Project wizard** (File | New | Project... | Forge): a sample (an expression language with attributes and a
   parser) or an empty program, the target language and package, and a Gradle build. The build runs the Forge
   compiler of the plugin (copied to `lib/forge-compiler.jar`) on `src/main/forge`; for Kotlin it compiles the

@@ -75,7 +75,9 @@ class ForgeEditorFeaturesTest : BasePlatformTestCase() {
         assertGutter("Overrides circular Expr.size", "circular(0) Add.size")
         assertGutter("Is implemented in rule Lang.expr: Num", "rule Lang.expr: Expr")
         assertGutter("Implements rule Lang.expr: Expr", "rule Lang.expr: Num")
-        assertEquals(gutters.toString(), 12, gutters.size)
+        // and the run icon on the first declaration
+        assertGutter("Compile a.forge", "import \"std\"")
+        assertEquals(gutters.toString(), 13, gutters.size)
     }
 
     fun testGutterIconsNavigate() {
