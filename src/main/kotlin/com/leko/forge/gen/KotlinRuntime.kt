@@ -515,6 +515,11 @@ fun __toInt(s: kotlin.String): kotlin.Int {
 }
 
 /** The whole text as a float: digits with an optional point and exponent. */
+fun __toLong(s: kotlin.String): kotlin.Long {
+    if (!s.matches(kotlin.text.Regex("[+-]?[0-9]+"))) kotlin.error("not a long: \"" + s + "\"")
+    return s.toLongOrNull() ?: kotlin.error("not a long: \"" + s + "\"")
+}
+
 fun __toFloat(s: kotlin.String): kotlin.Float {
     if (!s.matches(kotlin.text.Regex("[+-]?([0-9]+[.]?[0-9]*|[.][0-9]+)([eE][+-]?[0-9]+)?"))) kotlin.error("not a float: \"" + s + "\"")
     return s.toFloat()

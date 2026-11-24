@@ -469,7 +469,9 @@ private class PythonGeneration(private val module: LLIRModule, private val modul
 
     private fun isTest(type: Type, v: String): String = when {
         type is OptionalType -> "($v is None or ${isTest(type.elem, v)})"
-        type == IntType -> "(type($v) is int)"
+        type == IntType || type == LongType -> "(type($v) is int)"
+        type is TupleType -> "isinstance($v, list)"
+        type is FunctionType -> "callable($v)"
         type == FloatType -> "isinstance($v, float)"
         type == BoolType -> "isinstance($v, bool)"
         type == StrType -> "isinstance($v, str)"
@@ -485,6 +487,10 @@ private class PythonGeneration(private val module: LLIRModule, private val modul
         else -> gid(name)
     }
 
+    /** Wraps the result of an int (a long) operation to 32 (64) bits. */
+    private fun w(v: Value): String = if (v.type == LongType) "_i64" else "_i32"
+    private fun bits(v: Value): Int = if (v.type == LongType) 64 else 32
+
     private fun let(value: String, name: String, body: (String) -> String): String = names.scoped {
         val v = names.bind(name)
         "(lambda $v: ${body(v)})($value)"
@@ -492,6 +498,20 @@ private class PythonGeneration(private val module: LLIRModule, private val modul
 
     fun expr(v: Value): String = when (v) {
         is IntValue -> v.value.toString()
+        is LongValue -> v.value.toString()
+        is Int2Long -> expr(v.value)
+        is Long2Int -> "_i32(${expr(v.value)})"
+        is Long2Float -> "_f32(float(${expr(v.value)}))"
+        is Float2Long -> "_f2l(${expr(v.value)})"
+        is Let -> let(expr(v.value), v.name) { _ -> expr(v.body) }
+        is Lambda -> names.scoped {
+            val params = v.params.map { names.bind(it.name) }
+            "(lambda${if (params.isEmpty()) "" else " " + params.joinToString(", ")}: ${expr(v.body)})"
+        }
+        is CallValue -> "(${expr(v.function)})(${args(v.args)})"
+        // a tuple is a list: equal and hashable as lists are
+        is TupleLiteral -> "[${args(v.elems)}]"
+        is TupleGet -> "${expr(v.tuple)}[${v.index}]"
         is FloatValue -> "_f32(${v.value.toDouble()})"
         is BoolValue -> if (v.value) "True" else "False"
         is StringValue -> string(v.value)
@@ -532,25 +552,25 @@ private class PythonGeneration(private val module: LLIRModule, private val modul
         }
         is IsInstanceOf -> let(expr(v.value), "x") { x -> isTest(v.target, x) }
 
-        is NegateInt -> "_i32(-${expr(v.value)})"
+        is NegateInt -> "${w(v)}(-${expr(v.value)})"
         is NegateFloat -> "_f32(-${expr(v.value)})"
         is InvertBool -> "(not ${expr(v.value)})"
-        is InvertInt -> "_i32(~${expr(v.value)})"
+        is InvertInt -> "${w(v)}(~${expr(v.value)})"
         is IsNull -> "(${expr(v.checked)} is None)"
         is NotNull -> "_nn(${expr(v.value)})"
         is Elvis -> "_elvis(${expr(v.value)}, lambda: ${expr(v.alt)})"
 
-        is MulInt -> "_i32(${expr(v.lhs)} * ${expr(v.rhs)})"
-        is DivInt -> "_div(${expr(v.lhs)}, ${expr(v.rhs)})"
-        is ModInt -> "_mod(${expr(v.lhs)}, ${expr(v.rhs)})"
-        is AddInt -> "_i32(${expr(v.lhs)} + ${expr(v.rhs)})"
-        is SubInt -> "_i32(${expr(v.lhs)} - ${expr(v.rhs)})"
+        is MulInt -> "${w(v)}(${expr(v.lhs)} * ${expr(v.rhs)})"
+        is DivInt -> "${if (v.type == LongType) "_ldiv" else "_div"}(${expr(v.lhs)}, ${expr(v.rhs)})"
+        is ModInt -> "${if (v.type == LongType) "_lmod" else "_mod"}(${expr(v.lhs)}, ${expr(v.rhs)})"
+        is AddInt -> "${w(v)}(${expr(v.lhs)} + ${expr(v.rhs)})"
+        is SubInt -> "${w(v)}(${expr(v.lhs)} - ${expr(v.rhs)})"
         is AndInt, is IAnd -> bin(v as BinaryValue, "&")
         is OrInt, is IOr -> bin(v as BinaryValue, "|")
         is XorInt -> bin(v, "^")
-        is ShlInt -> "_i32(${expr(v.lhs)} << (${expr(v.rhs)} & 31))"
-        is ShrInt -> "(${expr(v.lhs)} >> (${expr(v.rhs)} & 31))"
-        is UshrInt -> "_i32((${expr(v.lhs)} & 0xFFFFFFFF) >> (${expr(v.rhs)} & 31))"
+        is ShlInt -> "${w(v)}(${expr(v.lhs)} << (${expr(v.rhs)} & ${bits(v) - 1}))"
+        is ShrInt -> "(${expr(v.lhs)} >> (${expr(v.rhs)} & ${bits(v) - 1}))"
+        is UshrInt -> "${w(v)}((${expr(v.lhs)} & ${if (v.type == LongType) "0xFFFFFFFFFFFFFFFF" else "0xFFFFFFFF"}) >> (${expr(v.rhs)} & ${bits(v) - 1}))"
         is SetEquals -> bin(v, "==")
         is Builtin -> builtin(v)
         is MulFloat -> "_f32(${expr(v.lhs)} * ${expr(v.rhs)})"
@@ -581,22 +601,6 @@ private class PythonGeneration(private val module: LLIRModule, private val modul
         is IfElse -> "(${expr(v.then)} if ${expr(v.cond)} else ${expr(v.alt)})"
         is Panic -> "_panic(${string(v.message)})"
 
-        is MapOp -> {
-            val iterable = expr(v.iterable)
-            names.scoped {
-                val x = names.bind(v.name)
-                "[${expr(v.body)} for $x in $iterable]"
-            }
-        }
-        is FoldOp -> {
-            val iterable = expr(v.iterable)
-            val init = expr(v.initAcc)
-            names.scoped {
-                val x = names.bind(v.item)
-                val acc = names.bind(v.acc)
-                "_fold($iterable, $init, lambda $acc, $x: ${expr(v.body)})"
-            }
-        }
 
         is PortValue -> if (v.port.isNext) "_PORT_NEXT" else "_port_${v.port.name}"
         is PortRefValue -> "_PortRef(${expr(v.child)}, ${expr(PortValue(v.port))})"
@@ -610,9 +614,9 @@ private class PythonGeneration(private val module: LLIRModule, private val modul
         val r = b.receiver?.let { expr(it) }
         val a = b.args.map { expr(it) }
         return when (b.name) {
-            "int.str" -> "str($r)"
+            "int.str", "long.str" -> "str($r)"
+            "str.toLong" -> "_to_long($r)"
             "float.str" -> "_show_float($r)"
-            "bool.str" -> "(\"true\" if $r else \"false\")"
             "str.toInt" -> "_to_int($r)"
             "str.toFloat" -> "_to_float($r)"
             "str.indexOf" -> "$r.find(${a[0]})"

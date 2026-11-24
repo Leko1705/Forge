@@ -44,14 +44,15 @@ class ForgeFeatures(private val workspace: ForgeWorkspace) {
 
     // ---- diagnostics -----------------------------------------------------------------------------------------
 
-    fun diagnostics(analysis: ForgeDocumentAnalysis): List<Diagnostic> = analysis.problems.map { problem ->
+    // the calls of TODO are no problems: VS Code has no color for them but its TODO comment extensions
+    fun diagnostics(analysis: ForgeDocumentAnalysis): List<Diagnostic> = analysis.problems.filter { it.severity != ForgeSeverity.TODO }.map { problem ->
         val range = problem.range?.let { analysis.positions.range(it.start, it.end) } ?: Range(Position(0, 0), Position(0, 0))
         val code = CODE.find(problem.message)?.groupValues?.get(1)
         Diagnostic(range, problem.text ?: problem.message).apply {
             severity = when (problem.severity) {
                 ForgeSeverity.ERROR -> DiagnosticSeverity.Error
                 ForgeSeverity.WARNING -> DiagnosticSeverity.Warning
-                ForgeSeverity.INFO -> DiagnosticSeverity.Information
+                ForgeSeverity.INFO, ForgeSeverity.TODO -> DiagnosticSeverity.Information
             }
             source = "forge"
             if (code != null) setCode(code)
@@ -274,6 +275,8 @@ class ForgeFeatures(private val workspace: ForgeWorkspace) {
         ForgeNameRole.ENUM_CONSTANT -> SymbolKind.EnumMember
         ForgeNameRole.FIELD -> SymbolKind.Field
         ForgeNameRole.GRAPH -> SymbolKind.Namespace
+        ForgeNameRole.MODULE -> SymbolKind.Module
+        ForgeNameRole.TRAIT -> SymbolKind.Interface
         ForgeNameRole.PARAMETER -> if (declarations.isNodeChild(entry.name)) SymbolKind.Field else SymbolKind.Variable
         else -> SymbolKind.Variable
     }
@@ -352,7 +355,7 @@ class ForgeFeatures(private val workspace: ForgeWorkspace) {
          */
         val TYPES = listOf(
             "class", "struct", "type", "typeParameter", "enumMember", "function", "method", "property", "variable",
-            "parameter", "keyword", "decorator", "attribute", "port", "graph", "parser", "rule",
+            "parameter", "keyword", "decorator", "attribute", "port", "graph", "parser", "rule", "namespace", "interface",
         )
         val MODIFIERS = listOf("declaration", "readonly", "defaultLibrary")
         val LEGEND = SemanticTokensLegend(TYPES, MODIFIERS)
@@ -379,6 +382,8 @@ class ForgeFeatures(private val workspace: ForgeWorkspace) {
             ForgeNameRole.PARSER_RULE to "rule",
             ForgeNameRole.ANNOTATION to "decorator",
             ForgeNameRole.SOFT_KEYWORD to "keyword",
+            ForgeNameRole.MODULE to "namespace",
+            ForgeNameRole.TRAIT to "interface",
         )
     }
 }

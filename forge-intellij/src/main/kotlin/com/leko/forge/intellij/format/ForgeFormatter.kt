@@ -102,6 +102,7 @@ private class FileBlock(node: ASTNode, private val spacing: SpacingBuilder) : Ab
                     child.isBlank() -> {}
                     (child.elementType as? ForgeRuleType)?.ruleName == "Root" -> visit(child)
                     child.firstChildNode == null -> blocks += LeafBlock(child, spacing).apply { indentValue = Indent.getNoneIndent() }
+                    (child.elementType as? ForgeRuleType)?.ruleName == "ModDef" -> blocks += ModuleBlock(child, spacing, Indent.getNoneIndent())
                     else -> blocks += DeclarationBlock(child, spacing)
                 }
             }
@@ -116,8 +117,31 @@ private class FileBlock(node: ASTNode, private val spacing: SpacingBuilder) : Ab
     override fun getChildAttributes(newChildIndex: Int): ChildAttributes = ChildAttributes(Indent.getNoneIndent(), null)
 }
 
-/** A top level declaration: its lines after the first are indented once. */
-private class DeclarationBlock(node: ASTNode, private val spacing: SpacingBuilder) : AbstractBlock(node, null, null) {
+/** `mod name { ... }`: its declarations are indented once, and each is formatted as a top level declaration. */
+private class ModuleBlock(node: ASTNode, private val spacing: SpacingBuilder, private val indent: Indent) : AbstractBlock(node, null, null) {
+    override fun buildChildren(): List<Block> = buildList {
+        for (child in myNode.getChildren(null)) {
+            when {
+                child.isBlank() -> {}
+                // the declarations: a module in it, or any other
+                (child.elementType as? ForgeRuleType)?.ruleName == "ModDef" -> add(ModuleBlock(child, spacing, Indent.getNormalIndent()))
+                child.firstChildNode != null -> add(DeclarationBlock(child, spacing, Indent.getNormalIndent()))
+                // `mod`, its name, the braces and comments
+                else -> add(LeafBlock(child, spacing).apply {
+                    indentValue = if (child.elementType in ForgeTokenTypes.COMMENTS) Indent.getNormalIndent() else Indent.getNoneIndent()
+                })
+            }
+        }
+    }
+
+    override fun getIndent(): Indent = indent
+    override fun getSpacing(child1: Block?, child2: Block): Spacing? = spacing.getSpacing(this, child1, child2)
+    override fun isLeaf(): Boolean = false
+    override fun getChildAttributes(newChildIndex: Int): ChildAttributes = ChildAttributes(Indent.getNormalIndent(), null)
+}
+
+/** A top level declaration (or one of a module, [indent]ed): its lines after the first are indented once. */
+private class DeclarationBlock(node: ASTNode, private val spacing: SpacingBuilder, private val indent: Indent = Indent.getNoneIndent()) : AbstractBlock(node, null, null) {
     override fun buildChildren(): List<Block> {
         var first = true
         return flatten(listOf(myNode).flatMap { it.getChildren(null).toList() }, spacing) {
@@ -125,7 +149,7 @@ private class DeclarationBlock(node: ASTNode, private val spacing: SpacingBuilde
         }
     }
 
-    override fun getIndent(): Indent = Indent.getNoneIndent()
+    override fun getIndent(): Indent = indent
     override fun getSpacing(child1: Block?, child2: Block): Spacing? = spacing.getSpacing(this, child1, child2)
     override fun isLeaf(): Boolean = false
     override fun getChildAttributes(newChildIndex: Int): ChildAttributes = ChildAttributes(Indent.getNormalIndent(), null)

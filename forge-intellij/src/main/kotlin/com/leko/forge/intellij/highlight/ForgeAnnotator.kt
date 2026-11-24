@@ -14,7 +14,10 @@ import com.leko.forge.intellij.psi.ForgeNameElement
 class ForgeAnnotator : Annotator {
     override fun annotate(element: PsiElement, holder: AnnotationHolder) {
         if (element !is ForgeNameElement) return
-        val role = element.resolution?.role ?: element.role
+        val resolution = element.resolution
+        // a call of std's TODO has the color of TODO comments as a whole (ForgeCompilerAnnotator), its name too
+        if (resolution != null && resolution.name == "TODO" && resolution.source == com.leko.forge.parse.STD_SOURCE) return
+        val role = resolution?.role ?: element.role
         if (role == ForgeNameRole.IDENTIFIER) return
         holder.newSilentAnnotation(HighlightSeverity.INFORMATION)
             .range(element)

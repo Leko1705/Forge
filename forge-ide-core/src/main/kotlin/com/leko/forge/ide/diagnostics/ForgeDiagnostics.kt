@@ -4,6 +4,7 @@ import ForgeParser
 import com.leko.forge.analysis.Dependency
 import com.leko.forge.attr.Attr
 import com.leko.forge.attr.clearTreeAttributes
+import com.leko.forge.attr.symbol
 import com.leko.forge.context.Context
 import com.leko.forge.enter.Enter
 import com.leko.forge.enter.MemberEnter
@@ -21,8 +22,11 @@ import org.antlr.v4.runtime.Token
 import java.io.File
 import java.util.logging.Level
 
-/** How bad a [ForgeProblem] is; [INFO] for the compiler's notes. */
-enum class ForgeSeverity { ERROR, WARNING, INFO }
+/**
+ * How bad a [ForgeProblem] is; [INFO] for the compiler's notes. [TODO] is no problem but a call of `TODO`, which
+ * editors color like a TODO comment (yellow, as Kotlin's `TODO()`), not as a warning.
+ */
+enum class ForgeSeverity { ERROR, WARNING, INFO, TODO }
 
 /** The characters from [start] to [end] (exclusive) of a text. */
 data class ForgeTextRange(val start: Int, val end: Int) {
@@ -36,7 +40,14 @@ data class ForgeTextRange(val start: Int, val end: Int) {
  * A diagnostic in the editor: [range] in the analyzed text, or the whole file if `null`. [text] is the compiler's
  * message without its code, for quick fixes; `null` for problems the editor support finds.
  */
-data class ForgeProblem(val severity: ForgeSeverity, val message: String, val range: ForgeTextRange?, val text: String? = null)
+data class ForgeProblem(
+    val severity: ForgeSeverity,
+    val message: String,
+    val range: ForgeTextRange?,
+    val text: String? = null,
+    /** Changes that fix it, e.g. creating a function that is missing. */
+    val fixes: List<ForgeFix> = emptyList(),
+)
 
 /** The text of a file to analyze, with the file on disk its imports are relative to. */
 data class ForgeSource(val text: String, val file: File?)
@@ -53,7 +64,9 @@ object ForgeDiagnostics {
         val parser = ForgeParser(CommonTokenStream(ListTokenSource(tokens)))
         parser.removeErrorListeners()
         val main = parser.root()
-        if (parser.numberOfSyntaxErrors > 0) return emptyList()
+        // the expressions in strings, and `where`s as the compiler sees them
+        val interpolationErrors = com.leko.forge.parse.postParse(main, object : org.antlr.v4.runtime.BaseErrorListener() {})
+        if (parser.numberOfSyntaxErrors > 0 || interpolationErrors > 0) return emptyList()
         val positions = Positions(source.text, tokens)
         val problems = mutableListOf<ForgeProblem>()
 
@@ -76,16 +89,22 @@ object ForgeDiagnostics {
         }.toMap()
         if (problems.isNotEmpty()) return problems
 
+        var fixes: List<ForgeFix> = emptyList()
+        var todos: List<ForgeProblem> = emptyList()
         val diagnostics = try {
             synchronized(ForgeSemantics.lock) {
                 try {
                     // without a file, the imports are skipped above; the standard library is always added
                     val root = (source.file ?: File("<editor>")).parseForgeImports(main, host::read)
                     val context = Context()
+                    com.leko.forge.enter.Modules.instance(context).resolve(root)
                     Enter.instance(context).enter(root)
                     MemberEnter.instance(context).enter(root)
                     Attr.instance(context).attr(root)
                     Dependency.instance(context).check(root)
+                    // while the attributes of the analysis are there
+                    fixes = ForgeMissingDeclarations(context, source.text).fixes(main)
+                    todos = todos(main)
                     Log.instance(context).diagnostics.toList()
                 } finally {
                     clearTreeAttributes()
@@ -99,6 +118,7 @@ object ForgeDiagnostics {
             return listOf(ForgeProblem(ForgeSeverity.WARNING, "the Forge analysis failed: $e", null))
         }
 
+        problems += todos
         val mainPath = source.file?.canonicalPath
         for (d in diagnostics) {
             val severity = when (d.severity) {
@@ -112,14 +132,38 @@ object ForgeDiagnostics {
             problems += when {
                 span == null || span.startLine <= 0 -> ForgeProblem(severity, message, null)
                 // in this file: the main tree has the path of the file, or no source name without a file
-                span.source == null || spanPath == mainPath ->
-                    ForgeProblem(severity, message, positions.range(span), d.message)
+                span.source == null || spanPath == mainPath -> {
+                    val range = positions.range(span)
+                    ForgeProblem(severity, message, range, d.message, fixes.filter { it.name >= range.start && it.name < range.end }.distinctBy { it.title })
+                }
                 // in an imported file: on its import, or on the file if it is imported indirectly
                 else -> ForgeProblem(severity, "${File(span.source!!).name}:${span.startLine}:${span.startCol}: $message", imports[spanPath])
             }
         }
         return problems
     }
+}
+
+/**
+ * The calls of `TODO` of the standard library, so that editors color what is not written yet (in yellow, as in other
+ * languages); the message is the one of the call, if it is a literal.
+ */
+private fun todos(main: ForgeParser.RootContext): List<ForgeProblem> = buildList {
+    fun walk(t: org.antlr.v4.runtime.tree.ParseTree) {
+        if (t is ForgeParser.FunctionCallContext) {
+            val sym = (t.symbol as? com.leko.forge.model.FunctionSymbol)?.declaration
+            val start = t.start?.startIndex ?: -1
+            val stop = t.stop?.stopIndex ?: -1
+            if (sym != null && sym.name == "TODO" && sym.span.source == com.leko.forge.parse.STD_SOURCE && start >= 0 && stop >= start) {
+                val message = (t.expression().singleOrNull() as? ForgeParser.StringValueContext)?.STRING()?.text
+                    ?.let { it.substring(1, it.length - 1) }
+                val text = if (message.isNullOrEmpty()) "TODO" else "TODO: $message"
+                add(ForgeProblem(ForgeSeverity.TODO, text, ForgeTextRange(start, stop + 1), text))
+            }
+        }
+        for (i in 0 until t.childCount) walk(t.getChild(i))
+    }
+    walk(main)
 }
 
 /** Offsets of the lines and columns of the compiler's spans; ANTLR's lines start at 1, its columns at 0. */

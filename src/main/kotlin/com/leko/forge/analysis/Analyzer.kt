@@ -19,6 +19,8 @@ class Analyzer private constructor(context: Context) {
             context.getServices(Analyzer::class) { Analyzer(context) }
     }
 
+    private val modules = com.leko.forge.enter.Modules.instance(context)
+
     private val enter = Enter.instance(context)
 
     private val member = MemberEnter.instance(context)
@@ -31,6 +33,7 @@ class Analyzer private constructor(context: Context) {
 
 
     fun analyze(root: ForgeParser.RootContext) {
+        modules.resolve(root)
         enter.enter(root)
         member.enter(root)
         attr.attr(root)

@@ -41,7 +41,7 @@ fun Type.repr(): str = match this {
 
 inh scope: List<str> = []
 inh Function.scope {
-    body <- (p.name for p in this.params)
+    body <- this.params.map { it.name }
 }
 inh argIndex: int = -1
 inh Call.argIndex {
@@ -98,7 +98,7 @@ inh Program.program {
 
 // ---- functions, match, comprehensions, maps ---------------------------------------------------------
 
-fun sum(xs: List<int>): int = acc + x for x in xs with acc = 0
+fun sum(xs: List<int>): int = xs.fold(0) { acc, x -> acc + x }
 fun describe(xs: List<int>): str = match xs {
     [] -> "empty"
     [x] -> "one: " + x.text()
@@ -121,11 +121,12 @@ fun nested(t: List<Type>): str = match t {
     head :: [Type.STR] -> "ends in str after " + head.repr()
     _ -> "other"
 }
-fun ints(xs: List<int>): str = acc + (if acc == "" then "" else ",") + x.text() for x in xs with acc = ""
-fun strs(xs: List<str>): str = acc + (if acc == "" then "" else ",") + x for x in xs with acc = ""
+fun ints(xs: List<int>): str = xs.fold("") { acc, x -> acc + (if acc == "" then "" else ",") + x.text() }
+fun strs(xs: List<str>): str = xs.fold("") { acc, x -> acc + (if acc == "" then "" else ",") + x }
 fun b(v: bool): str = if v then "true" else "false"
 fun opt(v: int?): str = if v == null then "null" else v!!.text()
-fun countMap(xs: List<str>): Map<str, int> = (acc ++ {x: (if x in acc then acc[x] + 1 else 1)}) for x in xs with acc = {:}
+fun countMap(xs: List<str>): Map<str, int> = xs.fold(empty) { acc, x -> acc ++ {x: (if x in acc then acc[x] + 1 else 1)} }
+    where empty: Map<str, int> = {:}
 fun arith(): List<int> = [7 / 2, -7 / 2, 7 % 3, -7 % 3, 2147483647 + 1, 65536 * 65536, -(3 - 5), 6 & 3, 6 | 3]
 fun records(): List<str> = [
     b(Pair(1, ["a"]) == Pair(1, ["a"])),
@@ -212,8 +213,8 @@ flow cfg: Cond {
     }
 }
 
-fun union(a: List<str>, b: List<str>): List<str> = (if x in acc then acc else acc ++ [x]) for x in b with acc = a
-fun minus(a: List<str>, b: List<str>): List<str> = (if x in b then acc else acc ++ [x]) for x in a with acc = []
+fun union(a: List<str>, b: List<str>): List<str> = b.fold(a) { acc, x -> if x in acc then acc else acc ++ [x] }
+fun minus(a: List<str>, b: List<str>): List<str> = a.filter { !(it in b) }
 
 syn Cond.vars: List<str>
 syn Var.vars: List<str> = [this.name]
@@ -229,15 +230,15 @@ syn Assign.defs: List<str> = [this.target]
 syn Print.uses: List<str> = this.value.vars
 syn Return.uses: List<str> = if this.value == null then [] else this.value!!.vars
 
-circular([]) Vertex.liveOut: List<str> = union(acc, s.liveIn) for s in cfg.succ(this) with acc = []
+circular([]) Vertex.liveOut: List<str> = cfg.succ(this).fold(none) { acc, s -> union(acc, s.liveIn) } where none: List<str> = []
 circular([]) Vertex.liveIn: List<str> = union(this.uses, minus(this.liveOut, this.defs))
 
 inh proc: Proc? = null
 inh Proc.proc { body <- this }
 syn Stmt.dead: bool = !(this in cfg.get(this.proc!!).reachable())
 
-fun statements(g: Graph): int = (if v is Stmt then acc + 1 else acc) for v in g.vertices with acc = 0
-fun kinds(vs: List<Vertex>): str = acc + (if acc == "" then "" else " ") + kind(v) for v in vs with acc = ""
+fun statements(g: Graph): int = g.vertices.count { it is Stmt }
+fun kinds(vs: List<Vertex>): str = vs.fold("") { acc, v -> acc + (if acc == "" then "" else " ") + kind(v) }
 fun kind(v: Vertex): str =
     if v is Assign then (v as Assign).target + "="
     else if v is Cond then "cond"
@@ -307,7 +308,7 @@ syn Bin.show: str = "(" + this.l.show + " " + this.op + " " + this.r.show + ")"
 syn Neg.show: str = "(-" + this.e.show + ")"
 syn Fact.show: str = "(" + this.e.show + "!)"
 syn Tern.show: str = "(" + this.c.show + " ? " + this.a.show + " : " + this.b.show + ")"
-syn SCall.show: str = this.name + "(" + strs(a.show for a in this.args) + ")"
+syn SCall.show: str = this.name + "(" + strs(this.args.map { it.show }) + ")"
 
 parser Calc skip '(\s|//[^\n]*)+' keywords 'let' 'print' 'while' 'do' 'end'
 
@@ -355,7 +356,7 @@ rule Blob.words: List<int> -> n:@u1 words:@u2[n] { words }
 rule Blob.big: int -> @u4
 
 fun parsing(): List<str> = [
-    strs(s.repr for s in Calc.program("let x = 1 + 2 * 3 // comment\nprint -x ^ 2 ^ 3!\nwhile x do print f(x, 1) end print a ? b : c ? d : e").stmts),
+    strs(Calc.program("let x = 1 + 2 * 3 // comment\nprint -x ^ 2 ^ 3!\nwhile x do print f(x, 1) end print a ? b : c ? d : e").stmts.map { it.repr }),
     Calc.dotted("a.b.c"),
     strs(Calc.pair("( )")),
     Calc.sign("") ?: "none",
@@ -370,8 +371,8 @@ fun parsing(): List<str> = [
 syn SStmt.repr: str
 syn Let.repr: str = "let " + this.name + " = " + this.value.show
 syn Show.repr: str = "print " + this.value.show
-syn Loop.repr: str = "while " + this.cond.show + " do " + strs(s.repr for s in this.body) + " end"
-fun spans(s: Script): str = acc + spanText(st) + ";" for st in s.stmts with acc = ""
+syn Loop.repr: str = "while " + this.cond.show + " do " + strs(this.body.map { it.repr }) + " end"
+fun spans(s: Script): str = s.stmts.fold("") { acc, st -> acc + spanText(st) + ";" }
 fun spanText(st: SStmt): str = match spanOf(st) {
     null -> "none"
     _ -> (spanOf(st)!!).line.text() + ":" + (spanOf(st)!!).column.text() + "@" + (spanOf(st)!!).offset.text() + "+" + (spanOf(st)!!).length.text() + "=" + (spanOf(st)!!).text
@@ -381,7 +382,7 @@ fun binary(): List<str> = [
     ints(Blob.words([2, 1, 2, 255, 255])),
     Blob.big([255, 255, 255, 254]).text()
 ]
-fun headerText(h: Header): str = h.version.text() + " " + strs(b(f) for f in h.flags) + " " + h.kind.text() + " " + h.delta.text() + " " + h.name + " " + ints(h.data)
+fun headerText(h: Header): str = h.version.text() + " " + strs(h.flags.map { b(it) }) + " " + h.kind.text() + " " + h.delta.text() + " " + h.name + " " + ints(h.data)
 
 // ---- constants: inlined ------------------------------------------------------------------------
 
@@ -390,7 +391,7 @@ const limit: int = base * 3 + 1
 const base = 4
 const kindsOf: List<Type> = [Type.INT, Type.ERROR(label)]
 const lookupTable: Map<str, int> = {label: limit}
-fun constants(): str = label + " " + limit.text() + " " + strs(t.repr() for t in kindsOf) + " " + lookupTable[label].text()
+fun constants(): str = label + " " + limit.text() + " " + strs(kindsOf.map { it.repr() }) + " " + lookupTable[label].text()
 
 // ---- operator functions -------------------------------------------------------------------------
 
@@ -417,12 +418,12 @@ fun shifts(): List<int> = [1 << 4, -16 >> 2, -16 >>> 28, 1 << 31, 5 >> 33, 3 << 
 fun slices(): str = ints([1, 2, 3, 4][1:3]) + " " + ints([1, 2, 3, 4][1:-1]) + " " + ints([1, 2, 3, 4][-2:]) + " " + ints([1, 2, 3, 4][:2])
     + " " + ints([1, 2, 3, 4][3:1]) + " " + ints([1, 2, 3][:10]) + " " + [1, 2, 3][-1].str() + " " + "hello"[1:3] + "|" + "hello"[-3:]
     + "|" + "hello"[0] + "|" + "hello"[-1] + "|" + "hello"[:]
-fun ranges(): str = ints([0:5]) + " " + ints([3:1]) + " " + ints(i * i for i in [1:4]) + " " + (acc + i for i in [0:101] with acc = 0).str()
+fun ranges(): str = ints([0:5]) + " " + ints([3:1]) + " " + ints([1:4].map { it * it }) + " " + [0:101].fold(0) { acc, i -> acc + i }.str()
 fun noInts(): Set<int> = {}
 fun noMap(): Map<str, int> = {:}
 fun sets(): str = {1, 2, 2, 3}.size.str() + " " + b(2 in {1, 2}) + b(5 in {1, 2}) + " " + ints(({3, 1} ++ {1, 2}).toList())
-    + " " + b({1, 2} == {2, 1}) + b({1} == {1, 2}) + " " + ints({1, 2, 3}.remove(2).toList()) + " " + ints(x * 2 for x in {1, 2, 3})
-    + " " + noInts().size.str() + noMap().size.str() + " " + (acc + x for x in {4, 5} with acc = 0).str()
+    + " " + b({1, 2} == {2, 1}) + b({1} == {1, 2}) + " " + ints({1, 2, 3}.remove(2).toList()) + " " + ints({1, 2, 3}.map { it * 2 })
+    + " " + noInts().size.str() + noMap().size.str() + " " + {4, 5}.fold(0) { acc, x -> acc + x }.str()
 
 // ---- builtins -------------------------------------------------------------------------------------
 
@@ -453,7 +454,7 @@ fun failing(): str = "fail " + safeDiv(6, 3).str() + " " + nameOf({"name": "x"})
 // ---- generics and the standard library ---------------------------------------------------------------
 
 fun <T> firstOf(xs: List<T>, otherwise: T): T = match xs { first :: _ -> first  _ -> otherwise }
-fun <K, V> keysOf(m: Map<K, V>): List<K> = k for k in m.keys()
+fun <K, V> keysOf(m: Map<K, V>): List<K> = m.keys().map { it }
 fun <T> List<T>.second(): T? = if this.size > 1 then this[1] else null
 // properties of records, enums and builtin types
 val Vec.lengthSquared: int = this.x * this.x + this.y * this.y
@@ -478,15 +479,17 @@ fun prog(): Program = Program([
 ])
 
 fun attributes(p: Program): List<str> = [
-    "types " + strs(f.body.type.repr() for f in (d as Function for d in p.decls)),
-    "sizes " + ints(f.body.size for f in (d as Function for d in p.decls)),
-    "diags " + strs(d.msg + "@" + d.function for d in p.diags),
+    "types " + strs(functions(p).map { it.body.type.repr() }),
+    "sizes " + ints(functions(p).map { it.body.size }),
+    "diags " + strs(p.diags.map { it.msg + "@" + it.function }),
     "count " + p.count.text(),
-    "labels " + strs(f.label for f in (d as Function for d in p.decls)) + " " + Param("q").label,
+    "labels " + strs(functions(p).map { it.label }) + " " + Param("q").label,
     "scope " + ((p.decls[0] as Function).body as Plus).rhs.scopeText,
-    "positions " + ints(a.position for a in (((p.decls[0] as Function).body as Plus).rhs as Call).args),
+    "positions " + ints((((p.decls[0] as Function).body as Plus).rhs as Call).args.map { it.position }),
     "levels " + ints([((p.decls[0] as Function).body as Plus).lhs.level, (((p.decls[0] as Function).body as Plus).lhs as Plus).lhs.level])
 ]
+
+fun functions(p: Program): List<Function> = p.decls.map { it as Function }
 
 fun report(): List<str> = attributes(prog()) ++ [
     "sum " + sum([1, 2, 3]).text(),
@@ -498,7 +501,7 @@ fun report(): List<str> = attributes(prog()) ++ [
         + "; " + nested([Type.STR, Type.STR, Type.STR]),
     "arith " + ints(arith()),
     "records " + strs(records()),
-    "map " + mapKeys() + " " + ints(countMap(["a", "b", "a"])["a"] for _x in [1]) + " size " + countMap(["a", "b", "a"]).size.text(),
+    "map " + mapKeys() + " " + ints([1].map { countMap(["a", "b", "a"])["a"] }) + " size " + countMap(["a", "b", "a"]).size.text(),
     "merge " + ({"a": 1} ++ {"b": 2} ++ {"a": 3})["a"].text() + " " + ({"a": 1} ++ {"b": 2}).size.text(),
     "lists " + ints([1, 2] ++ [3]) + " " + b(2 in [1, 2]) + " " + b(5 in [1, 2]) + " " + b(4 !in [1]) + " " + [5, 6, 7][1].text(),
     "elvis " + elvis(null) + " " + elvis("x") + " " + opt(null) + " " + opt(4),

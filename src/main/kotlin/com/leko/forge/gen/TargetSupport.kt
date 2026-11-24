@@ -125,6 +125,8 @@ internal class TargetSupport(val module: LLIRModule) {
         fun notEmpty(subject: String): String
         fun element(subject: String, index: Int): String
         fun tail(subject: String): String
+        /** The element [index] of a tuple. */
+        fun tupleElement(subject: String, index: Int): String = element(subject, index)
         fun equalTo(subject: String, value: Value): String
         /** Binds a variable of the pattern; returns its name in the target. */
         fun bindVariable(variable: LocalRef): String
@@ -157,6 +159,12 @@ internal class TargetSupport(val module: LLIRModule) {
                         walk(element, v)
                     }
                 }
+                is TuplePattern -> pattern.elements.forEachIndexed { i, element ->
+                    if (element == WildcardPattern) return@forEachIndexed
+                    val v = p.fresh()
+                    add(Step.Bind(v, p.tupleElement(p.use(s), i)))
+                    walk(element, v)
+                }
                 is SplitPattern -> {
                     add(Step.Test(p.notEmpty(p.use(s))))
                     val head = p.fresh()
@@ -169,6 +177,36 @@ internal class TargetSupport(val module: LLIRModule) {
             }
         }
         walk(pattern, subject)
+    }
+
+    // ---- lambdas ---------------------------------------------------------------------------------
+
+    /**
+     * The names of the variables and parameters a value refers to (also those it binds itself), and `this` if it
+     * uses it: what a lambda may capture, for targets that copy what a closure captures.
+     */
+    fun referencedNames(v: Value): Set<String> = buildSet {
+        v.forEachValue { x ->
+            when (x) {
+                is LocalRef -> add(x.name)
+                is Parameter -> add(x.name)
+                is This, is AccessParentInhAttr, is BoundCheck -> add("this")
+                is Match -> x.cases.forEach { c -> patternNames(c.pattern, this) }
+                else -> {}
+            }
+        }
+    }
+
+    private fun patternNames(p: MatchPattern, into: MutableSet<String>) {
+        when (p) {
+            is BindPattern -> into += p.variable.name
+            is ConstructorPattern -> p.args.forEach { patternNames(it, into) }
+            is ListPattern -> p.elements.forEach { patternNames(it, into) }
+            is SplitPattern -> { patternNames(p.head, into); patternNames(p.tail, into) }
+            is TuplePattern -> p.elements.forEach { patternNames(it, into) }
+            is ValuePattern -> p.value.forEachValue { x -> if (x is LocalRef) into += x.name; if (x is Parameter) into += x.name }
+            WildcardPattern -> {}
+        }
     }
 
     // ---- grammars --------------------------------------------------------------------------------

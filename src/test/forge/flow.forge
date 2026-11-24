@@ -77,8 +77,8 @@ flow cfg: Expr {
 
 // ---- liveness -------------------------------------------------------------------------------
 
-fun union(a: List<str>, b: List<str>): List<str> = (if x in acc then acc else acc ++ [x]) for x in b with acc = a
-fun minus(a: List<str>, b: List<str>): List<str> = (if x in b then acc else acc ++ [x]) for x in a with acc = []
+fun union(a: List<str>, b: List<str>): List<str> = b.fold(a) { acc, x -> if x in acc then acc else acc ++ [x] }
+fun minus(a: List<str>, b: List<str>): List<str> = a.filter { !(it in b) }
 
 syn Expr.vars: List<str>
 syn Var.vars: List<str> = [this.name]
@@ -95,7 +95,7 @@ syn Assign.defs: List<str> = [this.target]
 syn Print.uses: List<str> = this.value.vars
 syn Return.uses: List<str> = if this.value == null then [] else this.value!!.vars
 
-circular([]) Vertex.liveOut: List<str> = union(acc, s.liveIn) for s in cfg.succ(this) with acc = []
+circular([]) Vertex.liveOut: List<str> = cfg.succ(this).fold(none) { acc, s -> union(acc, s.liveIn) } where none: List<str> = []
 circular([]) Vertex.liveIn: List<str> = union(this.uses, minus(this.liveOut, this.defs))
 
 // ---- using the graph ------------------------------------------------------------------------
@@ -107,8 +107,8 @@ inh Function.function {
 
 syn Stmt.dead: bool = !(this in cfg.get(this.function!!).reachable())
 
-fun statements(g: Graph): int = (if v is Stmt then acc + 1 else acc) for v in g.vertices with acc = 0
-fun names(vs: List<Vertex>): List<str> = describe(v) for v in vs
+fun statements(g: Graph): int = g.vertices.count { it is Stmt }
+fun names(vs: List<Vertex>): List<str> = vs.map { describe(it) }
 fun describe(v: Vertex): str =
     if v is Assign then (v as Assign).target + " = .."
     else if v is Expr then "expr"

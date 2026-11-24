@@ -77,7 +77,14 @@ class ForgePluginTest : BasePlatformTestCase() {
     fun testLexerRestartsAtAnyToken() {
         val text = File(root, "examples/kiln/kiln.forge").readText()
         val all = tokens(text)
-        for ((_, start, _) in all.filter { it.second % 7 == 0 }) {
+        // IntelliJ restarts the lexer only at tokens in state 0 (not inside a string with expressions)
+        val restartable = mutableSetOf<Int>()
+        ForgeLexerAdapter().apply {
+            start(text, 0, text.length, 0)
+            while (tokenType != null) { if (state == 0) restartable += tokenStart; advance() }
+        }
+        assertTrue(all.any { it.second !in restartable })
+        for ((_, start, _) in all.filter { it.second % 7 == 0 && it.second in restartable }) {
             val lexer = ForgeLexerAdapter()
             lexer.start(text, start, text.length, 0)
             val rest = mutableListOf<Triple<String, Int, Int>>()

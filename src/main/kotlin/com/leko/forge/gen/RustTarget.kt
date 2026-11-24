@@ -404,6 +404,9 @@ private class RustGeneration(private val module: LLIRModule, private val moduleN
     private fun isTest(type: Type, v: String): String = when {
         type is OptionalType -> "(rt::is_null(&$v) || ${isTest(type.elem, v)})"
         type == IntType -> "matches!($v, V::Int(_))"
+        type == LongType -> "matches!($v, V::Long(_))"
+        type is TupleType -> "matches!($v, V::List(_))"
+        type is FunctionType -> "matches!($v, V::Func(_))"
         type == FloatType -> "matches!($v, V::Float(_))"
         type == BoolType -> "matches!($v, V::Bool(_))"
         type == StrType -> "matches!($v, V::Str(_))"
@@ -424,7 +427,7 @@ private class RustGeneration(private val module: LLIRModule, private val moduleN
 
     private fun r(v: Value) = "&(${expr(v)})"
     private fun b(v: Value) = "rt::truth(${r(v)})"
-    private fun i(v: Value) = "rt::int_of(${r(v)})"
+    private fun i(v: Value) = if (v.type == LongType) "rt::long_of(${r(v)})" else "rt::int_of(${r(v)})"
     private fun f(v: Value) = "rt::float_of(${r(v)})"
     private fun call(fn: String, vararg args: Value) = "$fn(${args.joinToString(", ") { r(it) }})"
     private fun vec(values: List<Value>) = "vec![${values.joinToString(", ") { expr(it) }}]"
@@ -435,6 +438,33 @@ private class RustGeneration(private val module: LLIRModule, private val moduleN
     }
 
     fun expr(v: Value): String = when (v) {
+        is LongValue -> if (v.value == Long.MIN_VALUE) "V::Long(i64::MIN)" else "V::Long(${v.value}i64)"
+        is Int2Long -> call("rt::i2l", v.value)
+        is Long2Int -> call("rt::l2i", v.value)
+        is Long2Float -> call("rt::l2f", v.value)
+        is Float2Long -> call("rt::f2l", v.value)
+        is Let -> names.scoped {
+            val value = expr(v.value)
+            val x = bind(v.name)
+            "{ let $x: V = $value; ${expr(v.body)} }"
+        }
+        // a `move` closure: it owns copies of the variables it uses, made where it is created
+        is Lambda -> names.scoped {
+            val copies = StringBuilder()
+            for (name in s.referencedNames(v.body)) {
+                val outer = try { names.lookup(name) } catch (_: IllegalStateException) { continue }
+                val copy = names.fresh(name)
+                copies.append("let $copy: V = $outer; ")
+                names.alias(name, "$copy.clone()")
+            }
+            val args = names.fresh("args")
+            val params = v.params.mapIndexed { index, p -> "let ${bind(p.name)}: V = $args[$index].clone(); " }.joinToString("")
+            "{ ${copies}rt::func(move |$args: &[V]| -> V { $params${expr(v.body)} }) }"
+        }
+        is CallValue -> "rt::call(${r(v.function)}, &${vec(v.args)})"
+        // a tuple is a list: equal as lists are
+        is TupleLiteral -> "rt::list(${vec(v.elems)})"
+        is TupleGet -> "rt::tuple_get(${r(v.tuple)}, ${v.index})"
         is IntValue -> if (v.value == Int.MIN_VALUE) "V::Int(i32::MIN)" else "V::Int(${v.value})"
         is FloatValue -> "V::Float(${v.value}f32)"
         is BoolValue -> "V::Bool(${v.value})"
@@ -538,26 +568,6 @@ private class RustGeneration(private val module: LLIRModule, private val moduleN
         is IfElse -> "(if ${b(v.cond)} { ${expr(v.then)} } else { ${expr(v.alt)} })"
         is Panic -> "rt::fail(${string(v.message)})"
 
-        is MapOp -> {
-            val iterable = expr(v.iterable)
-            names.scoped {
-                val item = names.fresh("item")
-                val x = bind(v.name)
-                "rt::map_list(&($iterable), |$item: &V| { let $x: V = $item.clone(); ${expr(v.body)} })"
-            }
-        }
-        is FoldOp -> {
-            val iterable = expr(v.iterable)
-            val init = expr(v.initAcc)
-            names.scoped {
-                val list = names.fresh("list")
-                val storage = names.fresh("fold")
-                val item = names.fresh("item")
-                val x = bind(v.item)
-                val acc = bind(v.acc)
-                "{ let $list: V = $iterable; let mut $storage: V = $init; for $item in rt::items(&$list).iter() { let $x: V = $item.clone(); let $acc: V = $storage; $storage = ${expr(v.body)}; } $storage }"
-            }
-        }
 
         is PortValue -> if (v.port.isNext) "rt::port_next()" else "port_${v.port.name}()"
         is PortRefValue -> "rt::port_ref(${expr(v.child)}, ${expr(PortValue(v.port))})"
@@ -572,8 +582,9 @@ private class RustGeneration(private val module: LLIRModule, private val moduleN
         fun rt(fn: String) = call("rt::$fn", *all)
         return when (b.name) {
             "int.str" -> "rt::s(&rt::int_of(${r(b.receiver!!)}).to_string())"
+            "long.str" -> "rt::s(&rt::long_of(${r(b.receiver!!)}).to_string())"
+            "str.toLong" -> rt("to_long")
             "float.str" -> "rt::s(&rt::show_float(rt::float_of(${r(b.receiver!!)})))"
-            "bool.str" -> "rt::s(&rt::show(${r(b.receiver!!)}))"
             "str.toInt" -> rt("to_int")
             "str.toFloat" -> rt("to_float")
             "str.indexOf" -> rt("str_index_of")

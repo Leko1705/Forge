@@ -79,11 +79,6 @@ val ForgeParser.ExpressionContext.symbol: Symbol? get() {
     return attrs?.get("symbol") as? Symbol
 }
 
-@Suppress("UNCHECKED_CAST")
-val ForgeParser.ListComprehensionContext.symbols: Pair<VarSymbol, VarSymbol>? get() {
-    val attrs = attributes[this]
-    return attrs?.get("symbols") as? Pair<VarSymbol, VarSymbol>
-}
 
 val ForgeParser.IdentifierContext.symbol: Symbol? get() {
     val attrs = attributes[this]
@@ -159,3 +154,9 @@ val ParserRuleContext.operator: FunctionSymbol? get() = attributes[this]?.get("o
 val ParserRuleContext.flowBuiltin: String? get() = attributes[this]?.get("flowBuiltin") as? String
 
 val ParserRuleContext.typeOrNull: Type? get() = attributes[this]?.get("type") as? Type
+
+/** The variable or constant whose function value a call `f(x)` calls, if it calls one. */
+val ForgeParser.FunctionCallContext.callee: Symbol? get() = attributes[this]?.get("callee") as? Symbol
+
+/** What was expected of a call or a member access that resolves to nothing (for editors that create it). */
+val ParserRuleContext.expectedOfMissing: Type? get() = attributes[this]?.get("expected") as? Type

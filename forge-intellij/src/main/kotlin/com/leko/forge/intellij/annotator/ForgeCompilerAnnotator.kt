@@ -31,6 +31,13 @@ class ForgeCompilerAnnotator : ExternalAnnotator<ForgeSource, List<ForgeProblem>
     override fun apply(file: PsiFile, problems: List<ForgeProblem>, holder: AnnotationHolder) {
         val length = file.textLength
         for (problem in problems) {
+            if (problem.severity == ForgeSeverity.TODO) {
+                // a call of TODO: no problem, but in the color of TODO comments, as Kotlin's TODO()
+                val range = problem.range?.takeIf { it.end <= length } ?: continue
+                holder.newSilentAnnotation(HighlightSeverity.INFORMATION).range(range.textRange)
+                    .textAttributes(com.leko.forge.intellij.highlight.ForgeColors.TODO_CALL).create()
+                continue
+            }
             var builder = holder.newAnnotation(problem.severity.highlight, problem.message)
             val range = problem.range
             builder = if (range == null || range.end > length) builder.fileLevel() else builder.range(range.textRange)
@@ -46,6 +53,7 @@ val ForgeSeverity.highlight: HighlightSeverity
         ForgeSeverity.ERROR -> HighlightSeverity.ERROR
         ForgeSeverity.WARNING -> HighlightSeverity.WARNING
         ForgeSeverity.INFO -> HighlightSeverity.WEAK_WARNING
+        ForgeSeverity.TODO -> HighlightSeverity.INFORMATION
     }
 
 val ForgeTextRange.textRange: TextRange get() = TextRange(start, end)

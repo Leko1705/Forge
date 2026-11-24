@@ -497,7 +497,9 @@ private class JavaScriptGeneration(private val module: LLIRModule, private val m
         type == IntType || type == FloatType -> "(typeof $v === \"number\")"
         type == BoolType -> "(typeof $v === \"boolean\")"
         type == StrType -> "(typeof $v === \"string\")"
-        type is ListType -> "Array.isArray($v)"
+        type is ListType || type is TupleType -> "Array.isArray($v)"
+        type == LongType -> "(typeof $v === \"bigint\")"
+        type is FunctionType -> "(typeof $v === \"function\")"
         type is SetType -> "($v instanceof \$Set)"
         type is MapType -> "($v instanceof \$Map)"
         type is ComplexType -> {
@@ -510,6 +512,26 @@ private class JavaScriptGeneration(private val module: LLIRModule, private val m
             }
         }
         else -> "true"
+    }
+
+    /** An operation on longs (BigInts), wrapped to 64 bits; the amount of a shift is an int. */
+    private fun long(v: IntBinary): String {
+        val a = expr(v.lhs)
+        val b = expr(v.rhs)
+        fun wrap(e: String) = "BigInt.asIntN(64, $e)"
+        return when (v) {
+            is MulInt -> wrap("$a * $b")
+            is DivInt -> "\$ldiv($a, $b)"
+            is ModInt -> "\$lmod($a, $b)"
+            is AddInt -> wrap("$a + $b")
+            is SubInt -> wrap("$a - $b")
+            is AndInt, is IAnd -> "($a & $b)"
+            is OrInt, is IOr -> "($a | $b)"
+            is XorInt -> "($a ^ $b)"
+            is ShlInt -> wrap("$a << BigInt($b & 63)")
+            is ShrInt -> "($a >> BigInt($b & 63))"
+            is UshrInt -> wrap("BigInt.asUintN(64, $a) >> BigInt($b & 63)")
+        }
     }
 
     private fun let(value: String, name: String, body: (String) -> String): String = names.scoped {
@@ -525,6 +547,20 @@ private class JavaScriptGeneration(private val module: LLIRModule, private val m
     }
 
     fun expr(v: Value): String = when (v) {
+        is LongValue -> "(${v.value}n)"
+        is Int2Long -> "BigInt(${expr(v.value)})"
+        is Long2Int -> "Number(BigInt.asIntN(32, ${expr(v.value)}))"
+        is Long2Float -> "Math.fround(Number(${expr(v.value)}))"
+        is Float2Long -> "\$f2l(${expr(v.value)})"
+        is Let -> let(expr(v.value), v.name) { _ -> expr(v.body) }
+        is Lambda -> names.scoped {
+            val params = v.params.map { names.bind(it.name) }
+            "((${params.joinToString(", ")}) => ${expr(v.body)})"
+        }
+        is CallValue -> "(${expr(v.function)})(${args(v.args)})"
+        // a tuple is an array: equal and a key of maps as lists are
+        is TupleLiteral -> "[${args(v.elems)}]"
+        is TupleGet -> "${expr(v.tuple)}[${v.index}]"
         is IntValue -> if (v.value < 0) "(${v.value})" else v.value.toString()
         is FloatValue -> float(v.value.toDouble())
         is BoolValue -> if (v.value) "true" else "false"
@@ -569,7 +605,7 @@ private class JavaScriptGeneration(private val module: LLIRModule, private val m
         }
         is IsInstanceOf -> let(expr(v.value), "x") { x -> isTest(v.target, x) }
 
-        is NegateInt -> "((-${expr(v.value)}) | 0)"
+        is NegateInt -> if (v.type == LongType) "BigInt.asIntN(64, -${expr(v.value)})" else "((-${expr(v.value)}) | 0)"
         is NegateFloat -> "Math.fround(-${expr(v.value)})"
         is InvertBool -> "(!${expr(v.value)})"
         is InvertInt -> "(~${expr(v.value)})"
@@ -577,17 +613,19 @@ private class JavaScriptGeneration(private val module: LLIRModule, private val m
         is NotNull -> "\$nn(${expr(v.value)})"
         is Elvis -> let(expr(v.value), "elvis") { x -> "($x === null ? ${expr(v.alt)} : $x)" }
 
-        is MulInt -> "Math.imul(${expr(v.lhs)}, ${expr(v.rhs)})"
-        is DivInt -> "\$div(${expr(v.lhs)}, ${expr(v.rhs)})"
-        is ModInt -> "\$mod(${expr(v.lhs)}, ${expr(v.rhs)})"
-        is AddInt -> "((${expr(v.lhs)} + ${expr(v.rhs)}) | 0)"
-        is SubInt -> "((${expr(v.lhs)} - ${expr(v.rhs)}) | 0)"
-        is AndInt, is IAnd -> bin(v as BinaryValue, "&")
-        is OrInt, is IOr -> bin(v as BinaryValue, "|")
-        is XorInt -> bin(v, "^")
-        is ShlInt -> bin(v, "<<")
-        is ShrInt -> bin(v, ">>")
-        is UshrInt -> "((${expr(v.lhs)} >>> ${expr(v.rhs)}) | 0)"
+        is IntBinary -> if (v.type == LongType) long(v) else when (v) {
+            is MulInt -> "Math.imul(${expr(v.lhs)}, ${expr(v.rhs)})"
+            is DivInt -> "\$div(${expr(v.lhs)}, ${expr(v.rhs)})"
+            is ModInt -> "\$mod(${expr(v.lhs)}, ${expr(v.rhs)})"
+            is AddInt -> "((${expr(v.lhs)} + ${expr(v.rhs)}) | 0)"
+            is SubInt -> "((${expr(v.lhs)} - ${expr(v.rhs)}) | 0)"
+            is AndInt, is IAnd -> bin(v, "&")
+            is OrInt, is IOr -> bin(v, "|")
+            is XorInt -> bin(v, "^")
+            is ShlInt -> bin(v, "<<")
+            is ShrInt -> bin(v, ">>")
+            is UshrInt -> "((${expr(v.lhs)} >>> ${expr(v.rhs)}) | 0)"
+        }
         is SetEquals -> "\$eq(${expr(v.lhs)}, ${expr(v.rhs)})"
         is Builtin -> builtin(v)
         is MulFloat -> "Math.fround(${expr(v.lhs)} * ${expr(v.rhs)})"
@@ -617,22 +655,6 @@ private class JavaScriptGeneration(private val module: LLIRModule, private val m
         is IfElse -> "(${expr(v.cond)} ? ${expr(v.then)} : ${expr(v.alt)})"
         is Panic -> "\$panic(${string(v.message)})"
 
-        is MapOp -> {
-            val iterable = expr(v.iterable)
-            names.scoped {
-                val x = names.bind(v.name)
-                "Array.from($iterable, ($x) => ${expr(v.body)})"
-            }
-        }
-        is FoldOp -> {
-            val iterable = expr(v.iterable)
-            val init = expr(v.initAcc)
-            names.scoped {
-                val x = names.bind(v.item)
-                val acc = names.bind(v.acc)
-                "\$fold($iterable, $init, ($acc, $x) => ${expr(v.body)})"
-            }
-        }
 
         is PortValue -> if (v.port.isNext) "\$PORT_NEXT" else "\$port_${v.port.name}"
         is PortRefValue -> "new \$PortRef(${expr(v.child)}, ${expr(PortValue(v.port))})"
@@ -646,9 +668,9 @@ private class JavaScriptGeneration(private val module: LLIRModule, private val m
         val r = b.receiver?.let { expr(it) }
         val a = b.args.map { expr(it) }
         return when (b.name) {
-            "int.str" -> "String($r)"
+            "int.str", "long.str" -> "String($r)"
+            "str.toLong" -> "\$toLong($r)"
             "float.str" -> "\$showFloat($r)"
-            "bool.str" -> "String($r)"
             "str.toInt" -> "\$toInt($r)"
             "str.toFloat" -> "\$toFloat($r)"
             "str.indexOf" -> "$r.indexOf(${a[0]})"

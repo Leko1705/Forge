@@ -50,13 +50,13 @@ sealed interface Container {
     val fields: Map<String, Type>
 }
 
-class Record(override val name: String) : Struct, Container {
+class Record(override val name: String, val typeParams: List<String> = emptyList()) : Struct, Container {
     override val fields: MutableMap<String, Type> = linkedMapOf()
     /** provided by the runtime of the target (`Edge`, `Graph`) */
     var isBuiltin: Boolean = false
 }
 
-class LLIREnum(override val name: String) : Struct {
+class LLIREnum(override val name: String, val typeParams: List<String> = emptyList()) : Struct {
     val items: MutableList<EnumItem> = mutableListOf()
 }
 
@@ -102,6 +102,8 @@ class Function(
     val returnType: Type,
     /** Type parameters of a generic function; its types contain them as [TypeVar]s. */
     val typeParams: List<String> = emptyList(),
+    /** The bounds of type parameters that are types (`fun <T: Expr>`); traits are passed as parameters. */
+    val typeBounds: Map<String, List<Type>> = emptyMap(),
 ) {
     var body: Value? = null
 }
@@ -256,6 +258,7 @@ sealed interface Value { val type: Type }
 
 // ---- literals & references ----
 data class IntValue(val value: Int) : Value { override val type: Type get() = IntType }
+data class LongValue(val value: Long) : Value { override val type: Type get() = LongType }
 data class FloatValue(val value: Float) : Value { override val type: Type get() = FloatType }
 data class BoolValue(val value: Boolean) : Value { override val type: Type get() = BoolType }
 data class StringValue(val value: String) : Value { override val type: Type get() = StrType }
@@ -275,12 +278,10 @@ data class MapLiteral(val entries: List<Pair<Value, Value>>, override val type: 
 data class Call(val target: Function, val receiver: Value?, val args: List<Value>) : Value {
     override val type: Type get() = target.returnType
 }
-data class CreateRecord(val target: Record, val args: List<Value>) : Value {
-    override val type: Type get() = ComplexType(target.name)
-}
-data class CreateEnum(val target: EnumItem, val args: List<Value>) : Value {
-    override val type: Type get() = ComplexType(target.enumName)
-}
+/** [type] has the type arguments of a generic record. */
+data class CreateRecord(val target: Record, val args: List<Value>, override val type: Type = ComplexType(target.name)) : Value
+/** [type] has the type arguments of a generic enum. */
+data class CreateEnum(val target: EnumItem, val args: List<Value>, override val type: Type = ComplexType(target.enumName)) : Value
 data class CreateNode(val target: Node, val args: List<Value>) : Value {
     override val type: Type get() = ComplexType(target.name)
 }
@@ -296,14 +297,21 @@ data class AccessMapContainer(val container: Value, val key: Value, override val
 // ---- conversions ----
 data class Int2Float(val value: Value) : Value { override val type: Type get() = FloatType }
 data class Float2Int(val value: Value) : Value { override val type: Type get() = IntType }
+data class Int2Long(val value: Value) : Value { override val type: Type get() = LongType }
+/** The low 32 bits. */
+data class Long2Int(val value: Value) : Value { override val type: Type get() = IntType }
+data class Long2Float(val value: Value) : Value { override val type: Type get() = FloatType }
+/** Towards zero; saturated at the bounds of a long, `NaN` is 0 (as Kotlin's `toLong`). */
+data class Float2Long(val value: Value) : Value { override val type: Type get() = LongType }
 data class Cast(val value: Value, override val type: Type) : Value
 data class IsInstanceOf(val value: Value, val target: Type) : Value { override val type: Type get() = BoolType }
 
 // ---- unary ----
-data class NegateInt(val value: Value) : Value { override val type: Type get() = IntType }
+/** Of an int or, of a long operand, a long (as the other int operations). */
+data class NegateInt(val value: Value) : Value { override val type: Type get() = if (value.type == LongType) LongType else IntType }
 data class NegateFloat(val value: Value) : Value { override val type: Type get() = FloatType }
 data class InvertBool(val value: Value) : Value { override val type: Type get() = BoolType }
-data class InvertInt(val value: Value) : Value { override val type: Type get() = IntType }
+data class InvertInt(val value: Value) : Value { override val type: Type get() = if (value.type == LongType) LongType else IntType }
 data class IsNull(val checked: Value) : Value { override val type: Type get() = BoolType }
 /** `x!!` */
 data class NotNull(val value: Value, override val type: Type) : Value
@@ -315,7 +323,8 @@ sealed interface BinaryValue : Value {
     val lhs: Value
     val rhs: Value
 }
-sealed class IntBinary : BinaryValue { override val type: Type get() = IntType }
+/** Of two ints, or of two longs (a shift: of a long and an int); the type is the one of the left operand. */
+sealed class IntBinary : BinaryValue { override val type: Type get() = if (lhs.type == LongType) LongType else IntType }
 sealed class FloatBinary : BinaryValue { override val type: Type get() = FloatType }
 sealed class BoolBinary : BinaryValue { override val type: Type get() = BoolType }
 sealed class SameTypeBinary : BinaryValue { override val type: Type get() = lhs.type }
@@ -382,7 +391,7 @@ data class PutAllMapItems(val map: Value, val elements: Value) : Value { overrid
 // ---- builtins ----
 /**
  * An operation every runtime implements. [name] is one of
- * - methods: `int.str`, `float.str`, `bool.str`, `str.toInt`, `str.toFloat`, `str.indexOf`, `str.startsWith`,
+ * - methods: `int.str`, `long.str`, `float.str`, `str.toInt`, `str.toFloat`, `str.indexOf`, `str.startsWith`,
  *   `str.endsWith`, `str.replace`, `str.upper`, `str.lower`, `str.trim`, `str.split`, `str.code`, `str.utf8`,
  *   `str.unescape`, `List.indexOf`, `List.reversed`, `List.toSet`, `List.join`, `Map.keys`, `Map.values`,
  *   `Map.remove`, `Set.toList`, `Set.remove`, and the functions `char` and `fail` (stops with an error)
@@ -397,11 +406,17 @@ data class Builtin(val name: String, val receiver: Value?, val args: List<Value>
 data class IfElse(val cond: Value, val then: Value, val alt: Value, override val type: Type) : Value
 data class Panic(val message: String) : Value { override val type: Type get() = ArbitraryType }
 
-// ---- comprehensions ----
-data class MapOp(val iterable: Value, val name: String, val body: Value) : Value {
-    override val type: Type get() = ListType(body.type)
-}
-data class FoldOp(val iterable: Value, val initAcc: Value, val item: String, val acc: String, val body: Value, override val type: Type) : Value
+
+// ---- local bindings, functions as values, tuples ----
+/** `body where name = value`: [value] is computed once, then [body] with [name] bound to it. */
+data class Let(val name: String, val value: Value, val body: Value, val valueType: Type = value.type) : Value { override val type: Type get() = body.type }
+/** `{ a, b -> body }`: a function value; it sees the variables, parameters and `this` where it is written. */
+data class Lambda(val params: List<LocalRef>, val body: Value, override val type: FunctionType) : Value
+/** Calls the function value [function]. */
+data class CallValue(val function: Value, val args: List<Value>, override val type: Type) : Value
+data class TupleLiteral(val elems: List<Value>, override val type: TupleType) : Value
+/** `t.0`: the element [index] of a tuple. */
+data class TupleGet(val tuple: Value, val index: Int, override val type: Type) : Value
 
 // ---- flows & graphs ----
 data class PortValue(val port: Port) : Value { override val type: Type get() = PortType }
@@ -416,7 +431,10 @@ sealed interface MatchPattern
 data object WildcardPattern : MatchPattern
 data class BindPattern(val variable: LocalRef) : MatchPattern
 data class ValuePattern(val value: Value) : MatchPattern
-data class ConstructorPattern(val item: EnumItem, val args: List<MatchPattern>) : MatchPattern
+/** [fieldTypes] are the types of the fields of the matched item (of the type arguments of a generic enum). */
+data class ConstructorPattern(val item: EnumItem, val args: List<MatchPattern>, val fieldTypes: List<Type> = item.fields.values.toList()) : MatchPattern
+/** `(a, b)`: a tuple of [elements] (their types: [types]). */
+data class TuplePattern(val elements: List<MatchPattern>, val types: List<Type>) : MatchPattern
 data class ListPattern(val elements: List<MatchPattern>) : MatchPattern
 data class SplitPattern(val head: MatchPattern, val tail: MatchPattern) : MatchPattern
 

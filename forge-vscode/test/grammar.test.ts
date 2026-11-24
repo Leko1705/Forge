@@ -94,9 +94,26 @@ test("keywords, enum constants and annotations", async () => {
     assert.equal(await scopeOf('import "jvm.forge"', "import"), "keyword.control.import.forge");
 });
 
+test("modules, traits, longs and strings with expressions", async () => {
+    assert.equal(await scopeOf("mod geometry {", "geometry"), "entity.name.namespace.forge");
+    assert.equal(await scopeOf("mod geometry {", "mod"), "storage.type.forge");
+    assert.equal(await scopeOf("trait Named { fun name(): str }", "Named"), "entity.name.type.interface.forge");
+    assert.equal(await scopeOf("use geometry::shapes", "geometry::shapes"), "entity.name.namespace.forge");
+    assert.equal(await scopeOf("fun f(): int = geometry::origin().x", "geometry"), "entity.name.namespace.forge");
+    assert.equal(await scopeOf("const big: long = 3000000000L", "3000000000L"), "constant.numeric.integer.long.forge");
+    assert.equal(await scopeOf("const big: long = 1", "long"), "support.type.forge");
+    assert.equal(await scopeOf("const f = 3.25", "3.25"), "constant.numeric.float.forge");
+    const text = 'fun f(n: int): str = "n = ${n + size("a}")} \\${x}"';
+    assert.equal(await scopeOf(text, "${"), "keyword.other.interpolation.begin.forge");
+    assert.equal(await scopeOf(text, "size"), "entity.name.function.call.forge");
+    assert.equal(await scopeOf(text, "\\$"), "constant.character.escape.forge");
+    assert.equal(await scopeOf('fun f(n: int): str = "a $n"', "$"), "keyword.other.interpolation.begin.forge");
+});
+
 test("the Forge files of the repository have no invalid tokens", async () => {
     const root = path.join(here, "..", "..");
-    const files = ["examples/kiln/kiln.forge", "examples/kiln/jvm.forge", "src/test/forge/conformance.forge", "src/main/resources/forge/std.forge"];
+    const files = ["examples/kiln/kiln.forge", "examples/kiln/jvm.forge", "src/test/forge/conformance.forge", "src/main/resources/forge/std.forge",
+        "src/test/forge/language.forge"];
     for (const file of files) {
         const invalid = (await tokenize(fs.readFileSync(path.join(root, file), "utf8"))).filter((t) => t.scope.startsWith("invalid"));
         assert.deepEqual(invalid, [], file);

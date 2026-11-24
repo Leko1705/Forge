@@ -48,8 +48,25 @@
           "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.forge" } },
           "endCaptures": { "0": { "name": "punctuation.definition.string.end.forge" } },
           "patterns": [
-            { "name": "constant.character.escape.forge", "match": "\\\\[btnfr\"'\\\\]" },
-            { "name": "invalid.illegal.escape.forge", "match": "\\\\." }
+            { "name": "constant.character.escape.forge", "match": "\\\\[btnfr\"'\\\\$]" },
+            { "name": "invalid.illegal.escape.forge", "match": "\\\\." },
+            {
+              "comment": "\"${expression}\": the expression is code",
+              "name": "meta.embedded.interpolation.forge",
+              "begin": "\\$\\{",
+              "end": "\\}",
+              "beginCaptures": { "0": { "name": "keyword.other.interpolation.begin.forge" } },
+              "endCaptures": { "0": { "name": "keyword.other.interpolation.end.forge" } },
+              "patterns": [{ "include": "#interpolated" }]
+            },
+            {
+              "comment": "\"$name\": a name without braces",
+              "match": "(\\$)([A-Za-z_][A-Za-z0-9_]*)",
+              "captures": {
+                "1": { "name": "keyword.other.interpolation.begin.forge" },
+                "2": { "name": "variable.other.forge" }
+              }
+            }
           ]
         },
         {
@@ -64,8 +81,43 @@
         }
       ]
     },
+    "interpolated": {
+      "comment": "code inside ${ }: braces nest",
+      "patterns": [
+        { "begin": "\\{", "end": "\\}", "patterns": [{ "include": "#interpolated" }] },
+        { "include": "#strings" },
+        { "include": "#keywords" },
+        { "include": "#numbers" },
+        { "include": "#names" },
+        { "include": "#operators" },
+        { "include": "#punctuation" }
+      ]
+    },
     "declarations": {
       "patterns": [
+        {
+          "comment": "mod name: a module",
+          "match": "\\b(mod)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.type.forge" },
+            "2": { "name": "entity.name.namespace.forge" }
+          }
+        },
+        {
+          "match": "\\b(trait)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.type.forge" },
+            "2": { "name": "entity.name.type.interface.forge" }
+          }
+        },
+        {
+          "comment": "use a::b",
+          "match": "\\b(use)\\s+([A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*)",
+          "captures": {
+            "1": { "name": "keyword.control.import.forge" },
+            "2": { "name": "entity.name.namespace.forge" }
+          }
+        },
         {
           "comment": "node Name, record Name, enum Name, parser Name",
           "match": "\\b(node|record|enum)\\s+([A-Za-z_][A-Za-z0-9_]*)",
@@ -148,14 +200,15 @@
     },
     "keywords": {
       "patterns": [
-        { "name": "storage.type.forge", "match": "\\b(node|record|enum|fun|val|const|syn|inh|circular|coll|contrib|parser|rule|port|graph|flow|vertex)\\b" },
+        { "name": "storage.type.forge", "match": "\\b(node|record|enum|fun|val|const|syn|inh|circular|coll|contrib|parser|rule|port|graph|flow|vertex|mod|trait)\\b" },
         { "name": "storage.modifier.forge", "match": "\\b(ext|impl)\\b" },
         { "name": "keyword.control.forge", "match": "\\b(if|then|else|match|for|with|where)\\b" },
         { "name": "keyword.operator.word.forge", "match": "!in\\b|\\b(in|is|as)\\b" },
         { "name": "constant.language.boolean.forge", "match": "\\b(true|false)\\b" },
         { "name": "constant.language.null.forge", "match": "\\bnull\\b" },
         { "name": "variable.language.this.forge", "match": "\\bthis\\b" },
-        { "name": "support.type.forge", "match": "\\b(List|Set|Map|int|float|bool|boolean|str|Nothing|Graph|Vertex|Edge|Span)\\b" }
+        { "comment": "Self: the type that has a trait, in its members", "name": "keyword.other.self.forge", "match": "\\bSelf\\b" },
+        { "name": "support.type.forge", "match": "\\b(List|Set|Map|int|long|float|bool|boolean|str|Nothing|Graph|Vertex|Edge|Span)\\b" }
       ]
     },
     "numbers": {
@@ -163,12 +216,21 @@
         { "name": "constant.numeric.binary.forge", "match": "\\b0b[01]+\\b" },
         { "name": "constant.numeric.octal.forge", "match": "\\b0o[0-7]+\\b" },
         { "name": "constant.numeric.hex.forge", "match": "\\b0x[0-9a-fA-F]+\\b" },
-        { "name": "constant.numeric.float.forge", "match": "\\b[0-9]+\\.[0-9]\\b" },
+        { "name": "constant.numeric.float.forge", "match": "\\b[0-9]+\\.[0-9]+\\b" },
+        { "name": "constant.numeric.integer.long.forge", "match": "\\b[0-9]+[lL]\\b" },
         { "name": "constant.numeric.integer.forge", "match": "\\b[0-9]+\\b" }
       ]
     },
     "names": {
       "patterns": [
+        {
+          "comment": "geo::Point: the modules of a qualified name (without spaces; head :: tail has them)",
+          "match": "\\b([A-Za-z_][A-Za-z0-9_]*)(::)(?=[A-Za-z_])",
+          "captures": {
+            "1": { "name": "entity.name.namespace.forge" },
+            "2": { "name": "punctuation.separator.namespace.forge" }
+          }
+        },
         { "comment": "INT, ERROR: enum constants", "name": "variable.other.enummember.forge", "match": "\\b[A-Z][A-Z0-9_]+\\b" },
         { "comment": "a capitalized name: a type", "name": "entity.name.type.forge", "match": "\\b[A-Z][A-Za-z0-9_]*\\b" },
         { "comment": "a call", "match": "\\b([a-z_][A-Za-z0-9_]*)(?=\\s*\\()", "captures": { "1": { "name": "entity.name.function.call.forge" } } },

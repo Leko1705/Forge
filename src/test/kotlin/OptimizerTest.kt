@@ -43,8 +43,8 @@ class OptimizerTest {
             val ast = file.parseForge()
             Analyzer.instance(context).analyze(ast)
             val m = LLIR.instance(context).transform(ast)
-            // ext funs of std are builtins, not functions; of the rest only what is used, and the program's own
-            assertEquals(listOf("sum", "f", "unused"), m.functions.map { it.name })
+            // ext funs of std are builtins, not functions; of the rest only what is used (sum is a fold), and the program's own
+            assertEquals(listOf("sum", "fold", "f", "unused"), m.functions.map { it.name })
         } finally {
             dir.deleteRecursively()
         }

@@ -66,6 +66,12 @@ object ForgeColors {
     val PARSER_RULE = key("PARSER_RULE", Default.FUNCTION_DECLARATION)
     val ANNOTATION = key("ANNOTATION", Default.METADATA)
     val SOFT_KEYWORD = key("SOFT_KEYWORD", Default.KEYWORD)
+    val INTERPOLATION = key("INTERPOLATION", Default.KEYWORD)
+    // a call of TODO: in the color of TODO comments (yellow), as Kotlin colors its TODO()
+    val TODO_CALL = key("TODO_CALL", com.intellij.openapi.editor.colors.CodeInsightColors.TODO_DEFAULT_ATTRIBUTES)
+    // modules are like packages, traits like interfaces
+    val MODULE = key("MODULE", Default.IDENTIFIER)
+    val TRAIT = key("TRAIT", Default.INTERFACE_NAME)
 
     fun of(role: ForgeNameRole): TextAttributesKey = when (role) {
         ForgeNameRole.NODE_DECLARATION -> NODE
@@ -89,6 +95,8 @@ object ForgeColors {
         ForgeNameRole.PARSER_RULE -> PARSER_RULE
         ForgeNameRole.ANNOTATION -> ANNOTATION
         ForgeNameRole.SOFT_KEYWORD -> SOFT_KEYWORD
+        ForgeNameRole.MODULE -> MODULE
+        ForgeNameRole.TRAIT -> TRAIT
         ForgeNameRole.IDENTIFIER -> IDENTIFIER
     }
 }
@@ -102,6 +110,8 @@ class ForgeSyntaxHighlighter : SyntaxHighlighterBase() {
 
     private fun attributes(type: IElementType): TextAttributesKey? {
         if (type == TokenType.BAD_CHARACTER) return ForgeColors.BAD_CHARACTER
+        // `${`, `$` and `}` around an expression in a string, as in Kotlin
+        if (type == ForgeTokenTypes.INTERPOLATION_START || type == ForgeTokenTypes.INTERPOLATION_END) return ForgeColors.INTERPOLATION
         if (type !is ForgeTokenType) return null
         return when {
             type in ForgeTokenTypes.KEYWORDS -> ForgeColors.KEYWORD
@@ -120,7 +130,7 @@ class ForgeSyntaxHighlighter : SyntaxHighlighterBase() {
                 ForgeLexer.SEMI -> ForgeColors.SEMICOLON
                 ForgeLexer.AT -> ForgeColors.ANNOTATION
                 ForgeLexer.IDENT -> ForgeColors.IDENTIFIER
-                ForgeLexer.UNDERSCORE -> ForgeColors.KEYWORD
+                // `_` is plain text, as in Kotlin
                 else -> null
             }
         }

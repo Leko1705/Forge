@@ -32,6 +32,8 @@ object ForgeSymbols {
         ForgeNameRole.ENUM_CONSTANT -> AllIcons.Nodes.Enum
         ForgeNameRole.FIELD -> AllIcons.Nodes.Field
         ForgeNameRole.GRAPH -> AllIcons.Nodes.DataTables
+        ForgeNameRole.MODULE -> AllIcons.Nodes.Package
+        ForgeNameRole.TRAIT -> AllIcons.Nodes.Interface
         ForgeNameRole.PARAMETER -> if (isNodeChild(name)) AllIcons.Nodes.Field else AllIcons.Nodes.Parameter
         else -> AllIcons.Nodes.Variable
     }

@@ -1,5 +1,7 @@
 package com.leko.forge.intellij
 
+import ForgeLexer
+
 import com.intellij.codeInsight.daemon.LineMarkerInfo
 import com.intellij.testFramework.EditorTestUtil
 import com.intellij.openapi.editor.DefaultLanguageHighlighterColors
@@ -90,6 +92,31 @@ class ForgeEditorFeaturesTest : BasePlatformTestCase() {
             targets.map { myFixture.editor.document.getLineNumber(it!!.textOffset) })
     }
 
+    fun testTraitImplementationsHaveGutterIcons() {
+        val text = """
+            trait Named { fun name(): str }
+            record Dog { n: str }
+            fun Dog.name(): str = this.n
+            record Cat { n: str }
+            fun Cat.other(): str = this.n
+        """.trimIndent()
+        myFixture.configureByText("t.forge", text)
+        val gutters = myFixture.findAllGutters().filterIsInstance<LineMarkerInfo.LineMarkerGutterIconRenderer<*>>()
+            .filter { it.icon === ForgeIcons.TRAIT_IMPLEMENTATION }
+        assertEquals(2, gutters.size)
+        // on the member of the trait: its implementations
+        val member = gutters.single { myFixture.editor.document.getLineNumber(it.lineMarkerInfo.startOffset) == 0 }
+        assertTrue(member.tooltipText.toString(), "Is implemented by<br><b>fun Dog.name</b>" in member.tooltipText.toString())
+        val implementations = (member.lineMarkerInfo as com.intellij.codeInsight.daemon.RelatedItemLineMarkerInfo<*>).createGotoRelatedItems().map { it.element }
+        assertEquals(listOf(2), implementations.map { myFixture.editor.document.getLineNumber(it!!.textOffset) })
+        val gutter = gutters.single { it !== member }
+        assertEquals(2, myFixture.editor.document.getLineNumber(gutter.lineMarkerInfo.startOffset))
+        assertTrue(gutter.tooltipText.toString(), "Implements <b>Named.name</b>: Dog is Named" in gutter.tooltipText.toString())
+        // it leads to the member of the trait
+        val targets = (gutter.lineMarkerInfo as com.intellij.codeInsight.daemon.RelatedItemLineMarkerInfo<*>).createGotoRelatedItems().map { it.element }
+        assertEquals(listOf(0), targets.map { myFixture.editor.document.getLineNumber(it!!.textOffset) })
+    }
+
     fun testFolding() {
         myFixture.configureByText("a.forge", program)
         EditorTestUtil.buildInitialFoldingsInBackground(myFixture.editor)
@@ -120,7 +147,8 @@ class ForgeEditorFeaturesTest : BasePlatformTestCase() {
         // on a use: the declaration's signature and doc comment
         val type = documentation("if this.left.")
         assertTrue(type, "syn" in type && "Expr" in type && "type" in type)
-        assertTrue(type, "The type of an <code>Expr</code>, <code>int</code> or <code>str</code>." in type)
+        // [Expr] links to its declaration
+        assertTrue(type, "The type of an <a href=\"psi_element://Expr\"><code>Expr</code></a>, <code>int</code> or <code>str</code>." in type)
         assertTrue(type, "<p>Every node has one.</p>" in type)
         assertTrue(type, "synthesized attribute" in type)
         assertTrue(type, "Implemented in" in type && "syn Num.type" in type)
@@ -134,6 +162,90 @@ class ForgeEditorFeaturesTest : BasePlatformTestCase() {
 
         val local = documentation("Num(n.toInt()) -> ".let { "{ Num(" })
         assertTrue(local, "variable in rule Lang.expr: Num" in local && "str" in local)
+    }
+
+    fun testExpressionsInStringsAreCode() {
+        val text = "fun f(n: int): str = \"a ${'$'}{n + 1} b ${'$'}n\""
+        myFixture.configureByText("s.forge", text)
+        // the lexer: text, `${`, the expression's tokens, `}`, text, `$`, a name
+        val lexer = com.leko.forge.intellij.lexer.ForgeLexerAdapter()
+        lexer.start(text, 0, text.length, 0)
+        val tokens = buildList {
+            while (lexer.tokenType != null) {
+                add(lexer.tokenType.toString() to text.substring(lexer.tokenStart, lexer.tokenEnd))
+                lexer.advance()
+            }
+        }
+        val string = tokens.dropWhile { it.second != "\"a " }
+        assertEquals(listOf("STRING" to "\"a ", "INTERPOLATION_START" to "${'$'}{", "IDENT" to "n", "WS" to " ", "PLUS" to "+", "WS" to " ",
+            "INT" to "1", "INTERPOLATION_END" to "}", "STRING" to " b ", "INTERPOLATION_START" to "${'$'}", "IDENT" to "n", "STRING" to "\""), string)
+        // `${` has the color of keywords
+        assertEquals(DefaultLanguageHighlighterColors.KEYWORD,
+            com.leko.forge.intellij.highlight.ForgeSyntaxHighlighter().getTokenHighlights(com.leko.forge.intellij.lexer.ForgeTokenTypes.INTERPOLATION_START)[0].fallbackAttributeKey)
+        // a name in a string is a name: it leads to its declaration
+        val inString = text.indexOf("n + 1")
+        val target = myFixture.file.findReferenceAt(inString)?.resolve()
+        assertNotNull(target)
+        assertEquals(text.indexOf("n: int"), target!!.textOffset)
+    }
+
+    fun testQuotesAfterAnExpressionInAString() {
+        // typing `"` at the end of a string with an expression closes it instead of opening another
+        myFixture.configureByText("q.forge", "fun f(n: int): str = \"a ${'$'}{n}<caret>\"")
+        myFixture.type("\"")
+        myFixture.checkResult("fun f(n: int): str = \"a ${'$'}{n}\"<caret>")
+        // a new string gets its closing quote
+        myFixture.configureByText("r.forge", "fun f(): str = <caret>")
+        myFixture.type("\"")
+        myFixture.checkResult("fun f(): str = \"<caret>\"")
+    }
+
+    fun testTodoIsYellowNotAWarning() {
+        myFixture.configureByText("t.forge", "fun f(n: int): int = match n { _ -> TODO(\"later\") }")
+        val infos = myFixture.doHighlighting()
+        assertTrue(infos.toString(), infos.none { it.severity == com.intellij.lang.annotation.HighlightSeverity.WARNING })
+        // the whole call in the color of TODO comments
+        val todo = infos.single { it.forcedTextAttributesKey == com.leko.forge.intellij.highlight.ForgeColors.TODO_CALL }
+        assertEquals("TODO(\"later\")", todo.text)
+        // nothing else colors the name: the call is yellow from `TODO` to `)`
+        val name = myFixture.file.text.indexOf("TODO")
+        assertEquals(listOf(todo), infos.filter { it.startOffset <= name && name < it.endOffset && (it.forcedTextAttributesKey != null || it.forcedTextAttributes != null) })
+        assertEquals(com.intellij.openapi.editor.colors.CodeInsightColors.TODO_DEFAULT_ATTRIBUTES, todo.forcedTextAttributesKey.fallbackAttributeKey)
+        // `_` is plain text
+        assertEquals(0, com.leko.forge.intellij.highlight.ForgeSyntaxHighlighter()
+            .getTokenHighlights(com.leko.forge.intellij.lexer.ForgeTokenTypes.of(ForgeLexer.UNDERSCORE)).size)
+    }
+
+    fun testDocCommentsAreRendered() {
+        val text = """
+            /**
+             * Doubles [n], **always**:
+             *
+             * - for ints
+             * - also for *negative* ones
+             *
+             * ```
+             * twice(2) == 4
+             * ```
+             */
+            fun twice(n: int): int = n * 2
+            /* not a doc comment */
+            fun once(n: int): int = n
+        """.trimIndent()
+        myFixture.configureByText("d.forge", text)
+        val provider = ForgeDocumentationProvider()
+        val comments = mutableListOf<com.intellij.psi.PsiDocCommentBase>()
+        provider.collectDocComments(myFixture.file) { comments += it }
+        // only /** */ are doc comments; each has the declaration after it as its owner
+        assertEquals(1, comments.size)
+        assertEquals("twice", (comments[0].owner as com.leko.forge.intellij.psi.ForgeDeclaredName).name)
+        val html = provider.generateRenderedDoc(comments[0])!!
+        assertTrue(html, "<b>always</b>" in html)
+        assertTrue(html, "<ul><li>for ints</li><li>also for <i>negative</i> ones</li></ul>" in html)
+        // a parameter: a link to it; the code block highlighted
+        assertTrue(html, "href=\"psi_element://n\"" in html)
+        assertTrue(html, "<pre><code>" in html && "twice" in html.substringAfter("<pre><code>"))
+        assertNotNull(provider.getDocumentationElementForLink(psiManager, "n", comments[0]))
     }
 
     fun testBlockCommentsHaveTheColorOfDocComments() {

@@ -202,7 +202,7 @@ class ForgeCompletion(private val text: String, private val offset: Int, private
 
         // types
         if (context is ForgeParser.NamedTypeContext || context is ForgeParser.NodeDefContext && token === context.parent) {
-            val all = listOf("int", "float", "bool", "str", "Nothing").map { ForgeCandidate(it, ForgeCandidateKind.BUILTIN_TYPE) } +
+            val all = listOf("int", "long", "float", "bool", "str", "Nothing").map { ForgeCandidate(it, ForgeCandidateKind.BUILTIN_TYPE) } +
                 listOf("List", "Set", "Map").map(::keyword) + globals?.types.orEmpty().map(::type) + typeParameters(context)
             return if (context is ForgeParser.NodeDefContext) globals?.nodes.orEmpty().filterIsInstance<InterfaceNodeSymbol>().map(::type) else all
         }
@@ -219,17 +219,17 @@ class ForgeCompletion(private val text: String, private val offset: Int, private
         return buildList {
             addAll(locals(tree))
             globals?.let { g ->
-                g.constants.forEach { add(ForgeCandidate(it.name, ForgeCandidateKind.CONSTANT, it.type.display())) }
+                g.constants.forEach { add(ForgeCandidate(qualified(it.name), ForgeCandidateKind.CONSTANT, it.type.display())) }
                 g.functions.forEach { add(function(it, ForgeCandidateKind.FUNCTION)) }
                 g.types.forEach { t ->
                     when (t) {
-                        is ConcreteNodeSymbol -> add(ForgeCandidate(t.name, ForgeCandidateKind.NODE, tail = params(t.fields), call = true, hasParameters = t.fields.isNotEmpty()))
-                        is RecordSymbol -> add(ForgeCandidate(t.name, ForgeCandidateKind.RECORD, tail = params(t.fields), call = !t.opaque, hasParameters = t.fields.isNotEmpty()))
+                        is ConcreteNodeSymbol -> add(ForgeCandidate(qualified(t.name), ForgeCandidateKind.NODE, tail = params(t.fields), call = true, hasParameters = t.fields.isNotEmpty()))
+                        is RecordSymbol -> add(ForgeCandidate(qualified(t.name), ForgeCandidateKind.RECORD, tail = params(t.fields), call = !t.opaque, hasParameters = t.fields.isNotEmpty()))
                         else -> add(type(t))
                     }
                 }
-                g.graphs.forEach { add(ForgeCandidate(it.name, ForgeCandidateKind.GRAPH)) }
-                g.parsers.forEach { add(ForgeCandidate(it.name, ForgeCandidateKind.PARSER)) }
+                g.graphs.forEach { add(ForgeCandidate(qualified(it.name), ForgeCandidateKind.GRAPH)) }
+                g.parsers.forEach { add(ForgeCandidate(qualified(it.name), ForgeCandidateKind.PARSER)) }
                 if (inFlow) {
                     g.ports.forEach { add(ForgeCandidate(it.name, ForgeCandidateKind.PORT)) }
                     listOf("entry", "sequence", "bound").forEach { add(ForgeCandidate(it, ForgeCandidateKind.FUNCTION, call = true, hasParameters = true)) }
@@ -306,12 +306,19 @@ class ForgeCompletion(private val text: String, private val offset: Int, private
         return result.filter { it.name != DUMMY_PREFIX && !it.name.contains(DUMMY_PREFIX) }.distinctBy { it.name }
     }
 
-    /** The type parameters of the function of the caret: `T` in `fun <T> List<T>.second(): T?`. */
+    /** The type parameters of the declaration of the caret: `T` in `fun <T> List<T>.second(): T?`, `record Pair<A, B>`. */
     private fun typeParameters(context: ParserRuleContext?): List<ForgeCandidate> =
-        generateSequence(context) { it.parent as? ParserRuleContext }.filterIsInstance<ForgeParser.FunctionContext>().firstOrNull()
-            ?.typeParams.orEmpty().map { ForgeCandidate(it.text, ForgeCandidateKind.BUILTIN_TYPE) }
+        generateSequence(context) { it.parent as? ParserRuleContext }.mapNotNull { c ->
+            when (c) {
+                is ForgeParser.FunctionContext -> c.typeParams()
+                is ForgeParser.RecordContext -> c.typeParams()
+                is ForgeParser.EnumContext -> c.typeParams()
+                else -> null
+            }
+        }.firstOrNull()?.typeParam().orEmpty().map { ForgeCandidate(it.name.text, ForgeCandidateKind.BUILTIN_TYPE) }
 
-    private fun type(symbol: Symbol) = ForgeCandidate(symbol.name, when (symbol) {
+    // the declarations of modules by their qualified names: geometry::Point
+    private fun type(symbol: Symbol) = ForgeCandidate(com.leko.forge.types.displayName(symbol.name), when (symbol) {
         is ConcreteNodeSymbol -> ForgeCandidateKind.NODE
         is InterfaceNodeSymbol -> ForgeCandidateKind.INTERFACE_NODE
         is EnumSymbol -> ForgeCandidateKind.ENUM
@@ -330,12 +337,15 @@ class ForgeCompletion(private val text: String, private val offset: Int, private
     private fun rule(rule: ParserRuleSymbol) = ForgeCandidate(rule.name, ForgeCandidateKind.PARSER_RULE, rule.returnType.display())
 
     private fun function(symbol: FunctionSymbol, kind: ForgeCandidateKind) = ForgeCandidate(
-        symbol.name, kind, symbol.returnType.display(), params(symbol.params), call = true, hasParameters = symbol.params.isNotEmpty(),
+        if (symbol.receiver == null) qualified(symbol.name) else symbol.name, kind, symbol.returnType.display(), params(symbol.params), call = true, hasParameters = symbol.params.isNotEmpty(),
     )
 
     private fun params(params: List<VarSymbol>) = params.joinToString(", ", "(", ")") { "${it.name}: ${it.type.display()}" }
 
     private fun Type.display(): String = if (this is FunctionType) "(${parameters.joinToString { it.display() }}) -> ${returnType.display()}" else toString()
+
+    /** How a declaration is written: those of modules with their modules, `geometry::Point`. */
+    private fun qualified(name: String) = com.leko.forge.types.displayName(name)
 
     private fun keyword(name: String) = ForgeCandidate(name, ForgeCandidateKind.KEYWORD)
 
@@ -345,9 +355,9 @@ class ForgeCompletion(private val text: String, private val offset: Int, private
 
         val TOP_LEVEL_KEYWORDS = listOf(
             "node", "record", "enum", "fun", "val", "ext", "op", "const", "syn", "inh", "circular", "coll", "contrib",
-            "for", "parser", "rule", "port", "graph", "flow", "import",
+            "for", "parser", "rule", "port", "graph", "flow", "import", "mod", "use", "trait",
         )
-        val EXPRESSION_KEYWORDS = listOf("this", "if", "then", "else", "match", "true", "false", "null", "in", "as", "is", "for", "with", "where")
-        val FLOW_KEYWORDS = listOf("vertex")
+        val EXPRESSION_KEYWORDS = listOf("this", "if", "then", "else", "match", "true", "false", "null", "in", "as", "is", "where")
+        val FLOW_KEYWORDS = listOf("vertex", "for", "with")
     }
 }

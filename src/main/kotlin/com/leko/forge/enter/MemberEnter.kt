@@ -59,6 +59,7 @@ class MemberEnter private constructor(context: Context) {
         enterMethods(root)
         enterParserRules(root)
         enterFlows(root)
+        checkTraitMembers(root)
         checkNameClashes()
     }
 
@@ -67,13 +68,18 @@ class MemberEnter private constructor(context: Context) {
      * and of constants must exist; Enter, which enters the types, takes them as they are written.
      */
     private fun checkDeclaredTypes(root: ForgeParser.RootContext) {
-        val types = root.nodeDef().flatMap { node -> node.parameter().map { it.ty } } +
-            root.record().flatMap { record -> record.recordField().map { it.ty } } +
-            root.enum_().flatMap { enum -> enum.enumItem().flatMap { item -> item.parameter().map { it.ty } } } +
-            root.inhDef().map { it.attrType } +
-            root.constDef().mapNotNull { it.ty }
-        for (type in types) {
-            if (type != null) chk.checkExists(type.toType(), type)
+        val types = root.nodeDef().flatMap { node -> node.parameter().map { it.ty to emptyList<String>() } } +
+            root.record().flatMap { record -> record.recordField().map { it.ty to record.typeParams().names() } } +
+            root.enum_().flatMap { enum -> enum.enumItem().flatMap { item -> item.parameter().map { it.ty to enum.typeParams().names() } } } +
+            root.inhDef().map { it.attrType to emptyList() } +
+            root.constDef().mapNotNull { it.ty?.let { t -> t to emptyList() } } +
+            root.traitDef().flatMap { t -> t.traitMember().flatMap { m -> m.parameter().map { it.ty } + m.ty }.map { it to listOf(SELF) } } +
+            // the types of top level functions (those of methods are checked where they are entered)
+            root.function().filter { it.receiver == null && it.property == null }.flatMap { f ->
+                (f.parameter().map { it.ty } + f.ty).map { it to f.typeParams().names() }
+            }
+        for ((type, params) in types) {
+            if (type != null) chk.checkExists(type.toType().withTypeParams(params), type)
         }
     }
 
@@ -271,17 +277,39 @@ class MemberEnter private constructor(context: Context) {
         "neg" to 0, "not" to 0,
     )
 
-    private fun checkOperator(func: ForgeParser.FunctionContext, sym: FunctionSymbol) {
-        val arity = operators[sym.name]
+    private fun checkOperator(func: ForgeParser.FunctionContext, sym: FunctionSymbol) =
+        checkOperator(func.name.span, sym.name, sym.params.map { it.type }, sym.returnType)
+
+    /**
+     * What an operator function must be: its name one of an operator, with its number of parameters; the other
+     * types are free (so traits can have operators of different signatures), except where the operator needs them.
+     */
+    private fun checkOperator(span: SourceSpan, name: String, params: List<Type>, returnType: Type) {
+        val arity = operators[name]
         when {
-            arity == null -> log.diag(invalidOperatorFunction(func.name.span,
-                "'${sym.name}' is no operator; operators are ${operators.keys.joinToString(", ")}"))
-            sym.params.size != arity -> log.diag(invalidOperatorFunction(func.name.span,
-                "operator '${sym.name}' takes $arity parameter${if (arity == 1) "" else "s"}"))
-            sym.name == "compareTo" && sym.returnType != IntType -> log.diag(invalidOperatorFunction(func.name.span, "operator 'compareTo' returns an int"))
-            sym.name == "contains" && sym.returnType != BoolType -> log.diag(invalidOperatorFunction(func.name.span, "operator 'contains' returns a bool"))
-            sym.name == "slice" && sym.params.any { it.type != OptionalType(IntType) && it.type !is TypeVar } ->
-                log.diag(invalidOperatorFunction(func.name.span, "operator 'slice' takes two int? (an omitted bound is null)"))
+            arity == null -> log.diag(invalidOperatorFunction(span,
+                "'$name' is no operator; operators are ${operators.keys.joinToString(", ")}"))
+            params.size != arity -> log.diag(invalidOperatorFunction(span,
+                "operator '$name' takes $arity parameter${if (arity == 1) "" else "s"}"))
+            name == "compareTo" && returnType != IntType -> log.diag(invalidOperatorFunction(span, "operator 'compareTo' returns an int"))
+            name == "contains" && returnType != BoolType -> log.diag(invalidOperatorFunction(span, "operator 'contains' returns a bool"))
+            name == "slice" && params.any { it != OptionalType(IntType) && it !is TypeVar } ->
+                log.diag(invalidOperatorFunction(span, "operator 'slice' takes two int? (an omitted bound is null)"))
+        }
+    }
+
+    /** `op fun` members of traits are operators: the same rules as for operator functions. */
+    private fun checkTraitMembers(root: ForgeParser.RootContext) {
+        for (trait in root.traitDef()) {
+            val sym = symTab.traits[trait.name.text] ?: continue
+            for ((member, ctx) in sym.members.zip(trait.traitMember())) {
+                val op = ctx.op ?: continue
+                when {
+                    op.text != "op" -> log.diag(invalidOperatorFunction(op.span, "unexpected '${op.text}' before 'fun'"))
+                    member.isProperty -> log.diag(invalidOperatorFunction(op.span, "an operator is a fun, not a val"))
+                    else -> checkOperator(member.span, member.name, member.params.map { it.type }, member.returnType)
+                }
+            }
         }
     }
 
@@ -315,7 +343,7 @@ class MemberEnter private constructor(context: Context) {
             if (property && func.receiver == null) {
                 log.diag(invalidProperty(func.name.span, "a val needs a receiver: val T.${func.name.text}: ${func.ty.text}"))
             }
-            val typeParams = func.typeParams.map { it.text }
+            val typeParams = func.typeParams().names()
             fun type(t: ForgeParser.TypeContext) = chk.checkExists(t.toType().withTypeParams(typeParams), t)
             val receiver = if (func.receiver != null) type(func.receiver!!) else continue
             val receiverSym = resolve.resolve(receiver)
@@ -346,6 +374,7 @@ class MemberEnter private constructor(context: Context) {
                     typeParams = typeParams,
                     isProperty = property,
                     builtin = if (func.EXT() != null && func.isStd()) builtinKey(receiver, func.name.text) else null,
+                    bounds = func.typeParams().bounds(),
                 )
                 if (func.op != null) checkOperator(func, sym)
                 // hidden by one of the program: only the standard library itself uses it

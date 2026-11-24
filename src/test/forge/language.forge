@@ -1,0 +1,176 @@
+// The language features of Forge beyond its core: local bindings, functions as values, generic records and
+// enums, tuples, traits, modules, long and string interpolation. Each target runs `report()` and must print
+// exactly what the Kotlin target prints.
+
+record Pair<A, B> { first: A, second: B }
+enum Option<T> { NONE, SOME(value: T) }
+enum Result<T, E> { OK(value: T), ERR(error: E) }
+
+fun <A, B> Pair<A, B>.swap(): Pair<B, A> = Pair(this.second, this.first)
+fun <T> Option<T>.orElse(other: T): T = match this {
+    Option.SOME(v) -> v
+    _ -> other
+}
+
+fun area(d: int): int = r * r * 3 where r = d / 2
+fun chain(): int = a + b where a = 1 where b = a + 1
+fun swapped(t: (int, str)): (str, int) = (b, a) where (a, b) = t
+
+fun twice(f: (int) -> int, x: int): int = f(f(x))
+fun adder(n: int): (int) -> int = { x -> x + n }
+fun inc(x: int): int = x + 1
+
+record Box { f: (int) -> int }
+
+fun parse(s: str): Result<int, str> = if s == "" then Result.ERR("empty") else Result.OK(s.size)
+
+fun big(): long = 3000000000L * 2 + 1
+fun mix(a: int, b: long): long = a + b
+
+fun <T: Comparable> maxOf(xs: List<T>): T? = match xs.sorted().reversed() {
+    first :: _ -> first
+    _ -> null
+}
+
+fun <T: Printable> describe(x: T): str = "value ${x.str()}!"
+
+// ---- modules ------------------------------------------------------------------------------------------
+
+mod geometry {
+    record Point { x: int, y: int }
+    fun origin(): Point = Point(0, 0)
+    fun Point.plus(o: Point): Point = Point(this.x + o.x, this.y + o.y)
+    const unit = 1
+    mod shapes {
+        enum Shape { CIRCLE(r: int), RECT(w: int, h: int) }
+        fun area(s: Shape): int = match s {
+            Shape.CIRCLE(r) -> 3 * r * r
+            Shape.RECT(w, h) -> w * h
+        }
+        // the enclosing module's names are visible inside
+        fun corner(): Point = Point(unit, unit)
+    }
+}
+mod inventory {
+    record Item { name: str }
+    fun item(n: str): Item = Item(n)
+}
+mod catalog {
+    record Item { code: int }
+    fun item(c: int): Item = Item(c)
+}
+use geometry::shapes
+use inventory::Item
+
+fun modules(): str = "${geometry::origin().plus(geometry::Point(2, 3)).y} ${shapes::area(Shape.RECT(2, 3))} " +
+    "${geometry::shapes::area(geometry::shapes::Shape.CIRCLE(1))} ${corner().x} " +
+    Item("apple").name + inventory::item("pear").name + " ${catalog::item(7).code}"
+
+// ---- traits and bounds --------------------------------------------------------------------------------
+
+trait Named { fun name(): str }
+trait Sized { val weight: int }
+record Dog { label: str }
+fun Dog.name(): str = "dog " + this.label
+val Dog.weight: int = this.label.size
+record Money { cents: int }
+fun Money.str(): str = "\$${this.cents / 100}.${this.cents % 100}"
+op fun Money.compareTo(other: Money): int = this.cents - other.cents
+
+fun <T: Named & Sized> heaviest(xs: List<T>): str = xs.fold(xs[0]) { acc, x -> if x.weight > acc.weight then x else acc }.name()
+fun <T: Named> names(xs: List<T>): str = xs.map({ x -> x.name() }).join(", ")
+// a bound passed on to another generic function
+fun <T: Named & Sized> both(xs: List<T>): str = names(xs) + " / " + heaviest(xs)
+fun <T: Comparable> largest(a: T, b: T): T = if a > b then a else b
+fun <T: Printable> shown(xs: List<T>): str = xs.map({ x -> "<${x}>" }).join("")
+
+node Expr
+node Num(value: int): Expr
+node Add(l: Expr, r: Expr): Expr
+syn Expr.total: int
+syn Num.total: int = this.value
+syn Add.total: int = this.l.total + this.r.total
+// a type as bound: its members are those of the type
+fun <T: Expr> sum(xs: List<T>): int = xs.fold(0) { acc, x -> acc + x.total }
+// a lambda in an attribute sees `this`
+syn Add.scaled: (int) -> int = { k -> k * this.total }
+
+fun traits(): str = both([Dog("rex"), Dog("bo")]) + " " + "${largest(3, 8)} ${largest("pear", "apple")} ${largest(Money(150), Money(99))} " +
+    shown([Money(205), Money(1)]) + " " + "${sum([Num(1), Num(2)])} ${sum([Add(Num(1), Num(2))])} ${Add(Num(2), Num(3)).scaled(4)}"
+
+// operators of traits: two traits with an `op fun get` of different signatures
+trait Indexed { op fun get(index: int): str }
+trait Keyed { op fun get(key: str): int }
+record Word { text: str }
+op fun Word.get(index: int): str = this.text[index]
+record Counts { names: List<str> }
+op fun Counts.get(key: str): int = this.names.count { it == key }
+fun <T: Indexed> initial(x: T): str = x[0]
+fun <T: Keyed> howMany(x: T, key: str): int = x[key]
+fun operators(): str = "${initial(Word("forge"))} ${howMany(Counts(["a", "b", "a"]), "a")} ${Word("ab")[1]} " +
+    "${Money(1) < Money(2)} ${"b" < "a"} ${largest(Word("x")[0], "y")}"
+
+// a `val` of a trait: an attribute of a node (also an abstract syn of an interface) or a field
+trait Totaled { val total: int }
+trait Labeled { val label: str }
+record Tag { label: str }
+node Leaf(label: str)
+fun <T: Totaled> totals(xs: List<T>): int = xs.fold(0) { acc, x -> acc + x.total }
+fun <T: Labeled> labels(xs: List<T>): str = xs.joinWith("") { it.label }
+fun values(): str = "${totals([Num(1), Num(2)])} ${totals([Add(Num(1), Num(2)) as Expr, Num(4)])} ${labels([Tag("a"), Tag("b")])} ${labels([Leaf("c")])}"
+
+// ---- more -----------------------------------------------------------------------------------------------
+
+fun tuples(): str = match (1, ("a", 2L)) {
+    (0, _) -> "zero"
+    (n, (s, l)) if n > 0 -> "${n} ${s} ${l + 1} ${(1, (2, 3)).1.0}"
+    _ -> "other"
+}
+fun longs(): str = "${(7 as long) * 3000000000L} ${(5000000000L as int)} ${(2.5 as long)} ${(3L as float)} ${-(1L << 63)} " +
+    "${"123456789012".toLong() + 1} ${[1L, 2L].sum()} ${(-7L) / 2L} ${(-7L) % 2L} ${(-1L) >>> 60} ${(-16L) >> 2} ${7L & 3} ${9223372036854775807L}"
+fun lambdas(): str = (compose({ x: int -> x + 1 }, { x -> x * 2 }))(5).str() + " " + apply2({ a, b -> a + b }, "x", "y")
+    + " " + [1, 2, 3].any({ x -> x > 2 }).str() + [1, 2, 3].all({ x -> x > 2 }).str() + " " + [1, 2, 3].count({ x -> x != 2 }).str()
+    + " " + ([1, 2, 3].find({ x -> x > 1 }) ?: 0).str() + " " + [[1], [2, 3]].flatMap({ xs -> xs }).size.str()
+    + " " + [(1, "a"), (2, "b")].map({ p -> p.1 }).join("") + " " + ["x", "y"].withIndex().map({ p -> "${p.0}${p.1}" }).join("")
+    + " " + {"a": 1}.mapValues({ v -> v + 1 })["a"].str() + " " + {"k": 2}.entries().map({ e -> e.0 + e.1.str() }).join("")
+fun <A, B, C> compose(f: (A) -> B, g: (B) -> C): (A) -> C = { x -> g(f(x)) }
+fun apply2(f: (str, str) -> str, a: str, b: str): str = f(a, b)
+// a lambda after a call is its last argument; without `->` its parameter is `it`
+fun repeat(n: int, f: (int) -> str): str = [0:n].fold("") { acc, i -> acc + f(i) }
+fun now(f: () -> int): int = f()
+fun trailing(): str = [1, 2, 3].map { it * 10 }.filter { x -> x > 10 }.map { it.str() }.join(",")
+    + " " + repeat(3) { i -> "<${i}>" } + " " + "${now { 42 }} ${[3, 1, 2].sortedBy { -it }.map { it.str() }.join("")}"
+    + " " + [1, 2, 3, 4].fold(0) { acc, x -> acc + x }.str() + " " + match [1].map { it + 1 } { [2] -> "two"  _ -> "?" }
+// "$name" without braces; \$ is a $
+fun short(name: str, n: int): str = "$name has $n, \$name"
+fun later(n: int): int = if n > 0 then n else TODO("negative numbers")
+fun nested(): str = short("x", later(2)) + " " + "${"a${"b${1}"}"}" + " ${[1, 2].size} ${{ x: int -> x }(3)}"
+
+fun report(): List<str> = [
+    modules(),
+    traits(),
+    operators(),
+    values(),
+    tuples(),
+    longs(),
+    lambdas(),
+    nested(),
+    trailing(),
+    "${area(10)}",
+    "${chain()}",
+    swapped((1, "a")).0,
+    "${twice(adder(3), 1)} ${twice(inc, 5)}",
+    "${Box({ x -> x * 10 }).f(4)}",
+    [3, 1, 2].map({ x -> x * x }).filter({ x -> x > 1 }).map({ x -> x.str() }).join(","),
+    "${Pair(1, "x").swap().first}",
+    "${Option.SOME(5).orElse(0)} ${Option.NONE.orElse(7)}",
+    match parse("abc") { Result.OK(n) -> "ok ${n}"  Result.ERR(e) -> e },
+    match parse("") { Result.OK(n) -> "ok ${n}"  Result.ERR(e) -> e },
+    "${big()} ${mix(1, 2L)} ${(1L << 40) | 3}",
+    "${maxOf([3, 9, 2])!!}",
+    ["b", "a", "c"].sorted().join(""),
+    [(2, "b"), (1, "a")].sortedBy({ p -> p.0 }).map({ p -> p.1 }).join(""),
+    "${[1, 2, 3, 4].fold(0, { a, x -> a + x })}",
+    [1,2,3,4,5].groupBy({ x -> x % 2 })[1].map({ x -> x.str() }).join(" "),
+    "esc \${x} ${"in${1 + 1}ner"}"
+]

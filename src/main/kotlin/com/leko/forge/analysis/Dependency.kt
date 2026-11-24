@@ -65,8 +65,8 @@ class Dependency private constructor(context: Context) {
 
 
     /**
-     * Reports attributes and functions that depend on themselves. Cycles through a circular attribute are
-     * allowed: they are what circular attributes are for.
+     * Reports attributes and constants that depend on themselves, also through functions. Cycles through a circular
+     * attribute are allowed (they are what circular attributes are for), as are recursive functions.
      */
     private fun checkCyclicDependencies(root: ForgeParser.RootContext) {
         val references = mutableMapOf<Symbol, MutableSet<Symbol>>()
@@ -104,8 +104,9 @@ class Dependency private constructor(context: Context) {
             val index = stack.indexOf(sym)
             if (index >= 0) {
                 val cycle = stack.subList(index, stack.size)
-                // cycles of constants alone were reported when they were attributed
-                if (cycle.none { it is CircularSymbol } && !cycle.all { it is ConstSymbol } && reported.add(sym)) {
+                // cycles of constants alone were reported when they were attributed; functions may be recursive (their
+                // values are not cached), but a cycle through an attribute or a constant never ends
+                if (cycle.none { it is CircularSymbol } && !cycle.all { it is ConstSymbol } && !cycle.all { it is FunctionSymbol } && reported.add(sym)) {
                     log.diag(cyclicDependencyDetected(sym.span, cycle.joinToString(" -> ") { it.name } + " -> " + sym.name))
                 }
                 return

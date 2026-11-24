@@ -10,340 +10,347 @@
 //   - method descriptors are read by a text parser, the produced class file is read back by a binary parser
 //
 // Class files are version 49 (Java 5): they need no StackMapTable, and current JVMs still load them.
+//
+// Everything is in the module `jvm`: a front end writes `use jvm`, or names it `jvm::JClass`.
 
-// ==== the IR ===================================================================================
+mod jvm {
 
-node JClass(name: str, superName: str, methods: List<JMethod>)
-node JMethod(access: int, name: str, descriptor: str, maxLocals: int, code: List<JInsn>)
+    // ==== the IR ===================================================================================
 
-node JInsn
-node JOp(op: Op): JInsn                                         // no operands: iadd, ireturn, pop, ...
-node JPush(value: int): JInsn                                   // an int: iconst_n, bipush, sipush or ldc_w
-node JLdc(value: str): JInsn                                    // a string constant
-node JLoad(slot: Slot, index: int): JInsn                       // iload / aload
-node JStore(slot: Slot, index: int): JInsn                      // istore / astore
-node JJump(cond: Cond, target: str): JInsn                      // if<cond> / goto to a label
-node JLabel(name: str): JInsn                                   // a position in the code, no bytes
-node JGetStatic(owner: str, name: str, descriptor: str): JInsn
-node JInvoke(kind: Invoke, owner: str, name: str, descriptor: str): JInsn
+    node JClass(name: str, superName: str, methods: List<JMethod>)
+    node JMethod(access: int, name: str, descriptor: str, maxLocals: int, code: List<JInsn>)
 
-// instructions that refer to a member of a class through the constant pool
-node JMemberRef: JInsn
-for JGetStatic impl JMemberRef
-for JInvoke impl JMemberRef
+    node JInsn
+    node JOp(op: Op): JInsn                                         // no operands: iadd, ireturn, pop, ...
+    node JPush(value: int): JInsn                                   // an int: iconst_n, bipush, sipush or ldc_w
+    node JLdc(value: str): JInsn                                    // a string constant
+    node JLoad(slot: Slot, index: int): JInsn                       // iload / aload
+    node JStore(slot: Slot, index: int): JInsn                      // istore / astore
+    node JJump(cond: Cond, target: str): JInsn                      // if<cond> / goto to a label
+    node JLabel(name: str): JInsn                                   // a position in the code, no bytes
+    node JGetStatic(owner: str, name: str, descriptor: str): JInsn
+    node JInvoke(kind: Invoke, owner: str, name: str, descriptor: str): JInsn
 
-enum Op { IADD, ISUB, IMUL, IDIV, IREM, INEG, IXOR, POP, DUP, ACONST_NULL, IRETURN, ARETURN, RETURN }
-enum Cond { IFEQ, IFNE, IF_ICMPEQ, IF_ICMPNE, IF_ICMPLT, IF_ICMPGE, IF_ICMPGT, IF_ICMPLE, GOTO }
-enum Slot { INT, REF }
-enum Invoke { STATIC, VIRTUAL }
+    // instructions that refer to a member of a class through the constant pool
+    node JMemberRef: JInsn
+    for JGetStatic impl JMemberRef
+    for JInvoke impl JMemberRef
 
-val Op.opcode: int = match this {
-    Op.IADD -> 96
-    Op.ISUB -> 100
-    Op.IMUL -> 104
-    Op.IDIV -> 108
-    Op.IREM -> 112
-    Op.INEG -> 116
-    Op.IXOR -> 130
-    Op.POP -> 87
-    Op.DUP -> 89
-    Op.ACONST_NULL -> 1
-    Op.IRETURN -> 172
-    Op.ARETURN -> 176
-    Op.RETURN -> 177
-}
-val Op.delta: int = match this {
-    Op.INEG -> 0
-    Op.RETURN -> 0
-    Op.DUP -> 1
-    Op.ACONST_NULL -> 1
-    _ -> -1
-}
-val Cond.opcode: int = match this {
-    Cond.IFEQ -> 153
-    Cond.IFNE -> 154
-    Cond.IF_ICMPEQ -> 159
-    Cond.IF_ICMPNE -> 160
-    Cond.IF_ICMPLT -> 161
-    Cond.IF_ICMPGE -> 162
-    Cond.IF_ICMPGT -> 163
-    Cond.IF_ICMPLE -> 164
-    Cond.GOTO -> 167
-}
-val Cond.delta: int = match this {
-    Cond.GOTO -> 0
-    Cond.IFEQ -> -1
-    Cond.IFNE -> -1
-    _ -> -2
-}
-/** The condition that holds when this one does not, e.g. to jump around the code of a true branch. */
-fun Cond.negate(): Cond = match this {
-    Cond.IFEQ -> Cond.IFNE
-    Cond.IFNE -> Cond.IFEQ
-    Cond.IF_ICMPEQ -> Cond.IF_ICMPNE
-    Cond.IF_ICMPNE -> Cond.IF_ICMPEQ
-    Cond.IF_ICMPLT -> Cond.IF_ICMPGE
-    Cond.IF_ICMPGE -> Cond.IF_ICMPLT
-    Cond.IF_ICMPGT -> Cond.IF_ICMPLE
-    Cond.IF_ICMPLE -> Cond.IF_ICMPGT
-    Cond.GOTO -> Cond.GOTO
-}
+    enum Op { IADD, ISUB, IMUL, IDIV, IREM, INEG, IXOR, POP, DUP, ACONST_NULL, IRETURN, ARETURN, RETURN }
+    enum Cond { IFEQ, IFNE, IF_ICMPEQ, IF_ICMPNE, IF_ICMPLT, IF_ICMPGE, IF_ICMPGT, IF_ICMPLE, GOTO }
+    enum Slot { INT, REF }
+    enum Invoke { STATIC, VIRTUAL }
 
-// ==== where an instruction is ====================================================================
+    val Op.opcode: int = match this {
+        Op.IADD -> 96
+        Op.ISUB -> 100
+        Op.IMUL -> 104
+        Op.IDIV -> 108
+        Op.IREM -> 112
+        Op.INEG -> 116
+        Op.IXOR -> 130
+        Op.POP -> 87
+        Op.DUP -> 89
+        Op.ACONST_NULL -> 1
+        Op.IRETURN -> 172
+        Op.ARETURN -> 176
+        Op.RETURN -> 177
+    }
+    val Op.delta: int = match this {
+        Op.INEG -> 0
+        Op.RETURN -> 0
+        Op.DUP -> 1
+        Op.ACONST_NULL -> 1
+        _ -> -1
+    }
+    val Cond.opcode: int = match this {
+        Cond.IFEQ -> 153
+        Cond.IFNE -> 154
+        Cond.IF_ICMPEQ -> 159
+        Cond.IF_ICMPNE -> 160
+        Cond.IF_ICMPLT -> 161
+        Cond.IF_ICMPGE -> 162
+        Cond.IF_ICMPGT -> 163
+        Cond.IF_ICMPLE -> 164
+        Cond.GOTO -> 167
+    }
+    val Cond.delta: int = match this {
+        Cond.GOTO -> 0
+        Cond.IFEQ -> -1
+        Cond.IFNE -> -1
+        _ -> -2
+    }
+    /** The condition that holds when this one does not, e.g. to jump around the code of a true branch. */
+    fun Cond.negate(): Cond = match this {
+        Cond.IFEQ -> Cond.IFNE
+        Cond.IFNE -> Cond.IFEQ
+        Cond.IF_ICMPEQ -> Cond.IF_ICMPNE
+        Cond.IF_ICMPNE -> Cond.IF_ICMPEQ
+        Cond.IF_ICMPLT -> Cond.IF_ICMPGE
+        Cond.IF_ICMPGE -> Cond.IF_ICMPLT
+        Cond.IF_ICMPGT -> Cond.IF_ICMPLE
+        Cond.IF_ICMPLE -> Cond.IF_ICMPGT
+        Cond.GOTO -> Cond.GOTO
+    }
 
-inh jclass: JClass? = null
-inh JClass.jclass { methods[i] <- this }
+    // ==== where an instruction is ====================================================================
 
-inh jmethod: JMethod? = null
-inh JMethod.jmethod { code[i] <- this }
+    inh jclass: JClass? = null
+    inh JClass.jclass { methods[i] <- this }
 
-inh insnIndex: int = -1
-inh JMethod.insnIndex { code[i] <- i }
+    inh jmethod: JMethod? = null
+    inh JMethod.jmethod { code[i] <- this }
 
-// inherited attributes can only be read on `this`; these make them readable on other instructions
-syn JInsn.position: int = this.insnIndex
-syn JInsn.method: JMethod = this.jmethod!!
-syn JMethod.klass: JClass = this.jclass!!
+    inh insnIndex: int = -1
+    inh JMethod.insnIndex { code[i] <- i }
 
-// ==== the constant pool ==========================================================================
+    // inherited attributes can only be read on `this`; these make them readable on other instructions
+    syn JInsn.position: int = this.insnIndex
+    syn JInsn.method: JMethod = this.jmethod!!
+    syn JMethod.klass: JClass = this.jclass!!
 
-enum Const {
-    UTF8(text: str),
-    INTEGER(value: int),
-    CLASS(name: str),
-    STRING(text: str),
-    NAME_AND_TYPE(name: str, descriptor: str),
-    FIELD(owner: str, name: str, descriptor: str),
-    METHOD(owner: str, name: str, descriptor: str)
-}
+    // ==== the constant pool ==========================================================================
 
-/** The constants an entry refers to, transitively. */
-val Const.dependencies: List<Const> = match this {
-    Const.CLASS(name) -> [Const.UTF8(name)]
-    Const.STRING(text) -> [Const.UTF8(text)]
-    Const.NAME_AND_TYPE(name, d) -> [Const.UTF8(name), Const.UTF8(d)]
-    Const.FIELD(owner, name, d) -> [Const.CLASS(owner), Const.UTF8(owner), Const.NAME_AND_TYPE(name, d), Const.UTF8(name), Const.UTF8(d)]
-    Const.METHOD(owner, name, d) -> [Const.CLASS(owner), Const.UTF8(owner), Const.NAME_AND_TYPE(name, d), Const.UTF8(name), Const.UTF8(d)]
-    _ -> []
-}
+    enum Const {
+        UTF8(text: str),
+        INTEGER(value: int),
+        CLASS(name: str),
+        STRING(text: str),
+        NAME_AND_TYPE(name: str, descriptor: str),
+        FIELD(owner: str, name: str, descriptor: str),
+        METHOD(owner: str, name: str, descriptor: str)
+    }
 
-/** The pool entry of this constant; `pool` maps every constant to its index. */
-fun Const.entry(pool: Map<Const, int>): List<int> = match this {
-    Const.UTF8(text) -> [1] ++ u2(text.utf8().size) ++ text.utf8()
-    Const.INTEGER(value) -> [3] ++ u4(value)
-    Const.CLASS(name) -> [7] ++ u2(pool[Const.UTF8(name)])
-    Const.STRING(text) -> [8] ++ u2(pool[Const.UTF8(text)])
-    Const.FIELD(owner, name, d) -> [9] ++ u2(pool[Const.CLASS(owner)]) ++ u2(pool[Const.NAME_AND_TYPE(name, d)])
-    Const.METHOD(owner, name, d) -> [10] ++ u2(pool[Const.CLASS(owner)]) ++ u2(pool[Const.NAME_AND_TYPE(name, d)])
-    Const.NAME_AND_TYPE(name, d) -> [12] ++ u2(pool[Const.UTF8(name)]) ++ u2(pool[Const.UTF8(d)])
-}
+    /** The constants an entry refers to, transitively. */
+    val Const.dependencies: List<Const> = match this {
+        Const.CLASS(name) -> [Const.UTF8(name)]
+        Const.STRING(text) -> [Const.UTF8(text)]
+        Const.NAME_AND_TYPE(name, d) -> [Const.UTF8(name), Const.UTF8(d)]
+        Const.FIELD(owner, name, d) -> [Const.CLASS(owner), Const.UTF8(owner), Const.NAME_AND_TYPE(name, d), Const.UTF8(name), Const.UTF8(d)]
+        Const.METHOD(owner, name, d) -> [Const.CLASS(owner), Const.UTF8(owner), Const.NAME_AND_TYPE(name, d), Const.UTF8(name), Const.UTF8(d)]
+        _ -> []
+    }
 
-// every node that needs a constant contributes it to its class
-coll JClass.constants: List<Const> = []
-contrib JMethod -> this.jclass!!.constants = constants ++ [Const.UTF8(this.name), Const.UTF8(this.descriptor)]
-contrib JPush -> this.method.klass.constants = constants ++ (if fitsShort(this.value) then [] else [Const.INTEGER(this.value)])
-contrib JLdc -> this.method.klass.constants = constants ++ [Const.STRING(this.value)]
-contrib JMemberRef -> this.method.klass.constants = constants ++ [this.member]
+    /** The pool entry of this constant; `pool` maps every constant to its index. */
+    fun Const.entry(pool: Map<Const, int>): List<int> = match this {
+        Const.UTF8(text) -> [1] ++ u2(bytes.size) ++ bytes where bytes = text.utf8()
+        Const.INTEGER(value) -> [3] ++ u4(value)
+        Const.CLASS(name) -> [7] ++ u2(pool[Const.UTF8(name)])
+        Const.STRING(text) -> [8] ++ u2(pool[Const.UTF8(text)])
+        Const.FIELD(owner, name, d) -> [9] ++ u2(pool[Const.CLASS(owner)]) ++ u2(pool[Const.NAME_AND_TYPE(name, d)])
+        Const.METHOD(owner, name, d) -> [10] ++ u2(pool[Const.CLASS(owner)]) ++ u2(pool[Const.NAME_AND_TYPE(name, d)])
+        Const.NAME_AND_TYPE(name, d) -> [12] ++ u2(pool[Const.UTF8(name)]) ++ u2(pool[Const.UTF8(d)])
+    }
 
-syn JMemberRef.member: Const
-syn JGetStatic.member: Const = Const.FIELD(this.owner, this.name, this.descriptor)
-syn JInvoke.member: Const = Const.METHOD(this.owner, this.name, this.descriptor)
+    // every node that needs a constant contributes it to its class
+    coll JClass.constants: List<Const> = []
+    contrib JMethod -> this.jclass!!.constants = constants ++ [Const.UTF8(this.name), Const.UTF8(this.descriptor)]
+    contrib JPush -> this.method.klass.constants = constants ++ (if fitsShort(this.value) then [] else [Const.INTEGER(this.value)])
+    contrib JLdc -> this.method.klass.constants = constants ++ [Const.STRING(this.value)]
+    contrib JMemberRef -> this.method.klass.constants = constants ++ [this.member]
 
-// a set drops the duplicates and keeps the order
-syn JClass.pool: List<Const> = (acc ++ [c] ++ c.dependencies for c in this.header ++ this.constants with acc = []).toSet().toList()
-syn JClass.header: List<Const> = [Const.CLASS(this.name), Const.CLASS(this.superName), Const.UTF8("Code")]
-syn JClass.index: Map<Const, int> = (acc ++ {c: acc.size + 1}) for c in this.pool with acc = {:}
+    syn JMemberRef.member: Const
+    syn JGetStatic.member: Const = Const.FIELD(this.owner, this.name, this.descriptor)
+    syn JInvoke.member: Const = Const.METHOD(this.owner, this.name, this.descriptor)
+
+    // a set drops the duplicates and keeps the order
+    syn JClass.pool: List<Const> = (this.header ++ this.constants).flatMap { [it] ++ it.dependencies }.toSet().toList()
+    syn JClass.header: List<Const> = [Const.CLASS(this.name), Const.CLASS(this.superName), Const.UTF8("Code")]
+    syn JClass.index: Map<Const, int> = this.pool.withIndex().fold(empty) { acc, entry -> acc ++ {entry.1: entry.0 + 1} }
+        where empty: Map<Const, int> = {:}
 
 
-// ==== code layout ================================================================================
+    // ==== code layout ================================================================================
 
-syn JInsn.size: int
-syn JOp.size: int = 1
-syn JPush.size: int = if this.value >= -1 && this.value <= 5 then 1 else if fitsByte(this.value) then 2 else 3
-syn JLdc.size: int = 3
-syn JLoad.size: int = 2
-syn JStore.size: int = 2
-syn JJump.size: int = 3
-syn JLabel.size: int = 0
-syn JGetStatic.size: int = 3
-syn JInvoke.size: int = 3
+    syn JInsn.size: int
+    syn JOp.size: int = 1
+    syn JPush.size: int = if this.value >= -1 && this.value <= 5 then 1 else if fitsByte(this.value) then 2 else 3
+    syn JLdc.size: int = 3
+    syn JLoad.size: int = 2
+    syn JStore.size: int = 2
+    syn JJump.size: int = 3
+    syn JLabel.size: int = 0
+    syn JGetStatic.size: int = 3
+    syn JInvoke.size: int = 3
 
-/** The offset of every instruction, and the length of the code at the end. */
-syn JMethod.offsets: List<int> = (acc ++ [acc[acc.size - 1] + i.size]) for i in this.code with acc = [0]
-syn JInsn.offset: int = this.method.offsets[this.position]
-syn JMethod.labels: Map<str, JLabel> = (if i is JLabel then acc ++ {(i as JLabel).name: i as JLabel} else acc) for i in this.code with acc = {:}
+    /** The offset of every instruction, and the length of the code at the end. */
+    syn JMethod.offsets: List<int> = this.code.fold([0]) { acc, i -> acc ++ [acc[-1] + i.size] }
+    syn JInsn.offset: int = this.method.offsets[this.position]
+    syn JMethod.labels: Map<str, JLabel> = this.code.filter { it is JLabel }.fold(empty) { acc, i -> acc ++ {l.name: l} where l = i as JLabel }
+        where empty: Map<str, JLabel> = {:}
 
-syn JInsn.bytes: List<int>
-syn JOp.bytes: List<int> = [this.op.opcode]
-syn JPush.bytes: List<int> =
-    if this.value >= -1 && this.value <= 5 then [3 + this.value]          // iconst_m1 .. iconst_5
-    else if fitsByte(this.value) then [16, this.value & 255]              // bipush
-    else if fitsShort(this.value) then [17] ++ s2(this.value)             // sipush
-    else [19] ++ u2(this.method.klass.index[Const.INTEGER(this.value)]) // ldc_w
-syn JLdc.bytes: List<int> = [19] ++ u2(this.method.klass.index[Const.STRING(this.value)])
-syn JLoad.bytes: List<int> = [match this.slot { Slot.INT -> 21  Slot.REF -> 25 }, this.index]
-syn JStore.bytes: List<int> = [match this.slot { Slot.INT -> 54  Slot.REF -> 58 }, this.index]
-syn JJump.bytes: List<int> = [this.cond.opcode] ++ s2(this.method.labels[this.target].offset - this.offset)
-syn JLabel.bytes: List<int> = []
-syn JGetStatic.bytes: List<int> = [178] ++ u2(this.method.klass.index[this.member])
-syn JInvoke.bytes: List<int> = [match this.kind { Invoke.STATIC -> 184  Invoke.VIRTUAL -> 182 }] ++ u2(this.method.klass.index[this.member])
+    syn JInsn.bytes: List<int>
+    syn JOp.bytes: List<int> = [this.op.opcode]
+    syn JPush.bytes: List<int> =
+        if this.value >= -1 && this.value <= 5 then [3 + this.value]          // iconst_m1 .. iconst_5
+        else if fitsByte(this.value) then [16, this.value & 255]              // bipush
+        else if fitsShort(this.value) then [17] ++ s2(this.value)             // sipush
+        else [19] ++ u2(this.method.klass.index[Const.INTEGER(this.value)]) // ldc_w
+    syn JLdc.bytes: List<int> = [19] ++ u2(this.method.klass.index[Const.STRING(this.value)])
+    syn JLoad.bytes: List<int> = [match this.slot { Slot.INT -> 21  Slot.REF -> 25 }, this.index]
+    syn JStore.bytes: List<int> = [match this.slot { Slot.INT -> 54  Slot.REF -> 58 }, this.index]
+    syn JJump.bytes: List<int> = [this.cond.opcode] ++ s2(this.method.labels[this.target].offset - this.offset)
+    syn JLabel.bytes: List<int> = []
+    syn JGetStatic.bytes: List<int> = [178] ++ u2(this.method.klass.index[this.member])
+    syn JInvoke.bytes: List<int> = [match this.kind { Invoke.STATIC -> 184  Invoke.VIRTUAL -> 182 }] ++ u2(this.method.klass.index[this.member])
 
-syn JMethod.codeBytes: List<int> = acc ++ i.bytes for i in this.code with acc = []
+    syn JMethod.codeBytes: List<int> = this.code.flatMap { it.bytes }
 
-// ==== control flow and the operand stack =========================================================
+    // ==== control flow and the operand stack =========================================================
 
-syn JInsn.fallsThrough: bool = true
-syn JOp.fallsThrough: bool = !(this.op in [Op.IRETURN, Op.ARETURN, Op.RETURN])
-syn JJump.fallsThrough: bool = this.cond != Cond.GOTO
+    syn JInsn.fallsThrough: bool = true
+    syn JOp.fallsThrough: bool = !(this.op in [Op.IRETURN, Op.ARETURN, Op.RETURN])
+    syn JJump.fallsThrough: bool = this.cond != Cond.GOTO
 
-syn JInsn.next: List<JInsn> =
-    if this.fallsThrough && this.position + 1 < this.method.code.size then [this.method.code[this.position + 1]] else []
-syn JInsn.successors: List<Edge> = (Edge(this, n, null) for n in this.next)
-syn JJump.successors: List<Edge> = [Edge(this, this.method.labels[this.target], this.cond.repr)] ++ (Edge(this, n, null) for n in this.next)
+    syn JInsn.next: List<JInsn> =
+        if this.fallsThrough && this.position + 1 < this.method.code.size then [this.method.code[this.position + 1]] else []
+    syn JInsn.successors: List<Edge> = this.next.map { Edge(this, it, null) }
+    syn JJump.successors: List<Edge> = [Edge(this, this.method.labels[this.target], this.cond.repr)] ++ this.next.map { Edge(this, it, null) }
 
-/** The control flow graph of the method, built from edges: its vertices are the instructions. */
-syn JMethod.controlFlow: Graph = graphOf(this.code[0], acc ++ i.successors for i in this.code with acc = [])
+    /** The control flow graph of the method, built from edges: its vertices are the instructions. */
+    syn JMethod.controlFlow: Graph = graphOf(this.code[0], this.code.flatMap { it.successors })
 
-/** How an instruction changes the depth of the operand stack. */
-syn JInsn.delta: int = 1
-syn JOp.delta: int = this.op.delta
-syn JStore.delta: int = -1
-syn JJump.delta: int = this.cond.delta
-syn JLabel.delta: int = 0
-syn JInvoke.delta: int =
-    (if this.signature[this.signature.size - 1] == "V" then 0 else 1)
-    - (this.signature.size - 1)
-    - (if this.kind == Invoke.VIRTUAL then 1 else 0)
+    /** How an instruction changes the depth of the operand stack. */
+    syn JInsn.delta: int = 1
+    syn JOp.delta: int = this.op.delta
+    syn JStore.delta: int = -1
+    syn JJump.delta: int = this.cond.delta
+    syn JLabel.delta: int = 0
+    syn JInvoke.delta: int = (if result == "V" then 0 else 1) - params - (if this.kind == Invoke.VIRTUAL then 1 else 0)
+        where result = this.signature[-1], params = this.signature.size - 1
 
-/** The parameter types and the return type, read from the descriptor. */
-syn JInvoke.signature: List<str> = Descriptor.method(this.descriptor)
+    /** The parameter types and the return type, read from the descriptor. */
+    syn JInvoke.signature: List<str> = Descriptor.method(this.descriptor)
 
-/** The depth of the stack before an instruction: the deepest of its predecessors, a fixpoint around loops. */
-circular(0) JInsn.stackIn: int = acc.max((p as JInsn).stackIn + (p as JInsn).delta) for p in this.method.controlFlow.pred(this) with acc = 0
+    /** The depth of the stack before an instruction: the deepest of its predecessors, a fixpoint around loops. */
+    circular(0) JInsn.stackIn: int = this.method.controlFlow.pred(this).fold(0) { acc, p -> acc.max(i.stackIn + i.delta) where i = p as JInsn }
 
-syn JMethod.maxStack: int = acc.max(i.stackIn.max(i.stackIn + i.delta)) for i in this.code with acc = 0
+    syn JMethod.maxStack: int = this.code.fold(0) { acc, i -> acc.max(i.stackIn.max(i.stackIn + i.delta)) }
 
-// ==== class file =================================================================================
+    // ==== class file =================================================================================
 
-syn JClass.bytes: List<int> =
-    [202, 254, 186, 190] ++ u2(0) ++ u2(49)                                       // magic, version 49.0
-    ++ u2(this.pool.size + 1) ++ (acc ++ c.entry(this.index) for c in this.pool with acc = [])
-    ++ u2(33)                                                                      // ACC_PUBLIC | ACC_SUPER
-    ++ u2(this.index[Const.CLASS(this.name)]) ++ u2(this.index[Const.CLASS(this.superName)])
-    ++ u2(0) ++ u2(0)                                                              // no interfaces, no fields
-    ++ u2(this.methods.size) ++ (acc ++ m.bytes for m in this.methods with acc = [])
-    ++ u2(0)                                                                       // no attributes
+    syn JClass.bytes: List<int> =
+        [202, 254, 186, 190] ++ u2(0) ++ u2(49)                                       // magic, version 49.0
+        ++ u2(this.pool.size + 1) ++ this.pool.flatMap { it.entry(this.index) }
+        ++ u2(33)                                                                      // ACC_PUBLIC | ACC_SUPER
+        ++ u2(this.index[Const.CLASS(this.name)]) ++ u2(this.index[Const.CLASS(this.superName)])
+        ++ u2(0) ++ u2(0)                                                              // no interfaces, no fields
+        ++ u2(this.methods.size) ++ this.methods.flatMap { it.bytes }
+        ++ u2(0)                                                                       // no attributes
 
-syn JMethod.bytes: List<int> =
-    u2(this.access) ++ u2(this.jclass!!.index[Const.UTF8(this.name)]) ++ u2(this.jclass!!.index[Const.UTF8(this.descriptor)])
-    ++ u2(1) ++ u2(this.jclass!!.index[Const.UTF8("Code")]) ++ u4(12 + this.codeBytes.size)
-    ++ u2(this.maxStack) ++ u2(this.maxLocals) ++ u4(this.codeBytes.size) ++ this.codeBytes
-    ++ u2(0) ++ u2(0)                                                              // no exception table, no attributes
+    syn JMethod.bytes: List<int> =
+        u2(this.access) ++ u2(index[Const.UTF8(this.name)]) ++ u2(index[Const.UTF8(this.descriptor)])
+        ++ u2(1) ++ u2(index[Const.UTF8("Code")]) ++ u4(12 + code.size)
+        ++ u2(this.maxStack) ++ u2(this.maxLocals) ++ u4(code.size) ++ code
+        ++ u2(0) ++ u2(0)                                                              // no exception table, no attributes
+        where index = this.jclass!!.index, code = this.codeBytes
 
-// ==== checks =====================================================================================
+    // ==== checks =====================================================================================
 
-/** Errors in the IR a front end built; a class with problems must not be written. */
-coll JClass.problems: List<str> = []
-contrib JJump -> this.method.klass.problems = problems ++
-    (if this.target in this.method.labels then [] else [this.method.name + ": jump to undefined label " + this.target])
-contrib JMethod -> this.jclass!!.problems = problems ++ match this.code {
-    [] -> [this.name + ": a method needs code"]
-    _ -> []
-}
-contrib JMethod -> this.jclass!!.problems as found = found ++
-    (if this.maxLocals > 255 then [this.name + ": too many locals"] else [])
+    /** Errors in the IR a front end built; a class with problems must not be written. */
+    coll JClass.problems: List<str> = []
+    contrib JJump -> this.method.klass.problems = problems ++
+        (if this.target in this.method.labels then [] else ["${this.method.name}: jump to undefined label ${this.target}"])
+    contrib JMethod -> this.jclass!!.problems = problems ++ match this.code {
+        [] -> ["${this.name}: a method needs code"]
+        _ -> []
+    }
+    contrib JMethod -> this.jclass!!.problems as found = found ++
+        (if this.maxLocals > 255 then ["${this.name}: too many locals"] else [])
 
-// ==== a readable listing, like javap -c ==========================================================
+    // ==== a readable listing, like javap -c ==========================================================
 
-syn JClass.listing: str = acc + m.listing for m in this.methods with acc = "class " + this.name + "\n"
-syn JMethod.listing: str = acc + "  " + i.offset.str() + ": " + i.text + "\n" for i in this.code
-    with acc = "\n  " + this.name + this.descriptor + "  // stack " + this.maxStack.str() + ", locals " + this.maxLocals.str() + "\n"
+    syn JClass.listing: str = "class ${this.name}\n" + this.methods.joinWith("") { it.listing }
+    syn JMethod.listing: str = "\n  ${this.name}${this.descriptor}  // stack ${this.maxStack}, locals ${this.maxLocals}\n"
+        + this.code.joinWith("") { "  ${it.offset}: ${it.text}\n" }
 
-syn JInsn.text: str
-syn JOp.text: str = this.op.repr
-syn JPush.text: str = "push " + this.value.str()
-syn JLdc.text: str = "ldc \"" + this.value + "\""
-syn JLoad.text: str = (match this.slot { Slot.INT -> "iload "  Slot.REF -> "aload " }) + this.index.str()
-syn JStore.text: str = (match this.slot { Slot.INT -> "istore "  Slot.REF -> "astore " }) + this.index.str()
-syn JJump.text: str = this.cond.repr + " " + this.target
-syn JLabel.text: str = this.name + ":"
-syn JGetStatic.text: str = "getstatic " + this.owner + "." + this.name
-syn JInvoke.text: str = (match this.kind { Invoke.STATIC -> "invokestatic "  Invoke.VIRTUAL -> "invokevirtual " }) + this.owner + "." + this.name + this.descriptor
+    syn JInsn.text: str
+    syn JOp.text: str = this.op.repr
+    syn JPush.text: str = "push ${this.value}"
+    syn JLdc.text: str = "ldc \"${this.value}\""
+    syn JLoad.text: str = (match this.slot { Slot.INT -> "iload "  Slot.REF -> "aload " }) + this.index.str()
+    syn JStore.text: str = (match this.slot { Slot.INT -> "istore "  Slot.REF -> "astore " }) + this.index.str()
+    syn JJump.text: str = "${this.cond.repr} ${this.target}"
+    syn JLabel.text: str = "${this.name}:"
+    syn JGetStatic.text: str = "getstatic ${this.owner}.${this.name}"
+    syn JInvoke.text: str = (match this.kind { Invoke.STATIC -> "invokestatic "  Invoke.VIRTUAL -> "invokevirtual " }) + "${this.owner}.${this.name}${this.descriptor}"
 
-val Op.repr: str = match this {
-    Op.IADD -> "iadd"
-    Op.ISUB -> "isub"
-    Op.IMUL -> "imul"
-    Op.IDIV -> "idiv"
-    Op.IREM -> "irem"
-    Op.INEG -> "ineg"
-    Op.IXOR -> "ixor"
-    Op.POP -> "pop"
-    Op.DUP -> "dup"
-    Op.ACONST_NULL -> "aconst_null"
-    Op.IRETURN -> "ireturn"
-    Op.ARETURN -> "areturn"
-    Op.RETURN -> "return"
-}
-val Cond.repr: str = match this {
-    Cond.IFEQ -> "ifeq"
-    Cond.IFNE -> "ifne"
-    Cond.IF_ICMPEQ -> "if_icmpeq"
-    Cond.IF_ICMPNE -> "if_icmpne"
-    Cond.IF_ICMPLT -> "if_icmplt"
-    Cond.IF_ICMPGE -> "if_icmpge"
-    Cond.IF_ICMPGT -> "if_icmpgt"
-    Cond.IF_ICMPLE -> "if_icmple"
-    Cond.GOTO -> "goto"
-}
+    val Op.repr: str = match this {
+        Op.IADD -> "iadd"
+        Op.ISUB -> "isub"
+        Op.IMUL -> "imul"
+        Op.IDIV -> "idiv"
+        Op.IREM -> "irem"
+        Op.INEG -> "ineg"
+        Op.IXOR -> "ixor"
+        Op.POP -> "pop"
+        Op.DUP -> "dup"
+        Op.ACONST_NULL -> "aconst_null"
+        Op.IRETURN -> "ireturn"
+        Op.ARETURN -> "areturn"
+        Op.RETURN -> "return"
+    }
+    val Cond.repr: str = match this {
+        Cond.IFEQ -> "ifeq"
+        Cond.IFNE -> "ifne"
+        Cond.IF_ICMPEQ -> "if_icmpeq"
+        Cond.IF_ICMPNE -> "if_icmpne"
+        Cond.IF_ICMPLT -> "if_icmplt"
+        Cond.IF_ICMPGE -> "if_icmpge"
+        Cond.IF_ICMPGT -> "if_icmpgt"
+        Cond.IF_ICMPLE -> "if_icmple"
+        Cond.GOTO -> "goto"
+    }
 
-// ==== method descriptors ===========================================================================
+    // ==== method descriptors ===========================================================================
 
-// (ILjava/lang/String;)V  ->  ["I", "Ljava/lang/String;", "V"]
-parser Descriptor skip ''
-rule Descriptor.method: List<str> -> '\(' params:field* '\)' result:result { params ++ [result] }
-rule Descriptor.field: str -> '\[*(L[^;]+;|[BCDFIJSZ])'
-rule Descriptor.result: str -> 'V' | field
+    // (ILjava/lang/String;)V  ->  ["I", "Ljava/lang/String;", "V"]
+    parser Descriptor skip ''
+    rule Descriptor.method: List<str> -> '\(' params:field* '\)' result:result { params ++ [result] }
+    rule Descriptor.field: str -> '\[*(L[^;]+;|[BCDFIJSZ])'
+    rule Descriptor.result: str -> 'V' | field
 
-// ==== reading class files back ===================================================================
+    // ==== reading class files back ===================================================================
 
-record ClassSummary {
-    major: int,
-    minor: int,
-    constants: List<str>,
-    methods: int,
-    codeBytes: int
-}
+    record ClassSummary {
+        major: int,
+        minor: int,
+        constants: List<str>,
+        methods: int,
+        codeBytes: int
+    }
 
-parser ClassFile binary
+    parser ClassFile binary
 
-rule ClassFile.file: ClassSummary ->
-    0xCAFEBABE minor:@u2 major:@u2 count:@u2 constants:constant[count - 1]
-    @u2 @u2 @u2                                                 // access flags, this class, super class
-    interfaces:@u2 @u2[interfaces] fields:@u2 field[fields]
-    methods:@u2 ms:method[methods] attributes:@u2 attribute[attributes]
-    { ClassSummary(major, minor, constants, methods, acc + m for m in ms with acc = 0) }
+    rule ClassFile.file: ClassSummary ->
+        0xCAFEBABE minor:@u2 major:@u2 count:@u2 constants:constant[count - 1]
+        @u2 @u2 @u2                                                 // access flags, this class, super class
+        interfaces:@u2 @u2[interfaces] fields:@u2 field[fields]
+        methods:@u2 ms:method[methods] attributes:@u2 attribute[attributes]
+        { ClassSummary(major, minor, constants, methods, ms.sum()) }
 
-rule ClassFile.constant: str ->
-      0x01 n:@u2 @bytes(n) { "Utf8" }
-    | 0x03 @u4 { "Integer" }
-    | 0x07 @u2 { "Class" }
-    | 0x08 @u2 { "String" }
-    | 0x09 @u2 @u2 { "Fieldref" }
-    | 0x0A @u2 @u2 { "Methodref" }
-    | 0x0C @u2 @u2 { "NameAndType" }
+    rule ClassFile.constant: str ->
+          0x01 n:@u2 @bytes(n) { "Utf8" }
+        | 0x03 @u4 { "Integer" }
+        | 0x07 @u2 { "Class" }
+        | 0x08 @u2 { "String" }
+        | 0x09 @u2 @u2 { "Fieldref" }
+        | 0x0A @u2 @u2 { "Methodref" }
+        | 0x0C @u2 @u2 { "NameAndType" }
 
-rule ClassFile.field: int -> @u2 @u2 @u2 n:@u2 attribute[n] { 0 }
-// a method: its code length (the Code attribute is its only attribute here)
-rule ClassFile.method: int -> @u2 @u2 @u2 n:@u2 sizes:attribute[n] { acc + s - 12 for s in sizes with acc = 0 }
-rule ClassFile.attribute: int -> @u2 n:@u4 @bytes(n) { n }
+    rule ClassFile.field: int -> @u2 @u2 @u2 n:@u2 attribute[n] { 0 }
+    // a method: its code length (the Code attribute is its only attribute here)
+    rule ClassFile.method: int -> @u2 @u2 @u2 n:@u2 sizes:attribute[n] { sizes.map { it - 12 }.sum() }
+    rule ClassFile.attribute: int -> @u2 n:@u4 @bytes(n) { n }
 
-// ==== numbers ====================================================================================
+    // ==== numbers ====================================================================================
 
-fun fitsByte(v: int): bool = v >= -128 && v <= 127
-fun fitsShort(v: int): bool = v >= -32768 && v <= 32767
+    fun fitsByte(v: int): bool = v >= -128 && v <= 127
+    fun fitsShort(v: int): bool = v >= -32768 && v <= 32767
 
-// big-endian bytes; for negative numbers the two's complement
-fun u2(v: int): List<int> = [v >> 8 & 255, v & 255]
-fun s2(v: int): List<int> = u2(v)
-fun u4(v: int): List<int> = [v >>> 24, v >> 16 & 255, v >> 8 & 255, v & 255]
+    // big-endian bytes; for negative numbers the two's complement
+    fun u2(v: int): List<int> = [v >> 8 & 255, v & 255]
+    fun s2(v: int): List<int> = u2(v)
+    fun u4(v: int): List<int> = [v >>> 24, v >> 16 & 255, v >> 8 & 255, v & 255]
+
+}  // mod jvm

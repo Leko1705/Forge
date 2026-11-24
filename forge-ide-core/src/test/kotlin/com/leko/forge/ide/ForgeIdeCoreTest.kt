@@ -1,6 +1,7 @@
 package com.leko.forge.ide
 
 import ForgeLexer
+import ForgeParser
 import com.leko.forge.ide.completion.ForgeCandidateKind
 import com.leko.forge.ide.completion.ForgeCompletion
 import com.leko.forge.ide.diagnostics.ForgeDiagnostics
@@ -48,6 +49,33 @@ class ForgeIdeCoreTest {
         assertEquals(ForgeLexer.BLOCK_COMMENT, tokens.last().first, "an unclosed block comment goes to the end")
         assertTrue(ForgeLexer.LINE_COMMENT in tokens.map { it.first })
         assertTrue(ForgeLexer.NODE in ForgeEditorLexer.KEYWORDS)
+    }
+
+    @Test
+    fun theEditorLexerSplitsStringsWithExpressions() {
+        val text = "\"a ${'$'}{f(1)} ${'$'}n \\${'$'}x\" \"plain\""
+        val tokens = mutableListOf<Pair<Int, String>>()
+        ForgeEditorLexer(text, 0, text.length, interpolations = true).apply {
+            while (tokenType != null) { tokens += tokenType!! to text.substring(tokenStart, tokenEnd); advance() }
+        }
+        assertEquals(listOf(
+            ForgeLexer.STRING to "\"a ", ForgeEditorLexer.INTERPOLATION_START to "${'$'}{", ForgeLexer.IDENT to "f",
+            ForgeLexer.LPAREN to "(", ForgeLexer.INT to "1", ForgeLexer.RPAREN to ")", ForgeEditorLexer.INTERPOLATION_END to "}",
+            ForgeLexer.STRING to " ", ForgeEditorLexer.INTERPOLATION_START to "${'$'}", ForgeLexer.IDENT to "n",
+            ForgeLexer.STRING to " \\${'$'}x\"", ForgeLexer.WS to " ", ForgeLexer.STRING to "\"plain\"",
+        ), tokens)
+        // without splitting, a string is one token
+        assertEquals(3, lex(text).size)
+    }
+
+    @Test
+    fun todoCallsAreColoredNotWarnings() {
+        val text = "fun f(n: int): int = if n > 0 then n else TODO(\"negative\")"
+        val problems = ForgeDiagnostics.analyze(ForgeSource(text, null), ForgeHost.DISK)
+        assertTrue(problems.none { it.severity == ForgeSeverity.WARNING || it.severity == ForgeSeverity.ERROR }, problems.toString())
+        val todo = problems.single { it.severity == ForgeSeverity.TODO }
+        assertEquals("TODO: negative", todo.message)
+        assertEquals("TODO(\"negative\")", text.substring(todo.range!!.start, todo.range!!.end))
     }
 
     @Test
@@ -152,6 +180,113 @@ class ForgeIdeCoreTest {
         val left = declarations.nameAt(text.indexOf("left"))!!
         assertEquals("child of node Add(left: Expr, right: Expr): Expr", declarations.info(left)!!.kind)
         assertEquals("const limit = 3", declarations.info(outline[4].name)!!.signature)
+    }
+
+    @Test
+    fun theLanguageFeaturesAreAnalyzedAsTheCompilerDoes() {
+        val file = File(root, "src/test/forge/language.forge")
+        val errors = ForgeDiagnostics.analyze(ForgeSource(file.readText(), file), ForgeHost.DISK).filter { it.severity == ForgeSeverity.ERROR }
+        assertEquals(emptyList(), errors)
+        // mod, use and trait are keywords before a name, names otherwise
+        assertTrue(ForgeLexer.MOD in lex("mod m {}").map { it.first })
+        assertTrue(ForgeLexer.MOD !in lex("fun mod(x: int): int = x").map { it.first })
+        // an expression in a string is parsed with the file: its errors are syntax errors
+        assertTrue(ForgeAntlr.parse("fun f(): str = \"${'$'}{1 +}\"").second.isNotEmpty())
+        assertTrue(ForgeAntlr.parse("fun f(): str = \"${'$'}{1 + 2}\"").second.isEmpty())
+    }
+
+    @Test
+    fun namesOfTheLanguageFeaturesResolve() {
+        val text = "mod geo {\n    record Point { x: int }\n}\nfun f(g: (int) -> int): int = g(y) + geo::Point(1).x where y = 2\n" +
+            "fun h(): int = [1].map({ v -> v + 1 })[0]\nfun s(n: int): str = \"${'$'}{n}\""
+        val semantics = ForgeSemantics.compute(text, null, ForgeHost.DISK)
+        // a call of a function value: the parameter
+        assertEquals(ForgeNameRole.PARAMETER, semantics.resolutions.getValue(text.indexOf("g(y)")).role)
+        // a where binding
+        val y = semantics.resolutions.getValue(text.indexOf("y) +"))
+        assertEquals(ForgeNameRole.LOCAL_VARIABLE, y.role)
+        assertEquals(4 to text.substringAfter("}\n}\n").indexOf("y = 2"), y.line to y.column)
+        // a qualified name: the declaration in the module, by the name written
+        val point = semantics.resolutions.getValue(text.indexOf("geo::Point(1)"))
+        assertEquals("geo::Point", point.name)
+        assertEquals(2, point.line)
+        // a lambda parameter, and a name in a string
+        assertEquals(ForgeNameRole.LOCAL_VARIABLE, semantics.resolutions.getValue(text.indexOf("v + 1")).role)
+        assertEquals(ForgeNameRole.PARAMETER, semantics.resolutions.getValue(text.lastIndexOf("n}")).role)
+    }
+
+    @Test
+    fun methodsThatImplementTraitsAreKnown() {
+        val text = "trait Named { fun name(): str\n    val size: int }\ntrait Ord { op fun compareTo(other: Self): int }\n" +
+            "record Dog { n: str }\nfun Dog.name(): str = this.n\nval Dog.size: int = 1\n" +
+            "record Cat { n: str }\nfun Cat.name(): str = this.n\n" +
+            "record Box<T> { item: T }\nfun <T> Box<T>.name(): str = \"box\"\nval <T> Box<T>.size: int = 1\n" +
+            "fun Dog.compareTo(other: Dog): int = 0"
+        val implementations = ForgeSemantics.compute(text, null, ForgeHost.DISK).traitImplementations
+        val dogName = implementations.getValue(text.indexOf("name(): str = this.n"))
+        assertEquals(listOf("Named" to "Dog"), dogName.map { it.trait to it.type })
+        // the member it implements, where it is declared
+        assertEquals(1 to text.indexOf("name()"), dogName[0].member.line to dogName[0].member.column)
+        assertEquals(listOf("Named"), implementations.getValue(text.indexOf("size: int = 1")).map { it.trait })
+        // Cat has no size: it does not have the trait; a plain fun compareTo is no operator of Ord
+        assertNull(implementations[text.lastIndexOf("name(): str = this.n")])
+        assertNull(implementations[text.indexOf("compareTo(other: Dog)")])
+        // a generic record has it through generic methods
+        assertEquals(listOf("Box<T>"), implementations.getValue(text.indexOf("name(): str = \"box\"")).map { it.type })
+        // and the other way: the members of the trait know their implementations
+        val implementers = ForgeSemantics.compute(text, null, ForgeHost.DISK).traitImplementers
+        val name = implementers.getValue(text.indexOf("name(): str\n"))
+        assertEquals(listOf("fun Dog.name", "fun Box<T>.name"), name.map { it.label })
+        assertEquals(5, name[0].declaration.line)
+        assertEquals(listOf("val Dog.size", "val Box<T>.size"), implementers.getValue(text.indexOf("size: int }")).map { it.label })
+        // a val member: also an attribute or a field
+        val nodes = "trait Sized { val size: int }\nnode Expr\nnode Num(size: int): Expr\nnode Neg(e: Expr): Expr\nsyn Neg.size: int = 1\nrecord R { size: int }"
+        val sized = ForgeSemantics.compute(nodes, null, ForgeHost.DISK).traitImplementers.getValue(nodes.indexOf("size: int }"))
+        // (and the size of the builtin types, from the standard library)
+        assertEquals(setOf("field Num.size", "attribute Neg.size", "field R.size", "val str.size", "val List<T>.size", "val Set<T>.size", "val Map<K, V>.size"),
+            sized.map { it.label }.toSet())
+    }
+
+    @Test
+    fun missingDeclarationsCanBeCreated() {
+        fun fixes(text: String): List<String> = ForgeDiagnostics.analyze(ForgeSource(text, null), ForgeHost.DISK)
+            .flatMap { p -> p.fixes.map { text.substring(0, it.offset) + it.text + text.substring(it.offset) } }
+        val todo = "TODO(\"not yet implemented\")"
+        // a function, with the types of the arguments and what is expected of the call
+        assertEquals(listOf("fun f(x: int): str = g(x, \"a\")\n\nfun g(x: int, p2: str): str = $todo"),
+            fixes("fun f(x: int): str = g(x, \"a\")"))
+        // an extension function of the receiver
+        assertEquals(listOf("record R { n: int }\nfun f(r: R): bool = r.check(1)\n\nfun R.check(p1: int): bool = $todo"),
+            fixes("record R { n: int }\nfun f(r: R): bool = r.check(1)"))
+        // a val, of a node a syn attribute
+        assertEquals(listOf("fun f(xs: List<int>): int = xs.total\n\nval List<int>.total: int = $todo"), fixes("fun f(xs: List<int>): int = xs.total"))
+        assertEquals(listOf("node A(n: int)\nsyn A.x: int = this.y\n\nsyn A.y: int = $todo"), fixes("node A(n: int)\nsyn A.x: int = this.y"))
+        // what the expression around expects
+        assertTrue(fixes("fun f(): int = 1 + h()").single().endsWith("fun h(): int = $todo"))
+        // in a module: after the declaration, in the module
+        assertEquals(listOf("mod m {\n    fun f(): int = g()\n\n    fun g(): int = $todo\n}"), fixes("mod m {\n    fun f(): int = g()\n}"))
+    }
+
+    @Test
+    fun theOutlineHasModulesAndTraits() {
+        val text = "mod geo {\n    record Point { x: int }\n    mod deep { const c = 1 }\n}\ntrait Named { fun name(): str }"
+        val declarations = ForgeDeclarations(text, ForgeAntlr.parse(text).first)
+        val outline = declarations.outline()
+        assertEquals(listOf("mod geo", "trait Named"), outline.map { it.label })
+        assertEquals(listOf("record Point { x: int }", "mod deep"), outline[0].children.map { it.label })
+        assertEquals(listOf("const c"), outline[0].children[1].children.map { it.label })
+        assertEquals(listOf("fun name(): str"), outline[1].children.map { it.label })
+        assertEquals("module", declarations.info(outline[0].name)!!.kind)
+        assertEquals("trait", declarations.info(outline[1].name)!!.kind)
+        // Self in a trait is a keyword
+        val self = "trait Ord { op fun compareTo(other: Self): int }"
+        val tree = ForgeAntlr.parse(self).first
+        val selfToken = ForgeAntlr.tokens(self).first { it.text == "Self" }
+        fun find(t: org.antlr.v4.runtime.tree.ParseTree): ForgeParser.NamedTypeContext? =
+            (t as? ForgeParser.NamedTypeContext)?.takeIf { it.name.startIndex == selfToken.startIndex }
+                ?: (0 until t.childCount).firstNotNullOfOrNull { find(t.getChild(it)) }
+        val type = find(tree)!!
+        assertEquals(ForgeNameRole.SOFT_KEYWORD, com.leko.forge.ide.parser.nameRole(type, type.name))
     }
 
     @Test

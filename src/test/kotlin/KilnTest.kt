@@ -1,4 +1,7 @@
 import kiln.*
+// the declarations of the module jvm (jvm.forge) are jvm__Name in Kotlin
+import kiln.jvm__ClassFile as ClassFile
+import kiln.jvm__Descriptor as Descriptor
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.PrintStream

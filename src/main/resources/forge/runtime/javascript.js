@@ -61,6 +61,32 @@ function $f2i(v) {
     return Math.trunc(v) | 0;
 }
 
+// ---- long: a BigInt of 64 bits ------------------------------------------------------------------
+
+function $f2l(v) {
+    if (v !== v) return 0n;
+    if (v >= 9223372036854775807) return 9223372036854775807n;
+    if (v <= -9223372036854775808) return -9223372036854775808n;
+    return BigInt(Math.trunc(v));
+}
+
+function $ldiv(a, b) {
+    if (b === 0n) throw new ForgeError("/ by zero");
+    return BigInt.asIntN(64, a / b);
+}
+
+function $lmod(a, b) {
+    if (b === 0n) throw new ForgeError("/ by zero");
+    return a % b;
+}
+
+function $toLong(s) {
+    if (!$INT.test(s)) throw new ForgeError("not a long: \"" + s + "\"");
+    const v = BigInt(s);
+    if (v !== BigInt.asIntN(64, v)) throw new ForgeError("not a long: \"" + s + "\"");
+    return v;
+}
+
 function $nn(v) {
     if (v == null) throw new ForgeError("null value where a value is required (!!)");
     return v;
@@ -206,6 +232,7 @@ function $skey(v) {
     if (v === null) return "n";
     switch (typeof v) {
         case "number": return "i" + v;
+        case "bigint": return "l" + v;
         case "string": return JSON.stringify(v);
         case "boolean": return v ? "T" : "F";
     }

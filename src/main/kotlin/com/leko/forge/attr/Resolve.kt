@@ -31,6 +31,11 @@ import com.leko.forge.types.OptionalType
 import com.leko.forge.types.ParserType
 import com.leko.forge.types.StrType
 import com.leko.forge.types.Type
+import com.leko.forge.types.TupleType
+import com.leko.forge.types.FunctionType
+import com.leko.forge.types.substitute
+import com.leko.forge.model.tupleSymbol
+import com.leko.forge.model.functionValueSymbol
 
 
 class Resolve private constructor(context: Context) {
@@ -48,6 +53,8 @@ class Resolve private constructor(context: Context) {
         if (type is ListType && type !in symTab) symTab[type] = listSymbol(type)
         if (type is MapType && type !in symTab) symTab[type] = mapSymbol(type)
         if (type is SetType && type !in symTab) symTab[type] = setSymbol(type)
+        if (type is TupleType && type !in symTab) symTab[type] = tupleSymbol(type)
+        if (type is FunctionType && type !in symTab) symTab[type] = functionValueSymbol(type)
         return symTab[type]
     }
 
@@ -98,6 +105,13 @@ class Resolve private constructor(context: Context) {
         pattern is SetType && actual is SetType -> fits(pattern.elem, actual.elem, bindings)
         pattern is MapType && actual is MapType -> fits(pattern.key, actual.key, bindings) && fits(pattern.value, actual.value, bindings)
         pattern is OptionalType && actual is OptionalType -> fits(pattern.elem, actual.elem, bindings)
+        pattern is ComplexType && actual is ComplexType && pattern.args.isNotEmpty() && pattern.name == actual.name ->
+            pattern.args.size == actual.args.size && pattern.args.zip(actual.args).all { (p, a) -> fits(p, a, bindings) }
+        pattern is TupleType && actual is TupleType ->
+            pattern.elems.size == actual.elems.size && pattern.elems.zip(actual.elems).all { (p, a) -> fits(p, a, bindings) }
+        pattern is FunctionType && actual is FunctionType ->
+            pattern.parameters.size == actual.parameters.size &&
+                pattern.parameters.zip(actual.parameters).all { (p, a) -> fits(p, a, bindings) } && fits(pattern.returnType, actual.returnType, bindings)
         pattern == actual -> true
         // a generic method of a node is one of its subtypes too
         else -> {
@@ -105,6 +119,13 @@ class Resolve private constructor(context: Context) {
             val a = resolve(actual) as? NodeSymbol
             p != null && a != null && (p == a || p in typeMap.allParentsOf(a))
         }
+    }
+
+    /** The type arguments of a use of a generic record or enum by its type parameters: `Pair<int, str>` binds A, B. */
+    fun typeArguments(params: List<String>, use: Type): Map<String, Type> {
+        val args = (use as? ComplexType)?.args.orEmpty()
+        if (params.isEmpty() || args.size != params.size) return emptyMap()
+        return params.zip(args).toMap()
     }
 
     private fun resolveDeclared(owner: Type, member: String, receiverKind: Kind, memberKind: Kind): Symbol? {
@@ -117,8 +138,11 @@ class Resolve private constructor(context: Context) {
         if (sym is RecordSymbol) {
             if (receiverKind != Kind.VAL) return null
             return when (memberKind) {
-                // fields, then properties (`val str.size: int`)
-                Kind.VAL -> sym.fields.firstOrNull { it.name == member }
+                // fields, then properties (`val str.size: int`); the fields of a generic record of its type arguments
+                Kind.VAL -> sym.fields.firstOrNull { it.name == member }?.let { field ->
+                    val bindings = typeArguments(sym.typeParams, owner)
+                    if (bindings.isEmpty()) field else VarSymbol(field.name, field.type.substitute(bindings), field.span, field.varKind)
+                }
                     ?: typeMap.methods[sym]?.firstOrNull { it.name == member && it.isProperty }
                 // methods the program defines, also those of the standard library (str.upper(), List<int>.sum(), ...)
                 Kind.MTH -> typeMap.methods[sym]?.firstOrNull { it.name == member && !it.isProperty }

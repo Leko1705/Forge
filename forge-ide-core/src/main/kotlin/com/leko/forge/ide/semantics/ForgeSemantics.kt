@@ -9,6 +9,7 @@ import com.leko.forge.attr.clearTreeAttributes
 import com.leko.forge.attr.port
 import com.leko.forge.attr.symbol
 import com.leko.forge.attr.local
+import com.leko.forge.attr.callee
 import com.leko.forge.context.Context
 import com.leko.forge.enter.Enter
 import com.leko.forge.enter.MemberEnter
@@ -39,6 +40,15 @@ data class ForgeResolution(val name: String, val source: String?, val line: Int,
 
 /** An analyzed program: the tree of the analyzed file ([main], with its [tokens]) and of the whole program ([root]). */
 class ForgeAnalysis(val context: Context, val main: ForgeParser.RootContext, val root: ForgeParser.RootContext, val tokens: List<Token>)
+
+/**
+ * A member of a trait that a method or property implements: [member] is where the member is declared; the type the
+ * method is of ([type]) has all the members of [trait], so it satisfies `fun <T: Trait>`.
+ */
+data class ForgeTraitImplementation(val trait: String, val type: String, val member: ForgeResolution)
+
+/** A declaration ([declaration]: a method, a property, an attribute or a field) of [type] that implements a member of a trait. */
+data class ForgeTraitImplementer(val type: String, val label: String, val declaration: ForgeResolution)
 
 /** A declaration related to another one: [resolution] is where it is; [abstract] if it has no implementation of its own. */
 data class ForgeRelated(val resolution: ForgeResolution, val abstract: Boolean, val label: String)
@@ -71,6 +81,10 @@ class ForgeSemantics(
     val hierarchy: Map<Int, ForgeHierarchy> = emptyMap(),
     /** The types of the used variables, parameters and constants of the file, by the line and column of their declaration. */
     val declarationTypes: Map<Pair<Int, Int>, String> = emptyMap(),
+    /** The members of traits that the methods and properties of the file implement, by the offset of their names. */
+    val traitImplementations: Map<Int, List<ForgeTraitImplementation>> = emptyMap(),
+    /** The implementations of the members of the traits of the file (by the offset of their names), in the whole program. */
+    val traitImplementers: Map<Int, List<ForgeTraitImplementer>> = emptyMap(),
 ) {
 
     /** These semantics in a changed text: what is on lines that are still there, moved with them; the rest is gone. */
@@ -89,6 +103,16 @@ class ForgeSemantics(
             declarationTypes = declarationTypes.entries.mapNotNull { (position, type) ->
                 map.line(position.first)?.let { (it to position.second) to type }
             }.toMap(),
+            traitImplementations = traitImplementations.entries.mapNotNull { (offset, list) ->
+                val newOffset = map.offset(offset) ?: return@mapNotNull null
+                val moved = list.mapNotNull { i -> i.member.moved()?.let { i.copy(member = it) } }
+                newOffset to moved
+            }.filter { it.second.isNotEmpty() }.toMap(),
+            traitImplementers = traitImplementers.entries.mapNotNull { (offset, list) ->
+                val newOffset = map.offset(offset) ?: return@mapNotNull null
+                val moved = list.mapNotNull { i -> i.declaration.moved()?.let { i.copy(declaration = it) } }
+                newOffset to moved
+            }.filter { it.second.isNotEmpty() }.toMap(),
         )
     }
 
@@ -101,7 +125,91 @@ class ForgeSemantics(
 
         private fun semanticsOf(analysis: ForgeAnalysis): ForgeSemantics {
             val collector = Collector(analysis.context).apply { visit(analysis.main) }
-            return ForgeSemantics(collector.resolutions, Hierarchy(analysis.context, analysis.root).compute(), collector.declarationTypes)
+            return ForgeSemantics(
+                collector.resolutions, Hierarchy(analysis.context, analysis.root).compute(), collector.declarationTypes,
+                traitImplementations(analysis), traitImplementers(analysis),
+            )
+        }
+
+        /**
+         * For each member of a trait of the analyzed file, its implementations in the whole program: of every type
+         * that has all the members of the trait, the declaration the compiler takes for the member.
+         */
+        private fun traitImplementers(analysis: ForgeAnalysis): Map<Int, List<ForgeTraitImplementer>> {
+            val traits = com.leko.forge.attr.Traits.instance(analysis.context)
+            val symTab = SymTab.instance(analysis.context)
+            val typeMap = TypeMap.instance(analysis.context)
+            val resolve = com.leko.forge.attr.Resolve.instance(analysis.context)
+            // the types that may have a member: receivers of methods, owners of attributes and fields of that name
+            fun candidates(name: String): List<com.leko.forge.types.Type> = buildList {
+                analysis.root.function().forEach { f -> val sym = f.symbol; if (sym?.name == name) sym.receiver?.type?.let { add(it) } }
+                typeMap.nodeAttributes.forEach { (owner, attributes) -> if (attributes.any { it.name == name }) add(owner.type) }
+                symTab.table.values.forEach { t ->
+                    val fields = when (t) { is ConcreteNodeSymbol -> t.fields; is RecordSymbol -> if (t.span != null) t.fields else emptyList(); else -> emptyList() }
+                    if (fields.any { it.name == name }) add(t.type)
+                }
+            }.distinct()
+            fun label(type: com.leko.forge.types.Type, sym: Symbol): String = when (sym) {
+                is FunctionSymbol -> (if (sym.isOperator) "op " else "") + (if (sym.isProperty) "val " else "fun ") + "$type.${sym.name}"
+                is AttributeSymbol -> "attribute $type.${sym.name}"
+                else -> "field $type.${sym.name}"
+            }
+            val result = mutableMapOf<Int, List<ForgeTraitImplementer>>()
+            fun traitDefs(t: ParseTree): List<ForgeParser.TraitDefContext> = when (t) {
+                is ForgeParser.TraitDefContext -> listOf(t)
+                is ForgeParser.RootContext, is ForgeParser.ModDefContext -> (0 until t.childCount).flatMap { traitDefs(t.getChild(it)) }
+                else -> emptyList()
+            }
+            for (traitDef in traitDefs(analysis.main)) {
+                val trait = symTab.traits[traitDef.name.text] ?: continue
+                for ((member, ctx) in trait.members.zip(traitDef.traitMember())) {
+                    if (ctx.name.startIndex < 0) continue
+                    val implementers = candidates(member.name).mapNotNull { type ->
+                        val sym = traits.implementations(type, trait)?.get(member) ?: return@mapNotNull null
+                        val declaration = (sym as? FunctionSymbol)?.declaration ?: sym
+                        val span = declaration.span ?: return@mapNotNull null
+                        if (span.startLine <= 0) return@mapNotNull null
+                        ForgeTraitImplementer(type.toString(), label(type, declaration),
+                            ForgeResolution(declaration.name, span.source, span.startLine, span.startCol, null))
+                    }.distinctBy { it.declaration }
+                    if (implementers.isNotEmpty()) result[ctx.name.startIndex] = implementers
+                }
+            }
+            return result
+        }
+
+        /**
+         * The methods and properties of the analyzed file that implement a member of a trait: of a type that has
+         * every member of the trait (by the rules of bounds), the one the compiler takes for this member.
+         */
+        private fun traitImplementations(analysis: ForgeAnalysis): Map<Int, List<ForgeTraitImplementation>> {
+            val traits = com.leko.forge.attr.Traits.instance(analysis.context)
+            val symTab = SymTab.instance(analysis.context)
+            val result = mutableMapOf<Int, List<ForgeTraitImplementation>>()
+            fun functions(t: ParseTree): List<ForgeParser.FunctionContext> = when (t) {
+                is ForgeParser.FunctionContext -> listOf(t)
+                is ForgeParser.RootContext, is ForgeParser.ModDefContext -> (0 until t.childCount).flatMap { functions(t.getChild(it)) }
+                else -> emptyList()
+            }
+            for (function in functions(analysis.main)) {
+                val sym = function.symbol ?: continue
+                val receiver = sym.receiver?.type ?: continue
+                if (function.name.startIndex < 0) continue
+                val implemented = symTab.traits.values.flatMap { trait ->
+                    val members = trait.members.filter { it.name == sym.name && it.isProperty == sym.isProperty }
+                    if (members.isEmpty()) return@flatMap emptyList()
+                    val all = traits.implementations(receiver, trait) ?: return@flatMap emptyList()
+                    members.filter { m -> (all[m] as? FunctionSymbol)?.declaration === sym }.map { m ->
+                        ForgeTraitImplementation(
+                            com.leko.forge.types.displayName(trait.name), receiver.toString(),
+                            ForgeResolution(m.name, m.span.source, m.span.startLine, m.span.startCol,
+                                if (m.isProperty) ForgeNameRole.PROPERTY else ForgeNameRole.FUNCTION_DECLARATION),
+                        )
+                    }
+                }
+                if (implemented.isNotEmpty()) result[function.name.startIndex] = implemented
+            }
+            return result
         }
 
         /**
@@ -123,11 +231,14 @@ class ForgeSemantics(
             val parser = ForgeParser(CommonTokenStream(ListTokenSource(tokens)))
             parser.removeErrorListeners()
             val main = parser.root()
+        // the expressions in strings, and `where`s as the compiler sees them
+        com.leko.forge.parse.postParse(main, object : org.antlr.v4.runtime.BaseErrorListener() {})
             if (file == null && main.importDecl().any { it.path.text != "\"std\"" }) return null
             return synchronized(lock) {
                 try {
                     val root = (file ?: File("<editor>")).parseForgeImports(main, host::read)
                     val context = Context()
+                    com.leko.forge.enter.Modules.instance(context).resolve(root)
                     Enter.instance(context).enter(root)
                     MemberEnter.instance(context).enter(root)
                     Attr.instance(context).attr(root)
@@ -246,7 +357,7 @@ class ForgeSemantics(
                     declarationTypes[span.startLine to span.startCol] = symbol.type.toString()
                 }
                 resolutions[token.startIndex] = ForgeResolution(
-                    symbol.name, span.source, span.startLine, span.startCol, role(symbol, nameRole(context, token)),
+                    com.leko.forge.types.displayName(symbol.name), span.source, span.startLine, span.startCol, role(symbol, nameRole(context, token)),
                 )
                 return
             }
@@ -259,7 +370,9 @@ class ForgeSemantics(
             val symbol: Symbol? = when (context) {
                 is ForgeParser.IdentifierContext -> context.symbol ?: context.port ?: context.local
                 is ForgeParser.FieldAccessContext -> context.symbol.takeIf { token === context.name }
-                is ForgeParser.FunctionCallContext -> (context.symbol ?: context.port).takeIf { token === context.name }
+                // also a call of a variable whose value is a function
+                is ForgeParser.FunctionCallContext -> (context.symbol ?: context.port
+                    ?: context.callee).takeIf { token === context.name }
                 is ForgeParser.MethodCallContext -> context.symbol.takeIf { token === context.name }
                 is ForgeParser.TypePatternContext -> when (token) {
                     context.name -> context.symbol

@@ -1,6 +1,8 @@
 package kiln
 
 import java.io.File
+// jvm.forge declares its parser in the module jvm: in Kotlin it is jvm__ClassFile
+import kiln.jvm__ClassFile as ClassFile
 import kotlin.system.exitProcess
 
 private const val USAGE = "usage: kilnc <file.kiln> [-d <dir>] [--listing] [--cfg] [--run]"

@@ -41,9 +41,9 @@ struct PortRef;
 
 /** A value of Forge. Lists, maps and records are immutable; nodes are compared by identity. */
 struct V {
-    enum Tag : uint8_t { NUL, INT, FLOAT, BOOL, STR, LIST, SET, MAP, REC, NODE, GRAPH, EDGE, PORT, PORTREF, FLOWGRAPH, NOMATCH };
+    enum Tag : uint8_t { NUL, INT, FLOAT, BOOL, STR, LIST, SET, MAP, REC, NODE, GRAPH, EDGE, PORT, PORTREF, FLOWGRAPH, NOMATCH, LONG, FN };
     Tag tag = NUL;
-    union { int32_t i; float f; bool b; };
+    union { int32_t i; float f; bool b; int64_t l; };
     std::shared_ptr<void> p;
     V() : i(0) {}
 
@@ -55,12 +55,16 @@ inline V make(V::Tag tag, std::shared_ptr<void> p) { V v; v.tag = tag; v.p = std
 inline V Null() { return V(); }
 inline V NoMatch() { V v; v.tag = V::NOMATCH; return v; }
 inline V I(int32_t x) { V v; v.tag = V::INT; v.i = x; return v; }
+inline V Lg(int64_t x) { V v; v.tag = V::LONG; v.l = x; return v; }
 inline V F(float x) { V v; v.tag = V::FLOAT; v.f = x; return v; }
 inline V B(bool x) { V v; v.tag = V::BOOL; v.b = x; return v; }
 inline V S(std::string s) { return make(V::STR, std::make_shared<std::string>(std::move(s))); }
 inline V L(List items) { return make(V::LIST, std::make_shared<List>(std::move(items))); }
 
 struct MapData { std::vector<std::pair<V, V>> entries; };
+/** A function value: it receives its arguments as a list. */
+using Fn = std::function<V(const List&)>;
+inline V fn(Fn f) { return make(V::FN, std::make_shared<Fn>(std::move(f))); }
 struct Rec { int rid; std::string name; std::vector<std::string> names; std::vector<V> fields; bool item; };
 struct Node {
     int kind;
@@ -83,6 +87,8 @@ inline int64_t next_id() { static int64_t counter = 0; return ++counter; }
 
 inline bool truth(const V& v) { if (v.tag != V::BOOL) fail("a bool was expected"); return v.b; }
 inline int32_t int_of(const V& v) { if (v.tag != V::INT) fail("an int was expected"); return v.i; }
+inline int64_t long_of(const V& v) { if (v.tag != V::LONG) fail("a long was expected"); return v.l; }
+inline V call(const V& f, const List& args) { if (f.tag != V::FN) fail("a function was expected"); return f.as<Fn>()(args); }
 inline float float_of(const V& v) { if (v.tag != V::FLOAT) fail("a float was expected"); return v.f; }
 inline const std::string& str_of(const V& v) { if (v.tag != V::STR) fail("a str was expected"); return v.as<std::string>(); }
 /** The elements of a list or a set (without duplicates, in the order they were added). */
@@ -96,26 +102,44 @@ inline Node& node_of(const V& v) { if (v.tag != V::NODE) fail("a node was expect
 // ---- arithmetic -----------------------------------------------------------------------------
 
 inline int32_t wrap(int64_t x) { return static_cast<int32_t>(static_cast<uint32_t>(x)); }
-inline V add(const V& a, const V& b) { return I(wrap(int64_t(int_of(a)) + int_of(b))); }
-inline V sub(const V& a, const V& b) { return I(wrap(int64_t(int_of(a)) - int_of(b))); }
-inline V mul(const V& a, const V& b) { return I(wrap(int64_t(int_of(a)) * int_of(b))); }
+// longs: the same operations on 64 bits (unsigned, so that overflow wraps)
+inline int64_t lw(uint64_t x) { return static_cast<int64_t>(x); }
+inline uint64_t lu(const V& a) { return static_cast<uint64_t>(long_of(a)); }
+inline V add(const V& a, const V& b) { if (a.tag == V::LONG) return Lg(lw(lu(a) + lu(b))); return I(wrap(int64_t(int_of(a)) + int_of(b))); }
+inline V sub(const V& a, const V& b) { if (a.tag == V::LONG) return Lg(lw(lu(a) - lu(b))); return I(wrap(int64_t(int_of(a)) - int_of(b))); }
+inline V mul(const V& a, const V& b) { if (a.tag == V::LONG) return Lg(lw(lu(a) * lu(b))); return I(wrap(int64_t(int_of(a)) * int_of(b))); }
 inline V div(const V& a, const V& b) {
+    if (a.tag == V::LONG) {
+        int64_t d = long_of(b);
+        if (d == 0) fail("/ by zero");
+        if (d == -1) return Lg(lw(0 - lu(a)));
+        return Lg(long_of(a) / d);
+    }
     int32_t d = int_of(b);
     if (d == 0) fail("/ by zero");
     if (d == -1) return I(wrap(-int64_t(int_of(a))));
     return I(int_of(a) / d);
 }
 inline V rem(const V& a, const V& b) {
+    if (a.tag == V::LONG) {
+        int64_t d = long_of(b);
+        if (d == 0) fail("/ by zero");
+        if (d == -1) return Lg(0);
+        return Lg(long_of(a) % d);
+    }
     int32_t d = int_of(b);
     if (d == 0) fail("/ by zero");
     if (d == -1) return I(0);
     return I(int_of(a) % d);
 }
-inline V neg(const V& a) { return I(wrap(-int64_t(int_of(a)))); }
-inline V band(const V& a, const V& b) { return I(int_of(a) & int_of(b)); }
-inline V bor(const V& a, const V& b) { return I(int_of(a) | int_of(b)); }
-inline V bxor(const V& a, const V& b) { return I(int_of(a) ^ int_of(b)); }
-inline V bnot(const V& a) { return I(~int_of(a)); }
+inline V neg(const V& a) { if (a.tag == V::LONG) return Lg(lw(0 - lu(a))); return I(wrap(-int64_t(int_of(a)))); }
+inline V band(const V& a, const V& b) { if (a.tag == V::LONG) return Lg(long_of(a) & long_of(b)); return I(int_of(a) & int_of(b)); }
+inline V bor(const V& a, const V& b) { if (a.tag == V::LONG) return Lg(long_of(a) | long_of(b)); return I(int_of(a) | int_of(b)); }
+inline V bxor(const V& a, const V& b) { if (a.tag == V::LONG) return Lg(long_of(a) ^ long_of(b)); return I(int_of(a) ^ int_of(b)); }
+inline V bnot(const V& a) { if (a.tag == V::LONG) return Lg(~long_of(a)); return I(~int_of(a)); }
+inline V i2l(const V& a) { return Lg(int_of(a)); }
+inline V l2i(const V& a) { return I(static_cast<int32_t>(static_cast<uint32_t>(lu(a)))); }
+inline V l2f(const V& a) { return F(static_cast<float>(long_of(a))); }
 inline V fadd(const V& a, const V& b) { return F(float_of(a) + float_of(b)); }
 inline V fsub(const V& a, const V& b) { return F(float_of(a) - float_of(b)); }
 inline V fmul(const V& a, const V& b) { return F(float_of(a) * float_of(b)); }
@@ -129,6 +153,13 @@ inline V f2i(const V& a) {
     if (f <= -2147483648.0f) return I(-2147483647 - 1);
     return I(static_cast<int32_t>(f));
 }
+inline V f2l(const V& a) {
+    float f = float_of(a);
+    if (std::isnan(f)) return Lg(0);
+    if (f >= 9223372036854775807.0f) return Lg(INT64_MAX);
+    if (f <= -9223372036854775808.0f) return Lg(INT64_MIN);
+    return Lg(static_cast<int64_t>(f));
+}
 inline V concat(const V& a, const V& b) { return S(str_of(a) + str_of(b)); }
 
 // ---- equality and text ----------------------------------------------------------------------
@@ -138,6 +169,8 @@ inline bool eq(const V& a, const V& b) {
     switch (a.tag) {
         case V::NUL: case V::NOMATCH: return true;
         case V::INT: return a.i == b.i;
+        case V::LONG: return a.l == b.l;
+        case V::FN: return a.p == b.p;
         case V::FLOAT: return a.f == b.f || (std::isnan(a.f) && std::isnan(b.f));
         case V::BOOL: return a.b == b.b;
         case V::STR: return a.as<std::string>() == b.as<std::string>();
@@ -225,6 +258,8 @@ inline std::string show(const V& v) {
     switch (v.tag) {
         case V::NUL: return "null";
         case V::INT: return std::to_string(v.i);
+        case V::LONG: return std::to_string(v.l);
+        case V::FN: return "<function>";
         case V::FLOAT: return show_float(v.f);
         case V::BOOL: return v.b ? "true" : "false";
         case V::STR: return v.as<std::string>();
@@ -300,9 +335,16 @@ inline V slice(const V& v, const V& lo, const V& hi) {
 }
 inline V char_at(const V& s, const V& i) { const std::string& t = str_of(s); return S(std::string(1, t[position(int_of(i), static_cast<long>(t.size()))])); }
 inline V range(const V& a, const V& b) { List r; for (int32_t i = int_of(a); i < int_of(b); i++) r.push_back(I(i)); return L(r); }
-inline V shl(const V& a, const V& b) { return I(static_cast<int32_t>(static_cast<uint32_t>(int_of(a)) << (int_of(b) & 31))); }
-inline V shr(const V& a, const V& b) { return I(int_of(a) >> (int_of(b) & 31)); }
-inline V ushr(const V& a, const V& b) { return I(static_cast<int32_t>(static_cast<uint32_t>(int_of(a)) >> (int_of(b) & 31))); }
+inline V shl(const V& a, const V& b) {
+    if (a.tag == V::LONG) return Lg(lw(lu(a) << (int_of(b) & 63)));
+    return I(static_cast<int32_t>(static_cast<uint32_t>(int_of(a)) << (int_of(b) & 31)));
+}
+inline V shr(const V& a, const V& b) { if (a.tag == V::LONG) return Lg(long_of(a) >> (int_of(b) & 63)); return I(int_of(a) >> (int_of(b) & 31)); }
+inline V ushr(const V& a, const V& b) {
+    if (a.tag == V::LONG) return Lg(lw(lu(a) >> (int_of(b) & 63)));
+    return I(static_cast<int32_t>(static_cast<uint32_t>(int_of(a)) >> (int_of(b) & 31)));
+}
+inline V tuple_get(const V& t, int index) { return items(t)[index]; }
 
 // ---- sets
 inline V make_set(const List& xs) {
@@ -387,6 +429,20 @@ inline V to_int(const V& s) {
         if (v >= -2147483648LL && v <= 2147483647LL) return I(static_cast<int32_t>(v));
     }
     fail("not an int: \"" + t + "\"");
+}
+inline V to_long(const V& s) {
+    const std::string& t = str_of(s);
+    size_t from = !t.empty() && (t[0] == '+' || t[0] == '-') ? 1 : 0;
+    bool ok = from < t.size() && t.size() - from <= 19;
+    for (size_t i = from; i < t.size(); i++) if (t[i] < '0' || t[i] > '9') ok = false;
+    if (ok) {
+        // in unsigned arithmetic: 19 digits do not overflow it
+        uint64_t v = 0;
+        for (size_t i = from; i < t.size(); i++) v = v * 10 + static_cast<uint64_t>(t[i] - '0');
+        if (t[0] == '-' && v <= 9223372036854775808ULL) return Lg(lw(0 - v));
+        if (t[0] != '-' && v <= 9223372036854775807ULL) return Lg(static_cast<int64_t>(v));
+    }
+    fail("not a long: \"" + t + "\"");
 }
 inline V to_float(const V& s) {
     const std::string& t = str_of(s);

@@ -100,8 +100,8 @@ val generateKiln by tasks.registering(JavaExec::class) {
     inputs.files(fileTree("examples/kiln") { include("*.forge") })
     inputs.files(sourceSets.main.get().runtimeClasspath)
     outputs.dir(outDir)
-    // optimized; the driver reads class files back with ClassFile, which kiln.forge itself does not use
-    args("-f", file("examples/kiln/kiln.forge").absolutePath, "-d", outDir.absolutePath, "-p", "kiln", "-keep", "ClassFile", "-opt")
+    // optimized; the driver reads class files back with jvm::ClassFile, which kiln.forge itself does not use
+    args("-f", file("examples/kiln/kiln.forge").absolutePath, "-d", outDir.absolutePath, "-p", "kiln", "-keep", "jvm::ClassFile", "-opt")
 }
 val kiln: SourceSet by sourceSets.creating
 kotlin.sourceSets.named("kiln") { kotlin.srcDirs("examples/kiln/src", kilnOutput) }

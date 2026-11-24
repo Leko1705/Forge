@@ -1,5 +1,16 @@
 lexer grammar ForgeLexer;
 
+@members {
+    /** Whether a name follows (after spaces): `mod`, `use` and `trait` are keywords only then, else names. */
+    private boolean nameFollows() {
+        int i = 1;
+        while (_input.LA(i) == ' ' || _input.LA(i) == '\t') i++;
+        if (i == 1) return false;
+        int c = _input.LA(i);
+        return c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+    }
+}
+
 EXT: 'ext';
 IMPORT: 'import';
 CONST: 'const';
@@ -38,6 +49,9 @@ FLOW: 'flow';
 PORT: 'port';
 VERTEX: 'vertex';
 IS: 'is';
+MOD: 'mod' {nameFollows()}?;
+USE: 'use' {nameFollows()}?;
+TRAIT: 'trait' {nameFollows()}?;
 
 AT: '@';
 
@@ -77,8 +91,20 @@ LBRACKET: '['; RBRACKET: ']';
 LEQ: '<='; GEQ: '>=';
 LT: '<'; GT: '>';
 
+// "text ${expression} text": the expressions are parsed when the file is parsed (Interpolation.kt)
 STRING
-    : '"' (ESC | ~["\\\r\n])* '"'
+    : '"' (ESC | INTERPOLATION | '$' | ~["\\\r\n$])* '"'
+    ;
+
+// ${ ... }: balanced braces, and strings inside
+fragment INTERPOLATION
+    : '${' INTERPOLATED* '}'
+    ;
+
+fragment INTERPOLATED
+    : ~[{}"]
+    | '{' INTERPOLATED* '}'
+    | '"' (ESC | INTERPOLATION | '$' | ~["\\\r\n$])* '"'
     ;
 
 REGEX_STRING
@@ -86,7 +112,7 @@ REGEX_STRING
     ;
 
 fragment ESC
-    : '\\' [btnfr"'\\]
+    : '\\' [btnfr"'\\$]
     ;
 
 fragment REGEX_ESC
@@ -97,8 +123,11 @@ BIN: [0][b][01]+;
 OCT: [0][o][0-7]+;
 HEX: [0][x][0-9a-fA-F]+;
 
-IDENT: [a-zA-Z_][a-zA-Z_0-9]* ;
-FLOAT : [0-9]+[.][0-9];
+// a name, also qualified by modules: jvm::Insn (no spaces; `head :: tail` in patterns has them)
+IDENT: NAME ('::' NAME)* ;
+fragment NAME: [a-zA-Z_][a-zA-Z_0-9]* ;
+FLOAT : [0-9]+[.][0-9]+;
+LONG : [0-9]+ [lL] ;
 INT : [0-9]+ ;
 WS  : [ \t\r\n]+ -> skip ;
 LINE_COMMENT: '//' ~[\r\n]* -> skip ;

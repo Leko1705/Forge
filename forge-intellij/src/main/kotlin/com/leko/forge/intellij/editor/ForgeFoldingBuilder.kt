@@ -53,7 +53,7 @@ class ForgeFoldingBuilder : FoldingBuilderEx(), DumbAware {
                     val close = generateSequence(node.treeNext) { it.treeNext }.firstOrNull { it.elementType == rbrace }
                     if (close != null) add(element.parent.node, TextRange(node.startOffset, close.textRange.endOffset), "{...}")
                 }
-                if (element is PsiComment && node.elementType == ForgeTokenTypes.BLOCK_COMMENT) {
+                if (element is PsiComment && (node.elementType == ForgeTokenTypes.BLOCK_COMMENT || node.elementType == ForgeTokenTypes.DOC_COMMENT)) {
                     add(node, element.textRange, if (element.text.startsWith("/**")) "/** ... */" else "/* ... */")
                 }
                 super.visitElement(element)

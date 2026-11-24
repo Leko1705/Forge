@@ -78,7 +78,7 @@ private fun parseChecked(file: File, input: CharStream = CharStreams.fromFileNam
     val parser = ForgeParser(CommonTokenStream(lexer))
     val root = parser.root()
     // the syntax errors were reported by ANTLR; the analysis would fail on the incomplete tree
-    val errors = parser.numberOfSyntaxErrors
+    val errors = parser.numberOfSyntaxErrors + postParse(root)
     if (errors > 0) throw ImportException("${file.name}: $errors syntax error(s)")
     return root
 }
@@ -91,7 +91,7 @@ private fun parseForge(input: CharStream): ForgeParser.RootContext {
     val lexer = ForgeLexer(input)
     val tokens = CommonTokenStream(lexer)
     val parser = ForgeParser(tokens)
-    return parser.root()
+    return parser.root().also { postParse(it) }
 }
 
 /** Whether a declaration is one of the standard library. */

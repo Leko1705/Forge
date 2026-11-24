@@ -34,15 +34,42 @@ fun ForgeRelated.element(context: PsiFile): PsiElement? {
 
 /**
  * The gutter icons of declarations with a hierarchy: implements / overrides (up), is implemented / is overridden
- * (down), as in Java and Kotlin.
+ * (down), as in Java and Kotlin; and of methods and properties that implement a member of a trait, for a type that
+ * has all its members (arrows both ways).
  */
 class ForgeLineMarkerProvider : RelatedItemLineMarkerProvider() {
     override fun collectNavigationMarkers(element: PsiElement, result: MutableCollection<in RelatedItemLineMarkerInfo<*>>) {
         // markers belong to leaves: the IDENT of a name
         if (element.node.elementType != ForgeTokenTypes.IDENT) return
         val name = element.parent as? ForgeNameElement ?: return
-        val hierarchy = name.hierarchy ?: return
         val file = name.containingFile
+        val implementations = ForgeFileSemantics.of(file).traitImplementations[name.textRange.startOffset].orEmpty()
+        if (implementations.isNotEmpty()) {
+            val targets = implementations.mapNotNull { i ->
+                ForgeImports.fileOf(i.member.source, file)?.let { ForgeReference.findDeclaration(it, i.member) }
+            }
+            result += NavigationGutterIconBuilder
+                .create(com.leko.forge.intellij.ForgeIcons.TRAIT_IMPLEMENTATION)
+                .setTargets(targets)
+                .setTooltipText(implementations.joinToString("<br>", "<html>", "</html>") {
+                    "Implements <b>${it.trait}.${it.member.name}</b>: ${it.type} is ${it.trait}"
+                })
+                .setPopupTitle("Implemented Trait Members")
+                .createLineMarkerInfo(element)
+        }
+        // the other way: a member of a trait, with the declarations that implement it
+        val implementers = ForgeFileSemantics.of(file).traitImplementers[name.textRange.startOffset].orEmpty()
+        if (implementers.isNotEmpty()) {
+            result += NavigationGutterIconBuilder
+                .create(com.leko.forge.intellij.ForgeIcons.TRAIT_IMPLEMENTATION)
+                .setTargets(implementers.mapNotNull { i ->
+                    ForgeImports.fileOf(i.declaration.source, file)?.let { ForgeReference.findDeclaration(it, i.declaration) }
+                })
+                .setTooltipText(implementers.joinToString("<br>", "<html>Is implemented by<br>", "</html>") { "<b>${it.label}</b>" })
+                .setPopupTitle("Implementations of the Trait Member")
+                .createLineMarkerInfo(element)
+        }
+        val hierarchy = name.hierarchy ?: return
         if (hierarchy.supers.isNotEmpty()) {
             val implements = hierarchy.supers.all { it.abstract }
             result += NavigationGutterIconBuilder

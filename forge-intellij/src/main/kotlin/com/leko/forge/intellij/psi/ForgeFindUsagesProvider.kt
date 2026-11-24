@@ -35,6 +35,8 @@ class ForgeFindUsagesProvider : FindUsagesProvider {
         ForgeNameRole.GRAPH -> "graph"
         ForgeNameRole.PARSER -> "parser"
         ForgeNameRole.PARSER_RULE -> "rule"
+        ForgeNameRole.MODULE -> "module"
+        ForgeNameRole.TRAIT -> "trait"
         else -> "name"
     }
 }
