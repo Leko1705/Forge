@@ -32,6 +32,8 @@ dependencies {
 
     intellijPlatform {
         intellijIdea("2026.2.5")
+        // optional: the project wizard imports the Gradle build it creates
+        bundledPlugin("com.intellij.gradle")
         testFramework(TestFrameworkType.Platform)
     }
 }

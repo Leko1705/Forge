@@ -18,13 +18,23 @@
         <li>code completion: the members the compiler resolves after <code>.</code> (fields, attributes, vals, methods,
             enum constants, rules), locals, declarations, types and keywords;</li>
         <li>folding of declaration bodies, blocks, block comments and imports;</li>
+        <li>a project wizard (File | New | Project... | Forge): a sample or empty program, the target language, and a
+            Gradle build that runs the bundled compiler and, for Kotlin, runs the generated code;</li>
         <li>brace matching, commenting and quote pairing.</li>
     </ul>
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>
+    <!-- the project wizard imports the Gradle build of a new project -->
+    <depends optional="true" config-file="forge-gradle.xml">com.intellij.gradle</depends>
+
+    <extensionPoints>
+        <extensionPoint qualifiedName="com.leko.forge.gradleLinker"
+                        interface="com.leko.forge.intellij.wizard.ForgeGradleLinker" dynamic="true"/>
+    </extensionPoints>
 
     <extensions defaultExtensionNs="com.intellij">
+        <newProjectWizard.generator implementation="com.leko.forge.intellij.wizard.ForgeNewProjectWizard"/>
         <fileType name="Forge" language="Forge" extensions="forge" fieldName="INSTANCE"
                   implementationClass="com.leko.forge.intellij.ForgeFileType"/>
         <lang.parserDefinition language="Forge"
