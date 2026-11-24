@@ -9,7 +9,13 @@ import com.intellij.psi.tree.IElementType
 import com.leko.forge.intellij.lexer.ForgeLexerAdapter
 import com.leko.forge.intellij.lexer.ForgeTokenType
 import com.leko.forge.intellij.lexer.ForgeTokenTypes
+import org.antlr.v4.runtime.ANTLRInputStream
 import org.antlr.v4.runtime.BaseErrorListener
+import org.antlr.v4.runtime.CharStream
+import org.antlr.v4.runtime.CommonTokenFactory
+import org.antlr.v4.runtime.IntStream
+import org.antlr.v4.runtime.TokenFactory
+import org.antlr.v4.runtime.TokenSource
 import org.antlr.v4.runtime.CommonToken
 import org.antlr.v4.runtime.CommonTokenStream
 import org.antlr.v4.runtime.ListTokenSource
@@ -19,6 +25,19 @@ import org.antlr.v4.runtime.Recognizer
 import org.antlr.v4.runtime.Token
 import org.antlr.v4.runtime.tree.ParseTree
 import org.antlr.v4.runtime.tree.TerminalNode
+
+/** The source of the tokens of [ForgePsiParser.antlrTokens]: they are made by the editor's lexer, not read from it. */
+private class TextTokenSource(private val input: CharStream) : TokenSource {
+    private var factory: TokenFactory<*> = CommonTokenFactory.DEFAULT
+    override fun nextToken(): Token = throw UnsupportedOperationException("the tokens are made in advance")
+    override fun getLine(): Int = 0
+    override fun getCharPositionInLine(): Int = 0
+    override fun getInputStream(): CharStream = input
+    // no source name: the spans of the analyzed file have none
+    override fun getSourceName(): String = IntStream.UNKNOWN_SOURCE_NAME
+    override fun setTokenFactory(factory: TokenFactory<*>) { this.factory = factory }
+    override fun getTokenFactory(): TokenFactory<*> = factory
+}
 
 /** A syntax error of ForgeParser at [offset], the start of the token it is reported at. */
 data class ForgeSyntaxError(val offset: Int, val message: String)
@@ -117,11 +136,15 @@ class ForgePsiParser : PsiParser {
                     position++
                 }
             }
+            // ANTLR's error recovery makes up missing tokens from the source of the tokens
+            val input = ANTLRInputStream(text.toString())
+            val source = org.antlr.v4.runtime.misc.Pair<TokenSource, CharStream>(TextTokenSource(input), input)
             while (true) {
                 val type = lexer.tokenType ?: break
                 if (type is ForgeTokenType && !ForgeTokenTypes.isHidden(type)) {
                     moveTo(lexer.tokenStart)
-                    tokens += CommonToken(type.antlrType, text.subSequence(lexer.tokenStart, lexer.tokenEnd).toString()).apply {
+                    tokens += CommonToken(source, type.antlrType, Token.DEFAULT_CHANNEL, lexer.tokenStart, lexer.tokenEnd - 1).apply {
+                        this.text = text.subSequence(lexer.tokenStart, lexer.tokenEnd).toString()
                         startIndex = lexer.tokenStart
                         stopIndex = lexer.tokenEnd - 1
                         this.line = line
@@ -131,7 +154,8 @@ class ForgePsiParser : PsiParser {
                 lexer.advance()
             }
             moveTo(text.length)
-            tokens += CommonToken(Token.EOF, "<EOF>").apply {
+            tokens += CommonToken(source, Token.EOF, Token.DEFAULT_CHANNEL, text.length, text.length - 1).apply {
+                this.text = "<EOF>"
                 startIndex = text.length
                 stopIndex = text.length - 1
                 this.line = line

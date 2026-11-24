@@ -341,6 +341,11 @@ the compiler itself, so the editor sees what `forge -f` sees:
   Usages of a definition also lists its implementations and their uses.
 - **Documentation on hover** (and `Ctrl+Q`): the highlighted signature, the `/** ... */` comment before the
   declaration, what it is, the type of variables and how it relates to other declarations.
+- **Completion** (`Ctrl+Space`, and on its own after `.` and `@`): after `.` the members the compiler resolves for
+  the receiver's type (fields, attributes, `val`s, methods of the program and the standard library, enum constants,
+  rules); in expressions the locals in scope, constants, functions, nodes and records (with parentheses), and
+  keywords; types in type positions; the nodes, attributes, parsers and rules a declaration names (`syn Num.`
+  offers the attributes `Num` implements); `@u2`, `@infixLeft`, ...; top level keywords at the start of a line.
 - **Folding** of declaration bodies, blocks in braces, block comments and the imports.
 - Block comments have the color of doc comments.
 - Brace matching, commenting (`Ctrl+/`) and quote pairing.

@@ -121,6 +121,16 @@ class ForgePluginTest : BasePlatformTestCase() {
         assertEquals("node A(n: int\nsyn A.x: int = ", psi.text)
     }
 
+    /** ANTLR's error recovery makes up missing tokens (here the `:`), from the source of the tokens. */
+    fun testRecoveryWithMissingTokens() {
+        for (text in listOf("node A(n int)", "syn A.x int = 1", "fun f(: int = 2", "record R { a: int b: str }")) {
+            val psi = myFixture.configureByText("a.forge", text)
+            assertTrue(text, PsiTreeUtil.collectElementsOfType(psi, PsiErrorElement::class.java).isNotEmpty())
+            assertEquals(text, psi.text)
+            myFixture.doHighlighting()
+        }
+    }
+
     fun testNamesHaveTheirRoles() {
         val psi = myFixture.configureByText("a.forge", """
             node Expr

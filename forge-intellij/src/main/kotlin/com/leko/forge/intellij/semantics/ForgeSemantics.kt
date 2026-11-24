@@ -41,6 +41,9 @@ import java.io.File
  */
 data class ForgeResolution(val name: String, val source: String?, val line: Int, val column: Int, val role: ForgeNameRole?)
 
+/** An analyzed program: the tree of the analyzed file ([main], with its [tokens]) and of the whole program ([root]). */
+class ForgeAnalysis(val context: Context, val main: ForgeParser.RootContext, val root: ForgeParser.RootContext, val tokens: List<Token>)
+
 /** A declaration related to another one: [resolution] is where it is; [abstract] if it has no implementation of its own. */
 data class ForgeRelated(val resolution: ForgeResolution, val abstract: Boolean, val label: String)
 
@@ -85,11 +88,22 @@ class ForgeSemantics(
          * with the compiler, and records what its names resolve to. Imported files are read with [read]. Empty if
          * the analysis is not possible, e.g. for a missing import, or fails on an incomplete tree.
          */
-        fun compute(text: String, file: File?, read: (File) -> CharStream): ForgeSemantics {
-            val parser = ForgeParser(CommonTokenStream(ListTokenSource(ForgePsiParser.antlrTokens(text))))
+        fun compute(text: String, file: File?, read: (File) -> CharStream): ForgeSemantics =
+            analyze(text, file, read) { analysis ->
+                val collector = Collector(analysis.context).apply { visit(analysis.main) }
+                ForgeSemantics(collector.resolutions, Hierarchy(analysis.context, analysis.root).compute(), collector.declarationTypes)
+            } ?: EMPTY
+
+        /**
+         * Runs the compiler's analysis on [text] (see [compute]) and then [block], while the attributes of the
+         * trees are there; `null` if the analysis is not possible or fails.
+         */
+        fun <T> analyze(text: String, file: File?, read: (File) -> CharStream, block: (ForgeAnalysis) -> T): T? {
+            val tokens = ForgePsiParser.antlrTokens(text)
+            val parser = ForgeParser(CommonTokenStream(ListTokenSource(tokens)))
             parser.removeErrorListeners()
             val main = parser.root()
-            if (file == null && main.importDecl().any { it.path.text != "\"std\"" }) return EMPTY
+            if (file == null && main.importDecl().any { it.path.text != "\"std\"" }) return null
             return synchronized(lock) {
                 try {
                     val root = (file ?: File("<editor>")).parseForgeImports(main, read)
@@ -98,13 +112,12 @@ class ForgeSemantics(
                     MemberEnter.instance(context).enter(root)
                     Attr.instance(context).attr(root)
                     Dependency.instance(context).check(root)
-                    val collector = Collector(context).apply { visit(main) }
-                    ForgeSemantics(collector.resolutions, Hierarchy(context, root).compute(), collector.declarationTypes)
+                    block(ForgeAnalysis(context, main, root, tokens))
                 } catch (e: Throwable) {
                     if (e is ControlFlowException) throw e
                     // the analysis needs a complete tree; while the file is edited, it may not be
                     if (parser.numberOfSyntaxErrors == 0) LOG.debug("the Forge analysis failed", e)
-                    EMPTY
+                    null
                 } finally {
                     clearTreeAttributes()
                 }

@@ -15,6 +15,8 @@
         <li>gutter icons for implementations and overrides (nodes and interface nodes, syn and circular attributes,
             inh equations, parser rules); Find Usages of a definition includes its implementations;</li>
         <li>documentation on hover (Ctrl+Q): signature, doc comment, kind, type and hierarchy;</li>
+        <li>code completion: the members the compiler resolves after <code>.</code> (fields, attributes, vals, methods,
+            enum constants, rules), locals, declarations, types and keywords;</li>
         <li>folding of declaration bodies, blocks, block comments and imports;</li>
         <li>brace matching, commenting and quote pairing.</li>
     </ul>
@@ -41,6 +43,9 @@
         <findUsagesHandlerFactory implementation="com.leko.forge.intellij.hierarchy.ForgeFindUsagesHandlerFactory"/>
         <codeInsight.lineMarkerProvider language="Forge"
                                         implementationClass="com.leko.forge.intellij.hierarchy.ForgeLineMarkerProvider"/>
+        <completion.contributor language="Forge"
+                                implementationClass="com.leko.forge.intellij.completion.ForgeCompletionContributor"/>
+        <typedHandler implementation="com.leko.forge.intellij.completion.ForgeTypedHandler"/>
         <lang.foldingBuilder language="Forge" implementationClass="com.leko.forge.intellij.editor.ForgeFoldingBuilder"/>
         <lang.documentationProvider language="Forge"
                                     implementationClass="com.leko.forge.intellij.editor.ForgeDocumentationProvider"/>
