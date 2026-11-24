@@ -456,3 +456,53 @@ fun alternativeTypeMismatch(span: SourceSpan?, rule: String, expected: Type, got
 
 fun regexMatchedLiterally(span: SourceSpan?, regex: String, message: String): Diagnostic =
     Diagnostic(Severity.WARNING, span, "W002", "'$regex' is not a valid regular expression ($message); it is matched literally")
+
+// ---- local bindings, functions as values, generic types, tuples -----------------------------------------
+
+fun traitAlreadyExist(span: SourceSpan?, name: String): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E001", "trait '$name' already exist")
+
+fun bindingAlreadyDefined(span: SourceSpan?, name: String): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E016", "'$name' is already defined in this 'where'")
+
+fun bindingDependsOnItself(span: SourceSpan?, names: String): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E016", "the values of a 'where' depend on each other: $names")
+
+fun invalidDestructuring(span: SourceSpan?, message: String): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E016", message)
+
+fun canNotInferLambdaParameter(span: SourceSpan?, name: String): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E017", "can not infer the type of parameter '$name'; write { $name: Type -> ... }")
+
+fun notAFunction(span: SourceSpan?, type: Type): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E017", "'$type' is not a function and can not be called")
+
+fun functionsNotComparable(span: SourceSpan?): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E017", "functions can not be compared")
+
+fun canNotUseAsValue(span: SourceSpan?, name: String, why: String): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E017", "'$name' can not be used as a value: $why")
+
+fun wrongTypeArguments(span: SourceSpan?, name: String, expected: Int, got: Int): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E018", "'$name' takes $expected type argument${if (expected == 1) "" else "s"}, not $got")
+
+fun tupleIndexOutOfRange(span: SourceSpan?, type: Type, index: Int): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E018", "'$type' has no element $index")
+
+// ---- bounded generics -----------------------------------------------------------------------------------
+
+fun boundNotSatisfied(span: SourceSpan?, type: Type, bound: String, why: String): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E019", "'$type' is not a '$bound': $why")
+
+fun invalidBound(span: SourceSpan?, message: String): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E019", message)
+
+// ---- modules --------------------------------------------------------------------------------------------
+
+fun moduleError(span: SourceSpan?, message: String): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E020", message)
+
+// ---- string interpolation -------------------------------------------------------------------------------
+
+fun notInterpolatable(span: SourceSpan?, type: Type): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E021", "'$type' can not be put into a string: it has no 'str()'")

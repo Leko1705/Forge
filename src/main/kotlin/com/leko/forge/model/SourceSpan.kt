@@ -29,7 +29,8 @@ val ParserRuleContext.span: SourceSpan get() = SourceSpan(
 val Token.span: SourceSpan get() = SourceSpan(
     this.line, this.charPositionInLine,
     this.line,
-    this.charPositionInLine + (this.text?.length ?: 0),
+    // the length in the file: the text of a name may be its qualified name (Modules)
+    this.charPositionInLine + (if (startIndex >= 0 && stopIndex >= startIndex) stopIndex - startIndex + 1 else this.text?.length ?: 0),
     this.sourceFile,
 )
 

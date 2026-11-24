@@ -525,6 +525,7 @@ private class JavaScriptGeneration(private val module: LLIRModule, private val m
     }
 
     fun expr(v: Value): String = when (v) {
+        is Let, is Lambda, is CallValue, is TupleLiteral, is TupleGet, is LongValue, is Int2Long, is Long2Int, is Long2Float, is Float2Long -> throw IllegalStateException("TODO $v")
         is IntValue -> if (v.value < 0) "(${v.value})" else v.value.toString()
         is FloatValue -> float(v.value.toDouble())
         is BoolValue -> if (v.value) "true" else "false"

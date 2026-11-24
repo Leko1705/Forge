@@ -16,14 +16,18 @@ ext fun char(code: int): str
 
 /** As text; floats like Kotlin's `Float.toString`. */
 ext fun int.str(): str
+ext fun long.str(): str
 ext fun float.str(): str
 ext fun bool.str(): str
+/** The text itself, so that strs are `Printable`. */
+fun str.str(): str = this
 
 /** The number of characters: UTF-16 code units in Kotlin and Java, code points in Python, bytes elsewhere. */
 ext val str.size: int
 /** The number the whole text is; fails otherwise. */
 ext fun str.toInt(): int
 ext fun str.toFloat(): float
+ext fun str.toLong(): long
 /** Where [part] first occurs; -1 if it does not. */
 ext fun str.indexOf(part: str): int
 ext fun str.startsWith(prefix: str): bool
@@ -106,3 +110,87 @@ fun int.min(other: int): int = if this < other then this else other
 fun float.max(other: float): float = if this > other then this else other
 fun float.min(other: float): float = if this < other then this else other
 fun int.abs(): int = if this < 0 then -this else this
+fun long.max(other: long): long = if this > other then this else other
+fun long.min(other: long): long = if this < other then this else other
+fun long.abs(): long = if this < 0 then -this else this
+fun List<long>.sum(): long = acc + x for x in this with acc = 0L
+
+// ---- traits ---------------------------------------------------------------------------------------------
+
+/** Values with an order: `fun <T: Comparable>` can compare them with `<`, `>`, `<=`, `>=` and `compareTo`. */
+trait Comparable {
+    /** Below 0 if this comes before [other], 0 if they are equal, above 0 if it comes after it. */
+    fun compareTo(other: Self): int
+}
+
+/** Values that can be shown as text: `fun <T: Printable>` can call `str()` on them (also in "${x}"). */
+trait Printable {
+    fun str(): str
+}
+
+fun int.compareTo(other: int): int = if this < other then -1 else if this > other then 1 else 0
+fun long.compareTo(other: long): int = if this < other then -1 else if this > other then 1 else 0
+fun float.compareTo(other: float): int = if this < other then -1 else if this > other then 1 else 0
+/** By the codes of the characters (the order of ASCII text is the same in every target). */
+fun str.compareTo(other: str): int = (if first != 0 then first else (this.size - other.size).compareTo(0))
+    where first = (if acc != 0 then acc else this.code(i) - other.code(i)) for i in [0:this.size.min(other.size)] with acc = 0
+
+// ---- functions on lists ---------------------------------------------------------------------------------
+
+/** [f] of each element. */
+fun <T, R> List<T>.map(f: (T) -> R): List<R> = f(x) for x in this
+/** The elements for which [p] holds. */
+fun <T> List<T>.filter(p: (T) -> bool): List<T> = (if p(x) then acc ++ [x] else acc) for x in this with acc = empty
+    where empty: List<T> = []
+/** The lists [f] returns for the elements, one after another. */
+fun <T, R> List<T>.flatMap(f: (T) -> List<R>): List<R> = acc ++ f(x) for x in this with acc = empty
+    where empty: List<R> = []
+/** [f] applied to [init] and the first element, then to that and the second element, ... */
+fun <T, A> List<T>.fold(init: A, f: (A, T) -> A): A = f(acc, x) for x in this with acc = init
+/** Whether [p] holds for an element. */
+fun <T> List<T>.any(p: (T) -> bool): bool = (acc || p(x)) for x in this with acc = false
+/** Whether [p] holds for every element. */
+fun <T> List<T>.all(p: (T) -> bool): bool = (acc && p(x)) for x in this with acc = true
+/** The number of elements for which [p] holds. */
+fun <T> List<T>.count(p: (T) -> bool): int = (if p(x) then acc + 1 else acc) for x in this with acc = 0
+/** The first element for which [p] holds; null if there is none. */
+fun <T> List<T>.find(p: (T) -> bool): T? = match this.filter(p) {
+    first :: _ -> first
+    _ -> null
+}
+/** The elements with their indexes: [(0, a), (1, b), ...]. */
+fun <T> List<T>.withIndex(): List<(int, T)> = (i, this[i]) for i in [0:this.size]
+/** The pairs of the elements at the same indexes, as many as the shorter list has. */
+fun <A, B> List<A>.zip(other: List<B>): List<(A, B)> = (this[i], other[i]) for i in [0:this.size.min(other.size)]
+/** The elements by what [key] returns for them, in the order of the elements. */
+fun <T, K> List<T>.groupBy(key: (T) -> K): Map<K, List<T>> = (acc ++ {k: (if k in acc then acc[k] else none) ++ [x]} where k = key(x)) for x in this with acc = empty
+    where empty: Map<K, List<T>> = {:}, none: List<T> = []
+/** The texts [f] returns for the elements, with [separator] between them. */
+fun <T> List<T>.joinWith(separator: str, f: (T) -> str): str = this.map(f).join(separator)
+
+/** The elements in ascending order; equal elements keep their order. */
+fun <T: Comparable> List<T>.sorted(): List<T> = this.sortedWith({ a, b -> a.compareTo(b) })
+/** The elements in the ascending order of [key]; equal ones keep their order. */
+fun <T, K: Comparable> List<T>.sortedBy(key: (T) -> K): List<T> = this.sortedWith({ a, b -> key(a).compareTo(key(b)) })
+/** The elements in the order of [compare] (below 0: the first comes first); equal ones keep their order. */
+fun <T> List<T>.sortedWith(compare: (T, T) -> int): List<T> =
+    (acc.filter({ e -> compare(e, x) <= 0 }) ++ [x] ++ acc.filter({ e -> compare(e, x) > 0 })) for x in this with acc = empty
+    where empty: List<T> = []
+/** The largest element by [key]; null for an empty list. */
+fun <T, K: Comparable> List<T>.maxBy(key: (T) -> K): T? = match this.sortedBy(key).reversed() {
+    first :: _ -> first
+    _ -> null
+}
+/** The smallest element by [key]; null for an empty list. */
+fun <T, K: Comparable> List<T>.minBy(key: (T) -> K): T? = match this.sortedBy(key) {
+    first :: _ -> first
+    _ -> null
+}
+
+// ---- maps -----------------------------------------------------------------------------------------------
+
+/** The entries as (key, value), in the order of the map. */
+fun <K, V> Map<K, V>.entries(): List<(K, V)> = (k, this[k]) for k in this.keys()
+/** [f] of each value, with the same keys. */
+fun <K, V, R> Map<K, V>.mapValues(f: (V) -> R): Map<K, R> = (acc ++ {k: f(this[k])}) for k in this.keys() with acc = empty
+    where empty: Map<K, R> = {:}

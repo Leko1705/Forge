@@ -491,6 +491,7 @@ private class PythonGeneration(private val module: LLIRModule, private val modul
     }
 
     fun expr(v: Value): String = when (v) {
+        is Let, is Lambda, is CallValue, is TupleLiteral, is TupleGet, is LongValue, is Int2Long, is Long2Int, is Long2Float, is Float2Long -> throw IllegalStateException("TODO $v")
         is IntValue -> v.value.toString()
         is FloatValue -> "_f32(${v.value.toDouble()})"
         is BoolValue -> if (v.value) "True" else "False"

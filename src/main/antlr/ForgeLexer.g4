@@ -38,6 +38,9 @@ FLOW: 'flow';
 PORT: 'port';
 VERTEX: 'vertex';
 IS: 'is';
+MOD: 'mod';
+USE: 'use';
+TRAIT: 'trait';
 
 AT: '@';
 
@@ -77,8 +80,20 @@ LBRACKET: '['; RBRACKET: ']';
 LEQ: '<='; GEQ: '>=';
 LT: '<'; GT: '>';
 
+// "text ${expression} text": the expressions are parsed when the file is parsed (Interpolation.kt)
 STRING
-    : '"' (ESC | ~["\\\r\n])* '"'
+    : '"' (ESC | INTERPOLATION | '$' | ~["\\\r\n$])* '"'
+    ;
+
+// ${ ... }: balanced braces, and strings inside
+fragment INTERPOLATION
+    : '${' INTERPOLATED* '}'
+    ;
+
+fragment INTERPOLATED
+    : ~[{}"]
+    | '{' INTERPOLATED* '}'
+    | '"' (ESC | INTERPOLATION | '$' | ~["\\\r\n$])* '"'
     ;
 
 REGEX_STRING
@@ -86,7 +101,7 @@ REGEX_STRING
     ;
 
 fragment ESC
-    : '\\' [btnfr"'\\]
+    : '\\' [btnfr"'\\$]
     ;
 
 fragment REGEX_ESC
@@ -97,8 +112,11 @@ BIN: [0][b][01]+;
 OCT: [0][o][0-7]+;
 HEX: [0][x][0-9a-fA-F]+;
 
-IDENT: [a-zA-Z_][a-zA-Z_0-9]* ;
-FLOAT : [0-9]+[.][0-9];
+// a name, also qualified by modules: jvm::Insn (no spaces; `head :: tail` in patterns has them)
+IDENT: NAME ('::' NAME)* ;
+fragment NAME: [a-zA-Z_][a-zA-Z_0-9]* ;
+FLOAT : [0-9]+[.][0-9]+;
+LONG : [0-9]+ [lL] ;
 INT : [0-9]+ ;
 WS  : [ \t\r\n]+ -> skip ;
 LINE_COMMENT: '//' ~[\r\n]* -> skip ;

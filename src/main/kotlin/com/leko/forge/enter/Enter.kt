@@ -10,6 +10,9 @@ import com.leko.forge.context.Context
 import com.leko.forge.model.*
 import com.leko.forge.types.toType
 import com.leko.forge.types.withTypeParams
+import com.leko.forge.types.ComplexType
+import com.leko.forge.types.TypeVar
+import com.leko.forge.types.Type
 import com.leko.forge.parse.isStd
 import com.leko.forge.util.Log
 
@@ -62,17 +65,20 @@ class Enter private constructor(context: Context) {
                 log.diag(enumAlreadyExist(enum.name.span, enum.name.text))
                 continue
             }
+            val typeParams = enum.typeParams().names()
             val sym = EnumSymbol(
                 enum.name.text,
                 enum.enumItem().map { item ->
                     EnumItemSymbol(
                         item.name.text,
                         enum.name.text,
-                        item.parameter().map { it.name.text to it.ty.toType() },
+                        item.parameter().map { it.name.text to it.ty.toType().withTypeParams(typeParams) },
                         item.name.span,
-                        )
+                        typeParams,
+                    )
                 },
                 enum.name.span,
+                typeParams,
             )
             symTab[sym.type] = sym
             enum.setSym(sym)
@@ -82,10 +88,13 @@ class Enter private constructor(context: Context) {
                 log.diag(recordAlreadyExist(record.name.span, record.name.text))
                 continue
             }
+            val typeParams = record.typeParams().names()
             val sym = RecordSymbol(
                 record.name.text,
-                record.recordField().map { VarSymbol(it.name.text, it.ty.toType(), it.name.span, VarSymbol.VarKind.RECORD_FIELD) },
+                record.recordField().map { VarSymbol(it.name.text, it.ty.toType().withTypeParams(typeParams), it.name.span, VarSymbol.VarKind.RECORD_FIELD) },
                 record.name.span,
+                type = ComplexType(record.name.text, typeParams.map { TypeVar(it) }),
+                typeParams = typeParams,
             )
             symTab[sym.type] = sym
             record.setSym(sym)
@@ -98,7 +107,7 @@ class Enter private constructor(context: Context) {
                 log.diag(functionAlreadyExist(func.name.span, func.name.text))
                 continue
             }
-            val typeParams = func.typeParams.map { it.text }
+            val typeParams = func.typeParams().names()
             val sym = FunctionSymbol(
                 null,
                 func.name.text,
@@ -107,10 +116,32 @@ class Enter private constructor(context: Context) {
                 func.name.span,
                 typeParams = typeParams,
                 builtin = if (func.EXT() != null && func.isStd()) func.name.text else null,
+                bounds = func.typeParams().bounds(),
             )
             // hidden by one of the program: only the standard library itself uses it
             if (hidden) symTab.stdFunctions[sym.name] = sym else symTab.functions[sym.name] = sym
             func.setSym(sym)
+        }
+        for (trait in root.traitDef()) {
+            val name = trait.name.text
+            if (name in symTab) {
+                log.diag(traitAlreadyExist(trait.name.span, name))
+                continue
+            }
+            val members = trait.traitMember().map { member ->
+                fun type(t: ForgeParser.TypeContext) = t.toType().withTypeParams(listOf(SELF))
+                TraitMember(
+                    member.name.text,
+                    member.parameter().map { VarSymbol(it.name.text, type(it.ty), it.name.span, VarSymbol.VarKind.PARAMETER) },
+                    type(member.ty),
+                    member.property != null,
+                    member.name.span,
+                )
+            }
+            val sym = TraitSymbol(name, members, trait.name.span)
+            symTab[sym.type] = sym
+            symTab.traits[name] = sym
+            trait.setSym(sym)
         }
         for (inhDef in root.inhDef()) {
             val attrName = inhDef.attrName.text
@@ -198,4 +229,13 @@ class Enter private constructor(context: Context) {
             graph.setSym(sym)
         }
     }
+}
+
+/** The names of type parameters: `<A, B: Ord>` is `[A, B]`. */
+fun ForgeParser.TypeParamsContext?.names(): List<String> = this?.typeParam()?.map { it.name.text }.orEmpty()
+
+/** The bounds of type parameters, as written (type parameters among them are type variables). */
+fun ForgeParser.TypeParamsContext?.bounds(): Map<String, List<Type>> {
+    val names = names()
+    return this?.typeParam()?.filter { it.bounds.isNotEmpty() }?.associate { p -> p.name.text to p.bounds.map { it.toType().withTypeParams(names) } }.orEmpty()
 }

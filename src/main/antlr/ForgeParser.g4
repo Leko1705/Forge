@@ -19,7 +19,45 @@ constDef
 | portDef
 | graphDef
 | flowDef
+| useDecl
+| modDef
+| traitDef
 )* EOF;
+
+// mod jvm { ... }   -- a module: its declarations are named jvm::Insn outside of it (or Insn after `use jvm`)
+modDef: MOD name=IDENT LBRACE (
+constDef
+| record
+| enum
+| function
+| nodeDef
+| nodeInterfaceImpl
+| synDef
+| inhDef
+| inhImpl
+| coll
+| contrib
+| parserDef
+| parseRuleDef
+| circularDef
+| portDef
+| graphDef
+| flowDef
+| useDecl
+| modDef
+| traitDef
+)* RBRACE;
+
+// use jvm   -- the declarations of module jvm can be used without jvm::   /   use jvm::Insn   -- just this one
+useDecl: USE path=IDENT;
+
+// trait Ord { fun compareTo(other: Self): int }   -- what a type parameter can require: fun <T: Ord> ...
+traitDef: TRAIT name=IDENT LBRACE traitMember* RBRACE;
+traitMember: (FUN | property=VAL) name=IDENT (params=LPAREN (parameter (COMMA parameter)*)? RPAREN)? COLON ty=type;
+
+// <T, U: Ord & Show>   -- type parameters; a bound is a trait or a type (T: Expr)
+typeParams: LT typeParam (COMMA typeParam)* GT;
+typeParam: name=IDENT (COLON bounds+=type (IAND bounds+=type)*)?;
 
 // import "jvm.forge"   -- the declarations of another file (relative to this one) are part of this program
 importDecl: IMPORT path=STRING;
@@ -29,16 +67,16 @@ constDef: CONST name=IDENT (COLON ty=type)? ASSIGN value=expression;
 
 parameter: name=IDENT COLON ty=type;
 
-record: RECORD name=IDENT LBRACE (recordField (COMMA recordField)*)? RBRACE;
+record: RECORD name=IDENT typeParams? LBRACE (recordField (COMMA recordField)*)? RBRACE;
 recordField: name=IDENT COLON ty=type;
 // `op fun T.plus(other: T): T` defines an operator for T; `op` is only a keyword here
 // `fun <T> List<T>.distinct(): List<T>`: type parameters, inferred at each call
 // `val Rec.name: T = ...`: a property of records, enums and the builtin types, read like a field; a method
 // without parameters otherwise (nodes have syn attributes instead)
-function: (ext=EXT)? (op=IDENT)? (FUN | property=VAL) (LT typeParams+=IDENT (COMMA typeParams+=IDENT)* GT)? (receiver=type DOT)? name=IDENT
+function: (ext=EXT)? (op=IDENT)? (FUN | property=VAL) typeParams? (receiver=type DOT)? name=IDENT
     (params=LPAREN (parameter (COMMA parameter)*)? RPAREN)? COLON ty=type (ASSIGN expression)?;
 
-enum: ENUM name=IDENT LBRACE (enumItem (COMMA enumItem)*)? RBRACE;
+enum: ENUM name=IDENT typeParams? LBRACE (enumItem (COMMA enumItem)*)? RBRACE;
 enumItem: name=IDENT (LPAREN (parameter (COMMA parameter)*)? RPAREN)?;
 
 simpleParameterPattern:
@@ -131,17 +169,27 @@ nonterminalRule: name=IDENT;
 type: LIST LT type GT # listType
     | SET LT type GT # setType
     | MAP LT key=type COMMA value=type GT # mapType
-    | name=IDENT # namedType
+    | name=IDENT (LT args+=type (COMMA args+=type)* GT)? # namedType
+    // (int, str) -> bool
+    | LPAREN (params+=type (COMMA params+=type)*)? RPAREN ARROW ret=type # functionType
+    // (int, str)
+    | LPAREN elems+=type COMMA elems+=type (COMMA elems+=type)* RPAREN # tupleType
+    | LPAREN type RPAREN # parenType
     | ty=type QUESTIONMARK # optionalType;
 
 expression
     : value=INT                                                              # intValue
+    | value=LONG                                                             # longValue
     | value=FLOAT                                                            # floatValue
     | value=STRING                                                           # stringValue
     | (TRUE | FALSE)                                                         # boolValue
     | NULL                                                                   # nullValue
     | THIS                                                                   # thisExpr
     | LPAREN expression RPAREN                                               # enclosed
+    // (1, "a")
+    | LPAREN expression COMMA expression (COMMA expression)* RPAREN          # tupleLiteral
+    // { x, y -> x + y }   /   { x: int -> x * 2 }   /   { -> 0 }
+    | LBRACE (lambdaParam (COMMA lambdaParam)*)? ARROW body=expression RBRACE  # lambda
     | LBRACKET lo=expression COLON hi=expression RBRACKET                   # rangeLiteral
     | LBRACKET (expression (COMMA expression)*)? RBRACKET                    # listLiteral
     | LBRACE COLON RBRACE                                                    # emptyMapLiteral
@@ -154,6 +202,10 @@ expression
     // postfix
     | receiver=expression DOT name=IDENT LPAREN (expression (COMMA expression)*)? RPAREN  # methodCall
     | receiver=expression DOT name=IDENT                                     # fieldAccess
+    // t.0; `t.0.1` is lexed with a float
+    | receiver=expression DOT (index=INT | path=FLOAT)                        # tupleAccess
+    // calls a function value: (f)(x), this.handler(x), make()(x)
+    | callee=expression LPAREN (expression (COMMA expression)*)? RPAREN      # valueCall
     | container=expression LBRACKET lo=expression? COLON hi=expression? RBRACKET  # sliceAccess
     | container=expression LBRACKET key=expression RBRACKET                  # containerAccess
 
@@ -179,7 +231,8 @@ expression
     | value=expression NOTNULL                                               # nullCheck
     | value=expression AS ty=type                                            # cast
     | value=expression IS ty=type                                            # instanceOf
-    | expr=expression WHERE fun=function                                     # contextualized
+    // x * y where x = 1, y: int = 2
+    | expr=expression WHERE binding (COMMA binding)*                         # whereExpr
     | put=expression FOR name=IDENT IN iterable=expression
         (WITH acc=IDENT ASSIGN accInit=expression)?                          # listComprehension
 
@@ -187,14 +240,20 @@ expression
     | IF cond=expression THEN then=expression ELSE alt=expression            # ifElse
     ;
 
+lambdaParam: (name=IDENT | UNDERSCORE) (COLON ty=type)?;
+
+// x: int = 1   /   (a, b) = pair
+binding: (name=IDENT | LPAREN names+=IDENT (COMMA names+=IDENT)+ RPAREN) (COLON ty=type)? ASSIGN value=expression;
+
 matchCase: pattern (IF cond=expression)? ARROW value=expression;
 
-pattern: typePattern | splitPattern | listPattern | exprPattern;
+pattern: typePattern | splitPattern | listPattern | tuplePattern | exprPattern;
 patternArg
     : typePattern                                              # typePatternArg
     | wildcardPattern                                          # wildcardPatternArg
     | patternVariable                                          # patternVariableArg
     | listPattern                                              # listPatternArg
+    | tuplePattern                                             # tuplePatternArg
     | exprPattern                                               # expressionArg
     | <assoc=right> element=patternArg SPLIT rest=patternArg    # splitPatternArg
     ;
@@ -204,4 +263,5 @@ patternVariable: name=IDENT;
 wildcardPattern: UNDERSCORE;
 splitPattern: element=patternArg SPLIT rest=patternArg;
 listPattern: LBRACKET (patternArg (COMMA patternArg)*)? RBRACKET;
+tuplePattern: LPAREN patternArg (COMMA patternArg)+ RPAREN;
 exprPattern: expression;

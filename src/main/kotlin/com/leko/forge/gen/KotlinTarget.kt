@@ -64,6 +64,7 @@ object KotlinTarget : Target {
             module.functions.forEach { generateFunction(it) }
             module.graphs.forEach { generateGraph(it) }
             module.parsers.forEach { generateParser(it) }
+            generateTuples()
             return sb.toString()
         }
 
@@ -293,18 +294,30 @@ object KotlinTarget : Target {
 
         private fun generateEnum(enum: LLIREnum) {
             sb.appendLine("// enum ${enum.name}")
-            sb.appendLine("sealed class ${id(enum.name)} {")
+            sb.appendLine("sealed class ${id(enum.name)}${typeParamList(enum.typeParams)} {")
             for (item in enum.items) {
+                // an item has the type parameters its fields use; the others are Nothing (generic enums are covariant)
+                val own = itemTypeParams(enum, item)
+                val supertype = id(enum.name) + if (enum.typeParams.isEmpty()) "" else enum.typeParams.joinToString(", ", "<", ">") { if (it in own) it else "kotlin.Nothing" }
                 if (item.fields.isEmpty()) {
-                    sb.appendLine("${INDENT}data object ${id(item.itemName)} : ${id(enum.name)}()")
+                    sb.appendLine("${INDENT}data object ${id(item.itemName)} : $supertype()")
                 }
                 else {
                     val params = item.fields.entries.joinToString(", ") { (n, t) -> "val ${id(n)}: ${typeRepr(t)}" }
-                    sb.appendLine("${INDENT}data class ${id(item.itemName)}($params) : ${id(enum.name)}()")
+                    sb.appendLine("${INDENT}data class ${id(item.itemName)}${typeParamList(own)}($params) : $supertype()")
                 }
             }
             sb.appendLine("}")
             sb.appendLine()
+        }
+
+        /** `<out A, out B>`: generic records and enums are covariant. */
+        private fun typeParamList(params: List<String>): String = if (params.isEmpty()) "" else params.joinToString(", ", "<", ">") { "out $it" }
+
+        /** The type parameters of a generic enum that the fields of [item] use. */
+        private fun itemTypeParams(enum: LLIREnum, item: EnumItem): List<String> {
+            val used = item.fields.values.flatMap { it.typeVars() }.toSet()
+            return enum.typeParams.filter { it in used }
         }
 
         private fun generateRecord(record: Record) {
@@ -318,7 +331,7 @@ object KotlinTarget : Target {
             }
             else {
                 val params = record.fields.entries.joinToString(", ") { (n, t) -> "val ${id(n)}: ${typeRepr(t)}" }
-                sb.appendLine("data class ${id(record.name)}($params)")
+                sb.appendLine("data class ${id(record.name)}${typeParamList(record.typeParams)}($params)")
             }
             sb.appendLine()
         }
@@ -332,11 +345,19 @@ object KotlinTarget : Target {
                 sb.appendLine("@kotlin.jvm.JvmName(\"${function.name}__$key\")")
             }
             sb.append("fun ")
-            if (function.typeParams.isNotEmpty()) sb.append("<${function.typeParams.joinToString(", ")}> ")
+            if (function.typeParams.isNotEmpty()) {
+                // one bound in the list, more after `where`
+                sb.append("<" + function.typeParams.joinToString(", ") { tv ->
+                    function.typeBounds[tv]?.singleOrNull()?.let { "$tv : ${typeRepr(it)}" } ?: tv
+                } + "> ")
+            }
             function.receiver?.let { sb.append(typeRepr(it)).append(".") }
             sb.append(id(function.name)).append("(")
             sb.append(function.parameters.joinToString(", ") { "${id(it.name)}: ${typeRepr(it.type)}" })
-            sb.append("): ").append(typeRepr(function.returnType)).append(" = ")
+            sb.append("): ").append(typeRepr(function.returnType))
+            val more = function.typeBounds.filterValues { it.size > 1 }
+            if (more.isNotEmpty()) sb.append(" where ").append(more.flatMap { (tv, bounds) -> bounds.map { "$tv : ${typeRepr(it)}" } }.joinToString(", "))
+            sb.append(" = ")
             value(body)
             sb.appendLine()
             sb.appendLine()
@@ -627,6 +648,42 @@ object KotlinTarget : Target {
 
         private fun isNode(type: Type): Boolean = type is ComplexType && type.name in nodeNames
 
+        /** The number of type parameters of the generic records and enums. */
+        private val genericParams: Map<String, Int> =
+            (module.records.map { it.name to it.typeParams.size } + module.enums.map { it.name to it.typeParams.size }).filter { it.second > 0 }.toMap()
+
+        /** The arities of the tuples used; their classes are generated at the end. */
+        private val tupleArities = sortedSetOf<Int>()
+
+        private fun tupleClass(arity: Int): String {
+            tupleArities += arity
+            return "__Tuple$arity"
+        }
+
+        private fun generateTuples() {
+            for (n in tupleArities) {
+                val params = (0 until n).joinToString(", ") { "out A$it" }
+                val fields = (0 until n).joinToString(", ") { "val e$it: A$it" }
+                sb.appendLine("/** A tuple of $n values: `t.0` is `t.e0`. */")
+                sb.appendLine("data class __Tuple$n<$params>($fields) {")
+                sb.appendLine("${INDENT}override fun toString(): kotlin.String = \"(\" + ${(0 until n).joinToString(" + \", \" + ") { "e$it" }} + \")\"")
+                sb.appendLine("}")
+                sb.appendLine()
+            }
+        }
+
+        /** A type for `is` tests: generic types with `*`, as their type arguments are not known at run time. */
+        private fun testedType(type: Type): String = when (type) {
+            is ComplexType -> id(type.name) + (genericParams[type.name]?.let { n -> List(n) { "*" }.joinToString(", ", "<", ">") } ?: "")
+            is TupleType -> tupleClass(type.elems.size) + List(type.elems.size) { "*" }.joinToString(", ", "<", ">")
+            is ListType -> "kotlin.collections.List<*>"
+            is SetType -> "kotlin.collections.Set<*>"
+            is MapType -> "kotlin.collections.Map<*, *>"
+            is FunctionType -> "kotlin.Function${type.parameters.size}<${List(type.parameters.size + 1) { "*" }.joinToString(", ")}>"
+            is OptionalType -> testedType(type.elem) + "?"
+            else -> typeRepr(type)
+        }
+
         private fun typeRepr(type: Type): String = when (type) {
             BoolType -> "kotlin.Boolean"
             IntType -> "kotlin.Int"
@@ -637,7 +694,13 @@ object KotlinTarget : Target {
             is MapType -> "kotlin.collections.Map<${typeRepr(type.key)}, ${typeRepr(type.value)}>"
             is SetType -> "kotlin.collections.Set<${typeRepr(type.elem)}>"
             is OptionalType -> if (type.elem is FunctionType) "(${typeRepr(type.elem)})?" else "${typeRepr(type.elem)}?"
-            is ComplexType -> id(type.name)
+            is ComplexType -> id(type.name) + when {
+                type.args.isNotEmpty() -> type.args.joinToString(", ", "<", ">") { typeRepr(it) }
+                // a generic type without type arguments (where Forge does not know them): any of its values
+                else -> genericParams[type.name]?.let { n -> List(n) { "*" }.joinToString(", ", "<", ">") } ?: ""
+            }
+            is TupleType -> tupleClass(type.elems.size) + type.elems.joinToString(", ", "<", ">") { typeRepr(it) }
+            LongType -> "kotlin.Long"
             is ParserType -> id(type.name)
             is FunctionType -> "(${type.parameters.joinToString(", ") { typeRepr(it) }}) -> ${typeRepr(type.returnType)}"
             is FlowGraphType -> "__FlowGraph<${id(type.root)}>"
@@ -667,6 +730,12 @@ object KotlinTarget : Target {
             append('"')
         }
 
+        /** The type arguments of a generic record in a constructor call, as Forge inferred them. */
+        private fun typeArgs(type: Type) {
+            val args = (type as? ComplexType)?.args.orEmpty()
+            if (args.isNotEmpty()) sb.append(args.joinToString(", ", "<", ">") { typeRepr(it) })
+        }
+
         private fun binary(v: BinaryValue, op: String) {
             sb.append("(")
             value(v.lhs)
@@ -692,6 +761,7 @@ object KotlinTarget : Target {
             when (value) {
                 // -2147483648 would be a Long literal
                 is IntValue -> if (value.value == Int.MIN_VALUE) sb.append("kotlin.Int.MIN_VALUE") else sb.append(value.value)
+                is LongValue -> if (value.value == Long.MIN_VALUE) sb.append("kotlin.Long.MIN_VALUE") else sb.append(value.value).append("L")
                 is FloatValue -> sb.append(value.value).append("f")
                 is BoolValue -> sb.append(value.value)
                 is StringValue -> sb.append(string(value.value))
@@ -737,13 +807,21 @@ object KotlinTarget : Target {
                     sb.append(")")
                 }
                 is CreateRecord -> {
-                    sb.append(id(value.target.name)).append("(")
+                    sb.append(id(value.target.name))
+                    typeArgs(value.type)
+                    sb.append("(")
                     args(value.args)
                     sb.append(")")
                 }
                 is CreateEnum -> {
                     sb.append(id(value.target.enumName)).append(".").append(id(value.target.itemName))
                     if (value.target.fields.isNotEmpty()) {
+                        val enum = module.enums.first { it.name == value.target.enumName }
+                        val own = itemTypeParams(enum, value.target)
+                        val args = (value.type as? ComplexType)?.args.orEmpty()
+                        if (own.isNotEmpty() && args.size == enum.typeParams.size) {
+                            sb.append(own.joinToString(", ", "<", ">") { typeRepr(args[enum.typeParams.indexOf(it)]) })
+                        }
                         sb.append("(")
                         args(value.args)
                         sb.append(")")
@@ -775,6 +853,39 @@ object KotlinTarget : Target {
 
                 is Int2Float -> postfix(value.value, "toFloat()")
                 is Float2Int -> postfix(value.value, "toInt()")
+                is Int2Long -> postfix(value.value, "toLong()")
+                is Long2Int -> postfix(value.value, "toInt()")
+                is Long2Float -> postfix(value.value, "toFloat()")
+                is Float2Long -> postfix(value.value, "toLong()")
+
+                is Let -> {
+                    sb.append("run { val ${id(value.name)}: ${typeRepr(value.value.type)} = ")
+                    value(value.value)
+                    sb.append("; ")
+                    value(value.body)
+                    sb.append(" }")
+                }
+                // an anonymous function: its result type is declared, and `this` is the one where it is written
+                is Lambda -> {
+                    sb.append("(fun(")
+                    sb.append(value.params.joinToString(", ") { "${id(it.name)}: ${typeRepr(it.type)}" })
+                    sb.append("): ${typeRepr(value.type.returnType)} = ")
+                    value(value.body)
+                    sb.append(")")
+                }
+                is CallValue -> {
+                    sb.append("(")
+                    value(value.function)
+                    sb.append(")(")
+                    args(value.args)
+                    sb.append(")")
+                }
+                is TupleLiteral -> {
+                    sb.append(tupleClass(value.elems.size)).append("(")
+                    args(value.elems)
+                    sb.append(")")
+                }
+                is TupleGet -> postfix(value.tuple, "e${value.index}")
                 is Cast -> {
                     sb.append("(")
                     value(value.value)
@@ -783,7 +894,7 @@ object KotlinTarget : Target {
                 is IsInstanceOf -> {
                     sb.append("(")
                     value(value.value)
-                    sb.append(" is ${typeRepr(value.target)})")
+                    sb.append(" is ${testedType(value.target)})")
                 }
 
                 is NegateInt -> { sb.append("(-"); value(value.value); sb.append(")") }
@@ -843,8 +954,11 @@ object KotlinTarget : Target {
                 }
                 is Panic -> sb.append("kotlin.error(${string(value.message)})")
 
+                // not Kotlin's `map`: a Forge program can declare a `List<T>.map` of its own (std.forge does)
                 is MapOp -> {
-                    postfix(value.iterable, "map { ${id(value.name)} -> ")
+                    sb.append("__mapAll(")
+                    value(value.iterable)
+                    sb.append(") { ${id(value.name)} -> ")
                     value(value.body)
                     sb.append(" }")
                 }
@@ -901,8 +1015,9 @@ object KotlinTarget : Target {
                 sb.append(")")
             }
             when (b.name) {
-                "int.str", "float.str", "bool.str" -> method("toString")
+                "int.str", "long.str", "float.str", "bool.str" -> method("toString")
                 "str.toInt" -> call("__toInt")
+                "str.toLong" -> call("__toLong")
                 "str.toFloat" -> call("__toFloat")
                 "str.indexOf", "List.indexOf" -> method("indexOf")
                 "str.startsWith" -> method("startsWith")
@@ -968,12 +1083,25 @@ object KotlinTarget : Target {
                             sb.append(") return@$caseLabel; ")
                         }
                         is ConstructorPattern -> {
-                            sb.append("if ($s !is ${id(p.item.enumName)}.${id(p.item.itemName)}) return@$caseLabel; ")
-                            p.item.fields.keys.zip(p.args).forEach { (field, arg) ->
-                                if (arg == WildcardPattern) return@forEach
+                            val enum = module.enums.first { it.name == p.item.enumName }
+                            val own = itemTypeParams(enum, p.item)
+                            val star = if (own.isEmpty()) "" else own.joinToString(", ", "<", ">") { "*" }
+                            sb.append("if ($s !is ${id(p.item.enumName)}.${id(p.item.itemName)}$star) return@$caseLabel; ")
+                            p.item.fields.keys.zip(p.args).forEachIndexed { i, (field, arg) ->
+                                if (arg == WildcardPattern) return@forEachIndexed
                                 val v = fresh()
-                                sb.append("val $v = $s.${id(field)}; ")
+                                // the type of the field of this value: of the type arguments of a generic enum
+                                val type = p.fieldTypes.getOrNull(i)
+                                sb.append("val $v = $s.${id(field)}${if (own.isNotEmpty() && type != null) " as ${typeRepr(type)}" else ""}; ")
                                 pattern(arg, v)
+                            }
+                        }
+                        is TuplePattern -> {
+                            p.elements.forEachIndexed { i, element ->
+                                if (element == WildcardPattern) return@forEachIndexed
+                                val v = fresh()
+                                sb.append("val $v = $s.e$i; ")
+                                pattern(element, v)
                             }
                         }
                         is ListPattern -> {

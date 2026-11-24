@@ -435,6 +435,7 @@ private class RustGeneration(private val module: LLIRModule, private val moduleN
     }
 
     fun expr(v: Value): String = when (v) {
+        is Let, is Lambda, is CallValue, is TupleLiteral, is TupleGet, is LongValue, is Int2Long, is Long2Int, is Long2Float, is Float2Long -> throw IllegalStateException("TODO $v")
         is IntValue -> if (v.value == Int.MIN_VALUE) "V::Int(i32::MIN)" else "V::Int(${v.value})"
         is FloatValue -> "V::Float(${v.value}f32)"
         is BoolValue -> "V::Bool(${v.value})"

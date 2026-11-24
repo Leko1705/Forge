@@ -393,6 +393,7 @@ private class OcamlGeneration(private val module: LLIRModule) {
     private fun listOfValues(values: List<Value>) = "[| ${values.joinToString("; ") { expr(it) }} |]"
 
     fun expr(v: Value): String = when (v) {
+        is Let, is Lambda, is CallValue, is TupleLiteral, is TupleGet, is LongValue, is Int2Long, is Long2Int, is Long2Float, is Float2Long -> throw IllegalStateException("TODO $v")
         is IntValue -> if (v.value < 0) "(Int (${v.value}))" else "(Int ${v.value})"
         is FloatValue -> "(Float (Rt.f32 (${v.value.toDouble()})))"
         is BoolValue -> "(Bool ${v.value})"

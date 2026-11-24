@@ -54,6 +54,8 @@ val intSymbol = primitive("int", IntType)
 
 val floatSymbol = primitive("float", FloatType)
 
+val longSymbol = primitive("long", LongType)
+
 val boolSymbol = primitive("bool", BoolType)
 
 val strSymbol = primitive("str", StrType)
@@ -63,6 +65,10 @@ fun setSymbol(setType: SetType) = primitive("Set", setType)
 fun listSymbol(listType: ListType) = primitive("List", listType)
 
 fun mapSymbol(mapType: MapType) = primitive("Map", mapType)
+
+fun tupleSymbol(tupleType: TupleType) = primitive("Tuple", tupleType)
+
+fun functionValueSymbol(functionType: FunctionType) = primitive("Function", functionType)
 
 class VarSymbol(
     override val name: String,
@@ -120,24 +126,31 @@ data class InterfaceNodeSymbol(
 data class EnumSymbol(
     override val name: String,
     val items: List<EnumItemSymbol>,
-    override val span: SourceSpan
+    override val span: SourceSpan,
+    /** The type parameters of a generic enum: `T` in `enum Option<T> { NONE, SOME(value: T) }`. */
+    val typeParams: List<String> = emptyList(),
 ) : Symbol {
-    override val type: Type get() = ComplexType(name)
+    /** The enum with its type parameters as type variables; a use is the type with arguments for them. */
+    override val type: Type get() = ComplexType(name, typeParams.map { TypeVar(it) })
     override val kind: Kind = Kind.TYP
 }
 
 data class EnumItemSymbol(
     override val name: String,
     val enumType: String,
+    /** The fields; their types have the type parameters of the enum as type variables. */
     val parameters: List<Pair<String, Type>>,
-    override val span: SourceSpan
+    override val span: SourceSpan,
+    val typeParams: List<String> = emptyList(),
 ) : Symbol {
+    /** The type of the enum: `Option<T>`, an item of a generic enum is one with type variables. */
+    val enumComplexType: ComplexType get() = ComplexType(enumType, typeParams.map { TypeVar(it) })
     override val type: Type by lazy {
         if (kind == Kind.VAL) {
-            ComplexType(enumType)
+            enumComplexType
         }
         else {
-            FunctionType(parameters.map { it.second }, ComplexType(enumType))
+            FunctionType(parameters.map { it.second }, enumComplexType)
         }
     }
     override val kind: Kind = if (parameters.isEmpty()) Kind.VAL else Kind.MTH
@@ -150,6 +163,8 @@ data class RecordSymbol(
     override val type: Type = ComplexType(name),
     /** Built-in types whose values can not be created with a constructor call (e.g. `Graph`). */
     val opaque: Boolean = false,
+    /** The type parameters of a generic record: `A`, `B` in `record Pair<A, B> { first: A, second: B }`. */
+    val typeParams: List<String> = emptyList(),
 ) : Symbol, CallableSymbol {
     override val kind: Kind = Kind.TYP
     override val params: List<VarSymbol> get() = fields
@@ -172,20 +187,55 @@ data class FunctionSymbol(
     val generic: FunctionSymbol? = null,
     /** `val T.name: R`: read like a field, `x.name`; a method without parameters otherwise. */
     val isProperty: Boolean = false,
+    /** The bounds of the type parameters: `fun <T: Ord & Expr>` is `T` to `[Ord, Expr]`. */
+    val bounds: Map<String, List<Type>> = emptyMap(),
+    /**
+     * A member of a trait used on a type parameter (`x.compareTo(y)` with `x: T` and `T: Ord`): the type
+     * parameter. The generic function receives the member of the actual type as a hidden parameter.
+     */
+    val witnessOf: String? = null,
+    /** For a use of a generic function: what its type parameters are. */
+    val typeArgs: Map<String, Type> = emptyMap(),
 ) : CallableSymbol {
     /** The declaration, also for a use of a generic function. */
     val declaration: FunctionSymbol get() = generic ?: this
 
     /** This function with type variables replaced: a use of a generic function. */
-    fun instantiate(bindings: Map<String, Type>): FunctionSymbol = if (typeParams.isEmpty()) this else copy(
-        params = params.map { VarSymbol(it.name, it.type.substitute(bindings), it.span, it.varKind) },
-        returnType = returnType.substitute(bindings),
+    fun instantiate(bindings: Map<String, Type>): FunctionSymbol = if (declaration.typeParams.isEmpty()) this else declaration.copy(
+        params = declaration.params.map { VarSymbol(it.name, it.type.substitute(bindings), it.span, it.varKind) },
+        returnType = declaration.returnType.substitute(bindings),
         generic = declaration,
+        typeArgs = declaration.typeParams.associateWith { bindings[it] ?: TypeVar(it) },
     )
 
     override val type: Type get() = FunctionType(params.map { it.type }, returnType)
     override val kind: Kind = Kind.MTH
 }
+
+/**
+ * `trait Ord { fun compareTo(other: Self): int }`: what a type parameter can require. A type has a trait if it
+ * has its members (methods, `op fun`s, `val`s, also those of the standard library), with `Self` the type.
+ */
+data class TraitSymbol(
+    override val name: String,
+    val members: List<TraitMember>,
+    override val span: SourceSpan,
+) : Symbol {
+    override val type: Type get() = ComplexType(name)
+    override val kind: Kind get() = Kind.TYP
+}
+
+/** A member of a trait; its types use `Self` ([SELF]) for the type that has the trait. */
+data class TraitMember(
+    val name: String,
+    val params: List<VarSymbol>,
+    val returnType: Type,
+    val isProperty: Boolean,
+    val span: SourceSpan,
+)
+
+/** The type variable that stands for the type that has a trait, in the members of the trait. */
+const val SELF = "Self"
 
 sealed interface AttributeSymbol : Symbol {
     override val name: String
@@ -321,3 +371,27 @@ const val VERTEX = "Vertex"
 const val GRAPH = "Graph"
 const val EDGE = "Edge"
 const val SPAN = "Span"
+
+/** The names of the functions `op fun` can define. */
+val OPERATORS = setOf(
+    "plus", "minus", "times", "div", "rem", "concat", "shl", "shr", "ushr", "compareTo", "contains", "get", "slice",
+    "neg", "not",
+)
+
+/**
+ * What a call of a generic function passes for a member of a trait of a type parameter: the member of the type
+ * argument ([symbol]), or, inside another generic function, the witness it received for its type parameter
+ * [typeParam]. Neither for type arguments that are errors.
+ */
+data class Witness(
+    val trait: TraitSymbol,
+    val member: TraitMember,
+    val actual: Type,
+    val symbol: FunctionSymbol?,
+    val typeParam: String?,
+    /** The witnesses [symbol] itself receives, if it is a generic function with traits. */
+    val nested: List<Witness> = emptyList(),
+)
+
+/** The hidden parameter of a generic function for a member of a trait of one of its type parameters. */
+fun witnessName(typeParam: String, trait: String, member: String): String = "__w_${typeParam}_${trait}_$member"

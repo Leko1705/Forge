@@ -1,0 +1,55 @@
+// The language features of Forge beyond its core: local bindings, functions as values, generic records and
+// enums, tuples, traits, modules, long and string interpolation. Each target runs `report()` and must print
+// exactly what the Kotlin target prints.
+
+record Pair<A, B> { first: A, second: B }
+enum Option<T> { NONE, SOME(value: T) }
+enum Result<T, E> { OK(value: T), ERR(error: E) }
+
+fun <A, B> Pair<A, B>.swap(): Pair<B, A> = Pair(this.second, this.first)
+fun <T> Option<T>.orElse(other: T): T = match this {
+    Option.SOME(v) -> v
+    _ -> other
+}
+
+fun area(d: int): int = r * r * 3 where r = d / 2
+fun chain(): int = a + b where a = 1 where b = a + 1
+fun swapped(t: (int, str)): (str, int) = (b, a) where (a, b) = t
+
+fun twice(f: (int) -> int, x: int): int = f(f(x))
+fun adder(n: int): (int) -> int = { x -> x + n }
+fun inc(x: int): int = x + 1
+
+record Box { f: (int) -> int }
+
+fun parse(s: str): Result<int, str> = if s == "" then Result.ERR("empty") else Result.OK(s.size)
+
+fun big(): long = 3000000000L * 2 + 1
+fun mix(a: int, b: long): long = a + b
+
+fun <T: Comparable> maxOf(xs: List<T>): T? = match xs.sorted().reversed() {
+    first :: _ -> first
+    _ -> null
+}
+
+fun <T: Printable> describe(x: T): str = "value ${x.str()}!"
+
+fun report(): List<str> = [
+    "${area(10)}",
+    "${chain()}",
+    swapped((1, "a")).0,
+    "${twice(adder(3), 1)} ${twice(inc, 5)}",
+    "${Box({ x -> x * 10 }).f(4)}",
+    [3, 1, 2].map({ x -> x * x }).filter({ x -> x > 1 }).map({ x -> x.str() }).join(","),
+    "${Pair(1, "x").swap().first}",
+    "${Option.SOME(5).orElse(0)} ${Option.NONE.orElse(7)}",
+    match parse("abc") { Result.OK(n) -> "ok ${n}"  Result.ERR(e) -> e },
+    match parse("") { Result.OK(n) -> "ok ${n}"  Result.ERR(e) -> e },
+    "${big()} ${mix(1, 2L)} ${(1L << 40) | 3}",
+    "${maxOf([3, 9, 2])!!}",
+    ["b", "a", "c"].sorted().join(""),
+    [(2, "b"), (1, "a")].sortedBy({ p -> p.0 }).map({ p -> p.1 }).join(""),
+    "${[1, 2, 3, 4].fold(0, { a, x -> a + x })}",
+    [1,2,3,4,5].groupBy({ x -> x % 2 })[1].map({ x -> x.str() }).join(" "),
+    "esc \${x} ${"in${1 + 1}ner"}"
+]

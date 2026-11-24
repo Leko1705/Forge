@@ -8,7 +8,7 @@ fun Value.rewrite(f: (Value) -> Value): Value {
     fun Value.r() = rewrite(f)
     fun List<Value>.r() = map { it.rewrite(f) }
     val rebuilt: Value = when (this) {
-        is IntValue, is FloatValue, is BoolValue, is StringValue, NullValue,
+        is IntValue, is LongValue, is FloatValue, is BoolValue, is StringValue, NullValue,
         is Parameter, is LocalRef, is This, is AccessParentInhAttr, is Panic,
         is PortValue, is FlowGraphRef -> this
 
@@ -27,6 +27,10 @@ fun Value.rewrite(f: (Value) -> Value): Value {
 
         is Int2Float -> copy(value = value.r())
         is Float2Int -> copy(value = value.r())
+        is Int2Long -> copy(value = value.r())
+        is Long2Int -> copy(value = value.r())
+        is Long2Float -> copy(value = value.r())
+        is Float2Long -> copy(value = value.r())
         is Cast -> copy(value = value.r())
         is IsInstanceOf -> copy(value = value.r())
 
@@ -92,6 +96,12 @@ fun Value.rewrite(f: (Value) -> Value): Value {
         is MapOp -> copy(iterable = iterable.r(), body = body.r())
         is FoldOp -> copy(iterable = iterable.r(), initAcc = initAcc.r(), body = body.r())
 
+        is Let -> copy(value = value.r(), body = body.r())
+        is Lambda -> copy(body = body.r())
+        is CallValue -> copy(function = function.r(), args = args.r())
+        is TupleLiteral -> copy(elems = elems.r())
+        is TupleGet -> copy(tuple = tuple.r())
+
         is PortRefValue -> copy(child = child.r())
         is BoundCheck -> copy(port = port.r())
 
@@ -110,6 +120,7 @@ fun MatchPattern.rewrite(f: (Value) -> Value): MatchPattern = when (this) {
     is ConstructorPattern -> copy(args = args.map { it.rewrite(f) })
     is ListPattern -> ListPattern(elements.map { it.rewrite(f) })
     is SplitPattern -> SplitPattern(head.rewrite(f), tail.rewrite(f))
+    is TuplePattern -> copy(elements = elements.map { it.rewrite(f) })
 }
 
 /** Calls [visit] for [this] value and every value in it. */

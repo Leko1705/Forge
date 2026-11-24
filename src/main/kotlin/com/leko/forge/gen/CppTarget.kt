@@ -475,6 +475,7 @@ private class CppGeneration(private val module: LLIRModule, private val namespac
     }
 
     fun expr(v: Value): String = when (v) {
+        is Let, is Lambda, is CallValue, is TupleLiteral, is TupleGet, is LongValue, is Int2Long, is Long2Int, is Long2Float, is Float2Long -> throw IllegalStateException("TODO $v")
         is IntValue -> if (v.value == Int.MIN_VALUE) "rt::I(-2147483647 - 1)" else "rt::I(${v.value})"
         is FloatValue -> "rt::F(${v.value}f)"
         is BoolValue -> "rt::B(${v.value})"

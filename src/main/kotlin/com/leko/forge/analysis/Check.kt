@@ -4,6 +4,8 @@ import com.leko.forge.attr.Resolve
 import com.leko.forge.attr.SymTab
 import com.leko.forge.context.Context
 import com.leko.forge.model.CallableSymbol
+import com.leko.forge.model.RecordSymbol
+import com.leko.forge.model.EnumSymbol
 import com.leko.forge.model.span
 import com.leko.forge.types.*
 import com.leko.forge.util.Log
@@ -78,13 +80,26 @@ class Check private constructor(context: Context) {
                 checkExists(type.returnType)
             )
             is ComplexType -> {
-                if (resolve.resolve(type) == null) {
-                    log.diag(canNotFindIdentifier(null, type.name))
+                val sym = resolve.resolve(type)
+                if (sym == null) {
+                    log.diag(canNotFindIdentifier(null, displayName(type.name)))
                     ErrorType
                 } else {
-                    type
+                    val params = when (sym) {
+                        is RecordSymbol -> sym.typeParams
+                        is EnumSymbol -> sym.typeParams
+                        else -> emptyList()
+                    }
+                    if (params.size != type.args.size) {
+                        log.diag(wrongTypeArguments(null, displayName(type.name), params.size, type.args.size))
+                        ErrorType
+                    } else {
+                        type.copy(args = type.args.map { checkExists(it) })
+                    }
                 }
             }
+            LongType -> type
+            is TupleType -> TupleType(type.elems.map { checkExists(it) })
             NullType -> type
             ErrorType -> type
             FloatType -> type
@@ -118,12 +133,20 @@ class Check private constructor(context: Context) {
         return sym
     }
 
+    /** The type of arithmetic on [t1] and [t2]: int and int is int, with a long a long, with a float a float. */
+    fun numericResult(t1: Type, t2: Type): Type? {
+        val numeric = setOf(IntType, LongType, FloatType)
+        if (t1 !in numeric || t2 !in numeric) return null
+        return when {
+            t1 == FloatType || t2 == FloatType -> FloatType
+            t1 == LongType || t2 == LongType -> LongType
+            else -> IntType
+        }
+    }
+
     fun checkAdditive(t1: Type, t2: Type): Type {
         if (t1 == ErrorType || t2 == ErrorType) return ErrorType
-        if (t1 == IntType && t2 == IntType) return IntType
-        if (t1 == FloatType && t2 == IntType) return FloatType
-        if (t1 == IntType && t2 == FloatType) return FloatType
-        if (t1 == FloatType && t2 == FloatType) return FloatType
+        numericResult(t1, t2)?.let { return it }
         if (t1 == StrType && t2 == StrType) return StrType
         log.diag(canNotPerformBinaryOperation(null, t1, t2, "+"))
         return ErrorType
@@ -132,6 +155,7 @@ class Check private constructor(context: Context) {
     fun checkNegation(type: Type): Type {
         if (type == ErrorType) return ErrorType
         if (type == IntType) return IntType
+        if (type == LongType) return LongType
         if (type == FloatType) return FloatType
         log.diag(canNotPerformUnaryOperation(null, type, "negate"))
         return ErrorType
@@ -140,6 +164,7 @@ class Check private constructor(context: Context) {
     fun checkInversion(type: Type): Type {
         if (type == ErrorType) return ErrorType
         if (type == IntType) return IntType
+        if (type == LongType) return LongType
         if (type == BoolType) return BoolType
         log.diag(canNotPerformUnaryOperation(null, type, "invert"))
         return ErrorType
@@ -148,6 +173,7 @@ class Check private constructor(context: Context) {
     fun checkBoolOrInt(type: Type): Type {
         if (type == ErrorType) return ErrorType
         if (type == IntType) return IntType
+        if (type == LongType) return LongType
         if (type == BoolType) return BoolType
         log.diag(typeMismatch(null, listOf(IntType, BoolType), type))
         return ErrorType
@@ -155,10 +181,7 @@ class Check private constructor(context: Context) {
 
     fun checkNumericOp(t1: Type, t2: Type, operation: String): Type {
         if (t1 == ErrorType || t2 == ErrorType) return ErrorType
-        if (t1 == IntType && t2 == IntType) return IntType
-        if (t1 == FloatType && t2 == IntType) return FloatType
-        if (t1 == IntType && t2 == FloatType) return FloatType
-        if (t1 == FloatType && t2 == FloatType) return FloatType
+        numericResult(t1, t2)?.let { return it }
         log.diag(canNotPerformBinaryOperation(null, t1, t2, operation))
         return ErrorType
     }

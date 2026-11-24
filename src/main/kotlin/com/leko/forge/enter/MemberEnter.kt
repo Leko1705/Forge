@@ -67,13 +67,14 @@ class MemberEnter private constructor(context: Context) {
      * and of constants must exist; Enter, which enters the types, takes them as they are written.
      */
     private fun checkDeclaredTypes(root: ForgeParser.RootContext) {
-        val types = root.nodeDef().flatMap { node -> node.parameter().map { it.ty } } +
-            root.record().flatMap { record -> record.recordField().map { it.ty } } +
-            root.enum_().flatMap { enum -> enum.enumItem().flatMap { item -> item.parameter().map { it.ty } } } +
-            root.inhDef().map { it.attrType } +
-            root.constDef().mapNotNull { it.ty }
-        for (type in types) {
-            if (type != null) chk.checkExists(type.toType(), type)
+        val types = root.nodeDef().flatMap { node -> node.parameter().map { it.ty to emptyList<String>() } } +
+            root.record().flatMap { record -> record.recordField().map { it.ty to record.typeParams().names() } } +
+            root.enum_().flatMap { enum -> enum.enumItem().flatMap { item -> item.parameter().map { it.ty to enum.typeParams().names() } } } +
+            root.inhDef().map { it.attrType to emptyList() } +
+            root.constDef().mapNotNull { it.ty?.let { t -> t to emptyList() } } +
+            root.traitDef().flatMap { t -> t.traitMember().flatMap { m -> m.parameter().map { it.ty } + m.ty }.map { it to listOf(SELF) } }
+        for ((type, params) in types) {
+            if (type != null) chk.checkExists(type.toType().withTypeParams(params), type)
         }
     }
 
@@ -315,7 +316,7 @@ class MemberEnter private constructor(context: Context) {
             if (property && func.receiver == null) {
                 log.diag(invalidProperty(func.name.span, "a val needs a receiver: val T.${func.name.text}: ${func.ty.text}"))
             }
-            val typeParams = func.typeParams.map { it.text }
+            val typeParams = func.typeParams().names()
             fun type(t: ForgeParser.TypeContext) = chk.checkExists(t.toType().withTypeParams(typeParams), t)
             val receiver = if (func.receiver != null) type(func.receiver!!) else continue
             val receiverSym = resolve.resolve(receiver)
@@ -346,6 +347,7 @@ class MemberEnter private constructor(context: Context) {
                     typeParams = typeParams,
                     isProperty = property,
                     builtin = if (func.EXT() != null && func.isStd()) builtinKey(receiver, func.name.text) else null,
+                    bounds = func.typeParams().bounds(),
                 )
                 if (func.op != null) checkOperator(func, sym)
                 // hidden by one of the program: only the standard library itself uses it

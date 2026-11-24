@@ -596,6 +596,7 @@ private class JavaGeneration(private val module: LLIRModule, private val outer: 
     private fun nodeClass(node: Node) = tid(node.name)
 
     fun expr(v: Value): String = when (v) {
+        is Let, is Lambda, is CallValue, is TupleLiteral, is TupleGet, is LongValue, is Int2Long, is Long2Int, is Long2Float, is Float2Long -> throw IllegalStateException("TODO $v")
         is IntValue -> if (v.value == Int.MIN_VALUE) "Integer.MIN_VALUE" else v.value.toString()
         is FloatValue -> "${v.value}f"
         is BoolValue -> v.value.toString()

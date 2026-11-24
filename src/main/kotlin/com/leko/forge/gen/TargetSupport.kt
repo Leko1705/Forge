@@ -125,6 +125,8 @@ internal class TargetSupport(val module: LLIRModule) {
         fun notEmpty(subject: String): String
         fun element(subject: String, index: Int): String
         fun tail(subject: String): String
+        /** The element [index] of a tuple. */
+        fun tupleElement(subject: String, index: Int): String = element(subject, index)
         fun equalTo(subject: String, value: Value): String
         /** Binds a variable of the pattern; returns its name in the target. */
         fun bindVariable(variable: LocalRef): String
@@ -156,6 +158,12 @@ internal class TargetSupport(val module: LLIRModule) {
                         add(Step.Bind(v, p.element(p.use(s), i)))
                         walk(element, v)
                     }
+                }
+                is TuplePattern -> pattern.elements.forEachIndexed { i, element ->
+                    if (element == WildcardPattern) return@forEachIndexed
+                    val v = p.fresh()
+                    add(Step.Bind(v, p.tupleElement(p.use(s), i)))
+                    walk(element, v)
                 }
                 is SplitPattern -> {
                     add(Step.Test(p.notEmpty(p.use(s))))
