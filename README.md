@@ -10,7 +10,7 @@ build/install/forge/bin/forge -f lang.forge -d out -p my.lang     # writes out/l
 ```
 
 Options: `-f` files, `-d` output directory, `-o` output name, `-p` package (namespace for C++), `-t` target
-(`kotlin`, `java`, `python`, `cpp`, `rust`, `ocaml`; default `kotlin`), `-opt` optimize, `-keep` names to keep.
+(`kotlin`, `java`, `python`, `cpp`, `rust`, `ocaml`, `javascript`; default `kotlin`), `-opt` optimize, `-keep` names to keep.
 
 `-opt` optimizes before code is generated, for every target:
 
@@ -135,7 +135,7 @@ firstOf([], "y")              // a str: the empty list is a List<str>, as "y" sa
 A generic method applies to every receiver it fits: `List<T>.second()` to a `List<int>` as to a `List<Expr>`.
 A method declared for a specific receiver (`List<int>.second()`) comes first.
 
-Strings are UTF-16 in Kotlin and Java, code points in Python and bytes of UTF-8 in C++, Rust and OCaml: sizes,
+Strings are UTF-16 in Kotlin, Java and JavaScript, code points in Python and bytes of UTF-8 in C++, Rust and OCaml: sizes,
 indexes, `code`, `upper`, `lower` and `trim` agree for ASCII text.
 
 ### Attributes
@@ -294,18 +294,47 @@ identical output in each of them.
 | `cpp`    | `name.hpp` (C++17)       | `rt::V`: `rt::I(1)`, `rt::S("x")`, `rt::L({...})`; attributes are functions: `attr_type(node)` | functions declared in the namespace, defined by the program: `rt::V name::int_text(rt::V self)` |
 | `rust`   | `name.rs` (a module)     | `rt::V`: `V::Int(1)`, `rt::s("x")`, `rt::list(vec![...])`; attributes are functions | functions of the sibling module `name_externals`: `pub fn int_text(this: V) -> V` |
 | `ocaml`  | `name.ml` (OCaml 4.14+)  | `Rt.v`: `Int 1`, `Str "x"`, `List [| ... |]`; attributes are functions | references to set: `Name.ext_int_text := (fun v -> ...)` |
+| `javascript` | `name.js` (an ES module, ES2020) | classes with attributes as getters (`num.type`); numbers, strings, arrays, and maps and sets of the runtime that compare keys by value | exported functions of `name_externals.js`: `export function int_text(self)` |
 
 - Functions keep their names; methods are named after their receiver: `fun Type.repr()` is `Type_repr`
   (`f_Type_repr` in OCaml), an `ext fun int.text()` is `int_text`. Names that are keywords of the target
   get a `_` appended.
-- A parser rule `P.rule` is `P.rule(source)` in Kotlin, Java and Python, `parse_P_rule(input)` elsewhere. A
+- A parser rule `P.rule` is `P.rule(source)` in Kotlin, Java, Python and JavaScript, `parse_P_rule(input)` elsewhere. A
   failed parse throws `ParseException` (`rt::ParseException` in C++, `Rt.Parse_error` in OCaml); in Rust it
   panics with an `rt::ParseError`, which `rt::catch_parse(|| ...)` returns as an `Err`.
 - Attribute evaluation recurses deeply; the C++ and Rust runtimes have `rt::with_stack(megabytes, f)` to run
   on a thread with a large stack.
 - Regular expressions are Java's. The C++, Rust and OCaml targets compile them at generation time into a program
   for a small backtracking matcher of their runtime (all of Java's syntax except lookbehind, Unicode classes
-  and flags); they match bytes of UTF-8 text.
+  and flags); they match bytes of UTF-8 text. The JavaScript target translates them into JavaScript's syntax
+  (`\s`, `.`, `$`, `\Q...\E`, `\p{Alpha}` and the other POSIX classes, `\h`, `\R`, a leading `(?i)`, ... mean
+  what they mean in Java); possessive quantifiers and atomic groups are matched like greedy ones.
+
+### JavaScript: compilers for the web
+
+`-t javascript` generates one ES module without dependencies, so the generated compiler runs in the browser:
+
+```html
+<script type="module">
+    import { Calc, attr_type } from "./calc.js";
+    const program = Calc.program(source, "input.calc");   // throws a ParseException with line and column
+    console.log(program.type);                              // attributes are getters (or attr_type(program))
+</script>
+```
+
+- Everything the program declares is exported: node, record and enum classes (`new Num(1)`, `Type.INT`,
+  `new Type.ERROR("x")`), interface nodes for `instanceof` (`x instanceof Expr`), functions, parsers, graphs,
+  `attr_<name>`, `inh_<name>` and `coll_<name>`, and `ForgeError`, `ParseException`, `Graph`, `Edge`, `Span`,
+  `Vertex`, `graphOf`, `spanOf`.
+- `int` is a number that wraps at 32 bits like on the JVM, `float` a number rounded to 32 bits
+  (`Math.fround`), `null` is `null`, lists are arrays. Binary parsers take an array of ints, a `Uint8Array` or
+  an `ArrayBuffer`.
+- Browsers load modules over HTTP, not from `file://`: serve the directory (`python3 -m http.server`). In
+  Node.js, put `{ "type": "module" }` in a `package.json` next to the file (or rename it to `.mjs`).
+- The depth of recursion is the engine's: very deep trees can exceed the stack of a browser (Node.js:
+  `node --stack-size=...`).
+- [examples/kiln/javascript](examples/kiln/javascript) has a page that compiles Kiln to class files in the
+  browser (`index.html`) and a command line driver for Node.js (`kilnc.js`).
 
 ## Building and testing
 
@@ -314,7 +343,7 @@ identical output in each of them.
 ```
 
 `TargetsTest` also generates the conformance program and the Kiln compiler for every other target, builds them
-with `python3`, `javac`, `g++`, `rustc` and `ocamlopt` and compares what they compute with the Kotlin target; a
+with `python3`, `javac`, `g++`, `rustc`, `ocamlopt` and `node` and compares what they compute with the Kotlin target; a
 target whose toolchain is not installed is skipped.
 
 ## IntelliJ plugin
