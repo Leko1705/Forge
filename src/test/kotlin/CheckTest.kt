@@ -37,6 +37,16 @@ class CheckTest {
     """
 
     @Test
+    fun theTypesOfFieldsMustExist() {
+        assertError("can not find 'Stmt'", "node Program(stmts: List<Stmt>)")
+        assertError("can not find 'Missing'", "record R { a: Missing? }")
+        assertError("can not find 'Missing'", "enum E { A(m: Missing) }")
+        assertError("can not find 'Missing'", "node A(n: int)\ninh x: Missing = null")
+        assertError("can not find 'Missing'", "const c: Map<str, Missing> = {:}")
+        assertEquals(emptyList(), errors("node Stmt\nnode Program(stmts: List<Stmt>, names: Set<str>)\nrecord R { s: Stmt? }"))
+    }
+
+    @Test
     fun cyclesAreAllowedOnlyThroughCircularAttributes() {
         assertError("cyclic dependency", "node A(n: int)\nsyn A.x: int = this.y\nsyn A.y: int = this.x")
         assertEquals(emptyList(), errors("node A(n: int)\ncircular(0) A.x: int = this.y\nsyn A.y: int = this.x"))

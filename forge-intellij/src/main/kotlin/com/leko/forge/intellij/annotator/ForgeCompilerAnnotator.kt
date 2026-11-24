@@ -28,8 +28,11 @@ import org.antlr.v4.runtime.ListTokenSource
 import org.antlr.v4.runtime.Token
 import java.io.File
 
-/** A diagnostic in the editor: [range] in the analyzed text, or the whole file if `null`. */
-data class ForgeProblem(val severity: HighlightSeverity, val message: String, val range: TextRange?)
+/**
+ * A diagnostic in the editor: [range] in the analyzed text, or the whole file if `null`. [text] is the compiler's
+ * message without its code, for the quick fixes; `null` for problems the plugin finds.
+ */
+data class ForgeProblem(val severity: HighlightSeverity, val message: String, val range: TextRange?, val text: String? = null)
 
 /** The text of a file to analyze, with the file on disk its imports are relative to. */
 data class ForgeSource(val text: String, val file: File?)
@@ -52,9 +55,10 @@ class ForgeCompilerAnnotator : ExternalAnnotator<ForgeSource, List<ForgeProblem>
     override fun apply(file: PsiFile, problems: List<ForgeProblem>, holder: AnnotationHolder) {
         val length = file.textLength
         for (problem in problems) {
-            val builder = holder.newAnnotation(problem.severity, problem.message)
+            var builder = holder.newAnnotation(problem.severity, problem.message)
             val range = problem.range
-            if (range == null || range.endOffset > length) builder.fileLevel() else builder.range(range)
+            builder = if (range == null || range.endOffset > length) builder.fileLevel() else builder.range(range)
+            for (fix in ForgeQuickFixes.fixesFor(file, problem)) builder = builder.withFix(fix)
             builder.create()
         }
     }
@@ -128,7 +132,7 @@ class ForgeCompilerAnnotator : ExternalAnnotator<ForgeSource, List<ForgeProblem>
                     span == null || span.startLine <= 0 -> ForgeProblem(severity, message, null)
                     // in this file: the main tree has the path of the file, or no source name without a file
                     span.source == null || spanPath == mainPath ->
-                        ForgeProblem(severity, message, positions.range(span))
+                        ForgeProblem(severity, message, positions.range(span), d.message)
                     // in an imported file: on its import, or on the file if it is imported indirectly
                     else -> ForgeProblem(severity, "${File(span.source!!).name}:${span.startLine}:${span.startCol}: $message", imports[spanPath])
                 }

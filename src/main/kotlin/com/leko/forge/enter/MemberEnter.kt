@@ -50,6 +50,7 @@ class MemberEnter private constructor(context: Context) {
 
 
     fun enter(root: ForgeParser.RootContext) {
+        checkDeclaredTypes(root)
         enterInheritance(root)
         enterSyntheticAttributes(root)
         enterCircularAttributes(root)
@@ -59,6 +60,21 @@ class MemberEnter private constructor(context: Context) {
         enterParserRules(root)
         enterFlows(root)
         checkNameClashes()
+    }
+
+    /**
+     * The types of the fields of nodes and records, of the parameters of enum constants, of inherited attributes
+     * and of constants must exist; Enter, which enters the types, takes them as they are written.
+     */
+    private fun checkDeclaredTypes(root: ForgeParser.RootContext) {
+        val types = root.nodeDef().flatMap { node -> node.parameter().map { it.ty } } +
+            root.record().flatMap { record -> record.recordField().map { it.ty } } +
+            root.enum_().flatMap { enum -> enum.enumItem().flatMap { item -> item.parameter().map { it.ty } } } +
+            root.inhDef().map { it.attrType } +
+            root.constDef().mapNotNull { it.ty }
+        for (type in types) {
+            if (type != null) chk.checkExists(type.toType(), type)
+        }
     }
 
     /** Fields and attributes become members of the same generated classes, so their names must differ. */
