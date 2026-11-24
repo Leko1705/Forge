@@ -22,6 +22,7 @@ import com.leko.forge.intellij.parser.ForgeNameRole
 import com.leko.forge.intellij.parser.ForgePsiParser
 import com.leko.forge.intellij.parser.nameRole
 import com.leko.forge.model.*
+import com.leko.forge.model.span
 import com.leko.forge.parse.parseForgeImports
 import org.antlr.v4.runtime.CharStream
 import org.antlr.v4.runtime.CommonTokenStream
@@ -40,8 +41,27 @@ import java.io.File
  */
 data class ForgeResolution(val name: String, val source: String?, val line: Int, val column: Int, val role: ForgeNameRole?)
 
-/** The names of a file the compiler resolved, by the offset where they start. */
-class ForgeSemantics(val resolutions: Map<Int, ForgeResolution>) {
+/** A declaration related to another one: [resolution] is where it is; [abstract] if it has no implementation of its own. */
+data class ForgeRelated(val resolution: ForgeResolution, val abstract: Boolean, val label: String)
+
+/**
+ * How a declaration is related to others: what it implements or overrides ([supers]), and what implements or
+ * overrides it ([subs]). Nodes implement interface nodes; a syn or circular attribute of a node implements or
+ * overrides the attribute of its interfaces; an `inh Node.attr { ... }` equation implements `inh attr`; a rule
+ * with alternatives implements the abstract rule of the same name.
+ */
+data class ForgeHierarchy(val abstract: Boolean, val supers: List<ForgeRelated>, val subs: List<ForgeRelated>)
+
+/**
+ * The names of a file the compiler resolved, by the offset where they start, and the [hierarchy] of the
+ * declarations of the file, by the offset of their names.
+ */
+class ForgeSemantics(
+    val resolutions: Map<Int, ForgeResolution>,
+    val hierarchy: Map<Int, ForgeHierarchy> = emptyMap(),
+    /** The types of the used variables, parameters and constants of the file, by the line and column of their declaration. */
+    val declarationTypes: Map<Pair<Int, Int>, String> = emptyMap(),
+) {
 
     companion object {
         private val LOG = logger<ForgeSemantics>()
@@ -78,7 +98,8 @@ class ForgeSemantics(val resolutions: Map<Int, ForgeResolution>) {
                     MemberEnter.instance(context).enter(root)
                     Attr.instance(context).attr(root)
                     Dependency.instance(context).check(root)
-                    Collector(context).apply { visit(main) }.let { ForgeSemantics(it.resolutions) }
+                    val collector = Collector(context).apply { visit(main) }
+                    ForgeSemantics(collector.resolutions, Hierarchy(context, root).compute(), collector.declarationTypes)
                 } catch (e: Throwable) {
                     if (e is ControlFlowException) throw e
                     // the analysis needs a complete tree; while the file is edited, it may not be
@@ -91,11 +112,85 @@ class ForgeSemantics(val resolutions: Map<Int, ForgeResolution>) {
         }
     }
 
+    /** The [ForgeHierarchy] of the declarations of the analyzed file, from the declarations of the whole program. */
+    private class Hierarchy(context: Context, private val root: ForgeParser.RootContext) {
+        private val symTab = SymTab.instance(context)
+        private val typeMap = TypeMap.instance(context)
+
+        private enum class Kind { NODE, ATTRIBUTE, INH_DEFINITION, INH_EQUATION, RULE }
+
+        private class Decl(val kind: Kind, val token: Token, val owner: NodeSymbol?, val group: String, val abstract: Boolean, val label: String)
+
+        private fun node(name: String?): NodeSymbol? =
+            symTab.table.values.firstOrNull { it is NodeSymbol && it.name == name } as NodeSymbol?
+
+        private fun declarations(): List<Decl> = buildList {
+            for (def in root.nodeDef()) {
+                val sym = def.symbol ?: node(def.name.text) ?: continue
+                add(Decl(Kind.NODE, def.name, sym, "", sym is InterfaceNodeSymbol, "node ${def.name.text}"))
+            }
+            for (def in root.synDef()) {
+                val owner = node(def.node?.text) ?: continue
+                add(Decl(Kind.ATTRIBUTE, def.attrName, owner, def.attrName.text, def.syn == null, "syn ${def.node.text}.${def.attrName.text}"))
+            }
+            for (def in root.circularDef()) {
+                val owner = node(def.node?.text) ?: continue
+                add(Decl(Kind.ATTRIBUTE, def.attrName, owner, def.attrName.text, false, "circular ${def.node.text}.${def.attrName.text}"))
+            }
+            for (def in root.inhDef()) add(Decl(Kind.INH_DEFINITION, def.attrName, null, def.attrName.text, true, "inh ${def.attrName.text}"))
+            for (impl in root.inhImpl()) {
+                add(Decl(Kind.INH_EQUATION, impl.attrName, node(impl.node?.text), impl.attrName.text, false, "inh ${impl.node.text}.${impl.attrName.text}"))
+            }
+            for (rule in root.parseRuleDef()) {
+                add(Decl(Kind.RULE, rule.ruleName, null, "${rule.parserName.text}.${rule.ruleName.text}", rule.ARROW() == null,
+                    "rule ${rule.parserName.text}.${rule.ruleName.text}: ${rule.returnType.text}"))
+            }
+        }.filter { it.token.startIndex >= 0 }
+
+        /** Whether [sub] is below [sup] in the hierarchy of nodes. */
+        private fun below(sub: NodeSymbol, sup: NodeSymbol): Boolean = sub !== sup && sup in typeMap.allParentsOf(sub)
+
+        private fun related(decl: Decl) = ForgeRelated(
+            ForgeResolution(decl.token.text, decl.token.span.source, decl.token.line, decl.token.charPositionInLine, null),
+            decl.abstract, decl.label,
+        )
+
+        fun compute(): Map<Int, ForgeHierarchy> {
+            val decls = declarations()
+            val result = mutableMapOf<Int, ForgeHierarchy>()
+            for (decl in decls) {
+                // only the declarations of the analyzed file: its tokens have no source
+                if (decl.token.span.source != null) continue
+                val others = decls.filter { it !== decl }
+                val (supers, subs) = when (decl.kind) {
+                    Kind.NODE -> others.filter { it.kind == Kind.NODE && below(decl.owner!!, it.owner!!) } to
+                        others.filter { it.kind == Kind.NODE && below(it.owner!!, decl.owner!!) }
+                    Kind.ATTRIBUTE -> {
+                        val same = others.filter { it.kind == Kind.ATTRIBUTE && it.group == decl.group }
+                        same.filter { below(decl.owner!!, it.owner!!) } to same.filter { below(it.owner!!, decl.owner!!) }
+                    }
+                    Kind.INH_DEFINITION -> emptyList<Decl>() to others.filter { it.kind == Kind.INH_EQUATION && it.group == decl.group }
+                    Kind.INH_EQUATION -> others.filter { it.kind == Kind.INH_DEFINITION && it.group == decl.group } to emptyList()
+                    Kind.RULE -> {
+                        val same = others.filter { it.kind == Kind.RULE && it.group == decl.group }
+                        if (decl.abstract) emptyList<Decl>() to same.filter { !it.abstract }
+                        else same.filter { it.abstract } to emptyList()
+                    }
+                }
+                if (supers.isNotEmpty() || subs.isNotEmpty()) {
+                    result[decl.token.startIndex] = ForgeHierarchy(decl.abstract, supers.map(::related), subs.map(::related))
+                }
+            }
+            return result
+        }
+    }
+
     /** Walks the tree of the analyzed file while the attributes of the analysis are there. */
     private class Collector(context: Context) {
         private val symTab = SymTab.instance(context)
         private val typeMap = TypeMap.instance(context)
         val resolutions = mutableMapOf<Int, ForgeResolution>()
+        val declarationTypes = mutableMapOf<Pair<Int, Int>, String>()
 
         fun visit(tree: ParseTree) {
             if (tree is TerminalNode) {
@@ -105,6 +200,9 @@ class ForgeSemantics(val resolutions: Map<Int, ForgeResolution>) {
                 val symbol = resolve(context, token) ?: return
                 val span = symbol.span ?: return
                 if (span.startLine <= 0) return
+                if (span.source == null && (symbol is VarSymbol || symbol is ConstSymbol)) {
+                    declarationTypes[span.startLine to span.startCol] = symbol.type.toString()
+                }
                 resolutions[token.startIndex] = ForgeResolution(
                     symbol.name, span.source, span.startLine, span.startCol, role(symbol, nameRole(context, token)),
                 )

@@ -28,7 +28,8 @@ object ForgeColors {
     val REGEX = key("REGEX", Default.VALID_STRING_ESCAPE)
     val NUMBER = key("NUMBER", Default.NUMBER)
     val LINE_COMMENT = key("LINE_COMMENT", Default.LINE_COMMENT)
-    val BLOCK_COMMENT = key("BLOCK_COMMENT", Default.BLOCK_COMMENT)
+    // in the color of doc comments (green in Darcula), as block comments are mostly documentation
+    val BLOCK_COMMENT = key("BLOCK_COMMENT", Default.DOC_COMMENT)
     val OPERATOR = key("OPERATOR", Default.OPERATION_SIGN)
     val BRACES = key("BRACES", Default.BRACES)
     val BRACKETS = key("BRACKETS", Default.BRACKETS)

@@ -12,6 +12,10 @@
             where the compiler reports them;</li>
         <li>navigation (Ctrl+Click, Go to Declaration) and Find Usages, as the compiler resolves the names, also into
             imported files and the standard library; attributes and vals, which are computed, are italic;</li>
+        <li>gutter icons for implementations and overrides (nodes and interface nodes, syn and circular attributes,
+            inh equations, parser rules); Find Usages of a definition includes its implementations;</li>
+        <li>documentation on hover (Ctrl+Q): signature, doc comment, kind, type and hierarchy;</li>
+        <li>folding of declaration bodies, blocks, block comments and imports;</li>
         <li>brace matching, commenting and quote pairing.</li>
     </ul>
     ]]></description>
@@ -34,5 +38,11 @@
         <lang.quoteHandler language="Forge" implementationClass="com.leko.forge.intellij.editor.ForgeQuoteHandler"/>
         <lang.findUsagesProvider language="Forge"
                                  implementationClass="com.leko.forge.intellij.psi.ForgeFindUsagesProvider"/>
+        <findUsagesHandlerFactory implementation="com.leko.forge.intellij.hierarchy.ForgeFindUsagesHandlerFactory"/>
+        <codeInsight.lineMarkerProvider language="Forge"
+                                        implementationClass="com.leko.forge.intellij.hierarchy.ForgeLineMarkerProvider"/>
+        <lang.foldingBuilder language="Forge" implementationClass="com.leko.forge.intellij.editor.ForgeFoldingBuilder"/>
+        <lang.documentationProvider language="Forge"
+                                    implementationClass="com.leko.forge.intellij.editor.ForgeDocumentationProvider"/>
     </extensions>
 </idea-plugin>

@@ -335,6 +335,14 @@ the compiler itself, so the editor sees what `forge -f` sees:
   errors, it resolves nothing.
 - **Computed values are italic**: attributes (`syn`, `inh`, `circular`, `coll`) and `val` properties, where they are
   declared and where they are used, so `this.type` (an attribute) and `this.left` (a child) look different.
+- **Gutter icons** for implementations and overrides, as in Java and Kotlin: interface nodes and the nodes that
+  implement them, a `syn` definition and the equations of the nodes below it, a `circular` attribute and its
+  overrides, `inh attr` and its `inh Node.attr { ... }` equations, an abstract rule and its alternatives. Find
+  Usages of a definition also lists its implementations and their uses.
+- **Documentation on hover** (and `Ctrl+Q`): the highlighted signature, the `/** ... */` comment before the
+  declaration, what it is, the type of variables and how it relates to other declarations.
+- **Folding** of declaration bodies, blocks in braces, block comments and the imports.
+- Block comments have the color of doc comments.
 - Brace matching, commenting (`Ctrl+/`) and quote pairing.
 
 ```

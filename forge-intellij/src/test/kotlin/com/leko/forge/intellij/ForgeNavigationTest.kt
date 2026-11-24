@@ -90,8 +90,11 @@ class ForgeNavigationTest : BasePlatformTestCase() {
         myFixture.configureByText("a.forge", program.substring(0, offset) + "<caret>" + program.substring(offset))
         val declaration = myFixture.elementAtCaret
         assertTrue(declaration is ForgeDeclaredName)
-        // left.type twice, right.type
-        assertEquals(3, myFixture.findUsages(declaration).size)
+        // this.left.type twice, this.right.type, and the implementations syn Num.type and syn Add.type
+        val usages = myFixture.findUsages(declaration)
+        assertEquals(usages.map { it.element?.text + "@" + it.navigationOffset }.toString(), 5, usages.size)
+        val implementations = usages.map { it.navigationOffset }.filter { program.startsWith("type: Type =", it) }
+        assertEquals(2, implementations.size)
 
         val depth = program.indexOf("inh depth") + "inh ".length
         myFixture.configureByText("a.forge", program.substring(0, depth) + "<caret>" + program.substring(depth))
