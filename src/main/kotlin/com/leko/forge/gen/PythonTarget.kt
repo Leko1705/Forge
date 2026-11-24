@@ -601,23 +601,6 @@ private class PythonGeneration(private val module: LLIRModule, private val modul
         is IfElse -> "(${expr(v.then)} if ${expr(v.cond)} else ${expr(v.alt)})"
         is Panic -> "_panic(${string(v.message)})"
 
-        is MapOp -> {
-            val iterable = expr(v.iterable)
-            names.scoped {
-                val x = names.bind(v.name)
-                // not a comprehension: its variable is one for all elements, which lambdas in the body would share
-                "list(map(lambda $x: ${expr(v.body)}, $iterable))"
-            }
-        }
-        is FoldOp -> {
-            val iterable = expr(v.iterable)
-            val init = expr(v.initAcc)
-            names.scoped {
-                val x = names.bind(v.item)
-                val acc = names.bind(v.acc)
-                "_fold($iterable, $init, lambda $acc, $x: ${expr(v.body)})"
-            }
-        }
 
         is PortValue -> if (v.port.isNext) "_PORT_NEXT" else "_port_${v.port.name}"
         is PortRefValue -> "_PortRef(${expr(v.child)}, ${expr(PortValue(v.port))})"

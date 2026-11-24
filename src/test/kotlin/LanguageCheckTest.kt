@@ -70,6 +70,17 @@ class LanguageCheckTest {
     }
 
     @Test
+    fun mapAndFoldInsteadOfComprehensions() {
+        assertOk("fun f(xs: List<int>): List<int> = xs.map { it * 2 }\nfun g(xs: Set<int>): int = xs.fold(0) { acc, x -> acc + x }")
+        // there is no comprehension any more: `for` is a syntax error in an expression
+        assertTrue(runCatching { errors("fun f(xs: List<int>): List<int> = x * 2 for x in xs") }.let { it.isFailure || it.getOrThrow().isNotEmpty() })
+        // functions may be recursive; attributes and constants must not depend on themselves
+        assertOk("fun fact(n: int): int = if n == 0 then 1 else n * fact(n - 1)\nfun even(n: int): bool = if n == 0 then true else odd(n - 1)\n" +
+            "fun odd(n: int): bool = if n == 0 then false else even(n - 1)")
+        assertError("cyclic dependency", "node A(n: int)\nsyn A.x: int = f(this)\nfun f(a: A): int = a.x")
+    }
+
+    @Test
     fun genericTypes() {
         assertOk("record Pair<A, B> { a: A, b: B }\nfun f(): Pair<int, str> = Pair(1, \"x\")\nfun g(p: Pair<int, str>): str = p.b")
         assertOk("enum Option<T> { NONE, SOME(v: T) }\nfun f(): Option<int> = Option.NONE\nfun g(o: Option<int>): int = match o { Option.SOME(v) -> v  _ -> 0 }")

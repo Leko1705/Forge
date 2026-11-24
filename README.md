@@ -58,8 +58,10 @@ functions `(int) -> str`, nodes, enums and records (also generic ones: `Pair<int
 `[Push(1), Label("end")]` is a `List<Insn>` if both are `Insn`s.
 Expressions: arithmetic, shifts `<<`, `>>` (keeps the sign) and `>>>`, `++` (lists, sets, maps), `x in xs`, `a ?: b`,
 `x!!`, `v as T`, `v is T`, `if .. then .. else`, `match` (enum variants, lists `[a, b]`, `head :: tail`, values, guards
-`p if cond`), comprehensions (`f(x) for x in xs`, folds `acc + x for x in xs with acc = 0`, also over sets), local
-bindings `e where x = 1`, lambdas `{ x -> x + 1 }`, tuples `(a, b)` and `t.0`, strings with expressions `"n = ${n}"`.
+`p if cond`), local bindings `e where x = 1`, lambdas `{ x -> x + 1 }`, tuples `(a, b)` and `t.0`, strings with
+expressions `"n = ${n}"`. There are no loops: lists (and sets) are gone through with `map` and `fold` of the
+[standard library](#the-standard-library), `xs.map { it * 2 }`, `xs.fold(0) { acc, x -> acc + x }`, and functions may
+be recursive.
 Comments: `//` and `/* */`. Each of these is described [below](#local-bindings-where).
 
 | Literal or access     | Meaning                                                                                 |
@@ -81,7 +83,7 @@ record Vec { x: int, y: int }
 op fun Vec.plus(o: Vec): Vec = Vec(this.x + o.x, this.y + o.y)      // a + b
 op fun Vec.get(i: int): int = if i == 0 then this.x else this.y     // v[i]
 op fun Vec.compareTo(o: Vec): int = this.x - o.x                     // a < b is a.compareTo(b) < 0
-op fun str.times(n: int): str = acc + this for _i in [0:n] with acc = ""  // "ab" * 3
+op fun str.times(n: int): str = [0:n].fold("") { acc, _ -> acc + this }  // "ab" * 3
 ```
 
 | Operator               | Function                                  |
@@ -110,10 +112,14 @@ comes first.
 | `List<T>`, with functions | `map(f)`, `filter(p)`, `flatMap(f)`, `fold(init, f)`, `any(p)`, `all(p)`, `count(p)`, `find(p)` (`null` if none), `groupBy(key)`, `sortedWith(compare)`, `sortedBy(key)` (a `Comparable` key), `maxBy(key)`, `minBy(key)`, `joinWith(separator, f)`; `sorted()` of `Comparable` elements (all sorts are stable) |
 | `List<T>`, with tuples | `withIndex()`: `[(0, a), (1, b)]`; `zip(other)`: `[(a, x), (b, y)]`                       |
 | `List<int>`, `List<long>`, `List<float>` | `sum()`; `max()`, `min()` of ints and floats (fail for an empty list)   |
-| `Set<T>`  | `size`, `toList()`, `remove(x)`                                                                                |
+| `Set<T>`  | `size`, `toList()`, `remove(x)`, `map(f)` (a list), `fold(init, f)` (in the order the elements were added)                                                                                |
 | `Map<K, V>` | `size`, `keys()`, `values()` (lists, in the order of the map), `remove(key)`, `entries()` (`(key, value)` tuples), `mapValues(f)` |
 | traits    | `Comparable` (`compareTo(other: Self): int`: int, long, float, str), `Printable` (`str(): str`: int, long, float, bool, str) |
 | -         | `char(code)`: a character as a str; `fail(message)`: stops with an error (`ForgeError`, `IllegalStateException` in Kotlin, a panic in Rust). Its type is `Nothing`, which fits wherever a value is expected: `x ?: fail("missing")`, `if b == 0 then fail("division by zero") else a / b` |
+
+`map` and `fold` are Forge code too, recursive ones (they halve the list, so the depth of the recursion is the
+logarithm of its size); the other functions on lists are made of them. A program can write its own the same way:
+functions may call themselves, only attributes and constants must not depend on themselves.
 
 Part of the language rather than of std.forge: the operators and the graph declarations (`Graph`, `Edge`, `Vertex`, `graphOf`, `Span`, `spanOf`).
 
@@ -154,8 +160,8 @@ fun norm(v: Vec): int = x + y where x = v.x.abs(), y = v.y.abs()
 fun swap(t: (int, str)): (str, int) = (b, a) where (a, b) = t
 ```
 
-A `where` is for the whole expression before it, also the whole `if ... else` or comprehension it ends:
-`if c then x else x + 1 where x = f()` and `f(e) for e in xs with acc = 0 where k = 2` see `x` and `k` everywhere.
+A `where` is for the whole expression before it, also the whole `if ... else` it ends:
+`if c then x else x + 1 where x = f()` sees `x` in both branches.
 `a where x = 1 where y = 2` is `a where x = 1, y = 2`; in parentheses a `where` is just for what is in them.
 
 ### Functions as values
@@ -182,7 +188,7 @@ expected (`xs.map { it * 2 }`, `xs.filter { it > 0 }`), else none (`run { 42 }`)
 its `->`: `{ x }` there is a set.
 
 ```
-fun repeat(n: int, f: (int) -> str): str = acc + f(i) for i in [0:n] with acc = ""
+fun repeat(n: int, f: (int) -> str): str = [0:n].fold("") { acc, i -> acc + f(i) }
 repeat(3) { i -> "<${i}>" }                            // "<0><1><2>"
 [1, 2, 3].map { it * 10 }.filter { it > 10 }           // [20, 30]
 names.joinWith(", ") { it.upper() }
@@ -224,7 +230,7 @@ record Dog { label: str }
 fun Dog.name(): str = "dog " + this.label
 val Dog.weight: int = this.label.size
 
-fun <T: Named & Sized> heaviest(xs: List<T>): str = ((if x.weight > acc.weight then x else acc) for x in xs with acc = xs[0]).name()
+fun <T: Named & Sized> heaviest(xs: List<T>): str = xs.fold(xs[0]) { acc, x -> if x.weight > acc.weight then x else acc }.name()
 fun <T: Comparable> largest(a: T, b: T): T = if a > b then a else b      // `<` and `>` are compareTo
 ```
 
@@ -239,7 +245,7 @@ A function receives the members of the traits of its type parameters as hidden p
 the same in every target, without virtual dispatch: `largest(3, 8)` passes `int.compareTo`.
 
 A type as bound, `fun <T: Expr>`, makes the members of `Expr` (fields, attributes, methods) members of `T`, and a `T` an
-`Expr`: `fun <T: Expr> sum(xs: List<T>): int = (acc + x.value) for x in xs with acc = 0`.
+`Expr`: `fun <T: Expr> sum(xs: List<T>): int = xs.fold(0) { acc, x -> acc + x.value }`.
 
 The standard library has the traits `Comparable` and `Printable` (`fun <T: Comparable> List<T>.sorted()`).
 
@@ -312,7 +318,7 @@ While a fixpoint is computed, no other attribute caches its value, because it ma
 A circular attribute can be declared on several node types (the most specific one applies).
 
 ```
-circular([]) Vertex.liveOut: List<str> = union(acc, s.liveIn) for s in cfg.succ(this) with acc = []
+circular([]) Vertex.liveOut: List<str> = cfg.succ(this).fold(none) { acc, s -> union(acc, s.liveIn) } where none: List<str> = []
 circular([]) Vertex.liveIn: List<str> = union(this.uses, minus(this.liveOut, this.defs))
 ```
 

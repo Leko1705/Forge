@@ -568,26 +568,6 @@ private class RustGeneration(private val module: LLIRModule, private val moduleN
         is IfElse -> "(if ${b(v.cond)} { ${expr(v.then)} } else { ${expr(v.alt)} })"
         is Panic -> "rt::fail(${string(v.message)})"
 
-        is MapOp -> {
-            val iterable = expr(v.iterable)
-            names.scoped {
-                val item = names.fresh("item")
-                val x = bind(v.name)
-                "rt::map_list(&($iterable), |$item: &V| { let $x: V = $item.clone(); ${expr(v.body)} })"
-            }
-        }
-        is FoldOp -> {
-            val iterable = expr(v.iterable)
-            val init = expr(v.initAcc)
-            names.scoped {
-                val list = names.fresh("list")
-                val storage = names.fresh("fold")
-                val item = names.fresh("item")
-                val x = bind(v.item)
-                val acc = bind(v.acc)
-                "{ let $list: V = $iterable; let mut $storage: V = $init; for $item in rt::items(&$list).iter() { let $x: V = $item.clone(); let $acc: V = $storage; $storage = ${expr(v.body)}; } $storage }"
-            }
-        }
 
         is PortValue -> if (v.port.isNext) "rt::port_next()" else "port_${v.port.name}()"
         is PortRefValue -> "rt::port_ref(${expr(v.child)}, ${expr(PortValue(v.port))})"

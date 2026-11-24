@@ -174,7 +174,7 @@ mod jvm {
     syn JInvoke.size: int = 3
 
     /** The offset of every instruction, and the length of the code at the end. */
-    syn JMethod.offsets: List<int> = (acc ++ [acc[acc.size - 1] + i.size]) for i in this.code with acc = [0]
+    syn JMethod.offsets: List<int> = this.code.fold([0]) { acc, i -> acc ++ [acc[-1] + i.size] }
     syn JInsn.offset: int = this.method.offsets[this.position]
     syn JMethod.labels: Map<str, JLabel> = this.code.filter { it is JLabel }.fold(empty) { acc, i -> acc ++ {l.name: l} where l = i as JLabel }
         where empty: Map<str, JLabel> = {:}
@@ -223,7 +223,7 @@ mod jvm {
     syn JInvoke.signature: List<str> = Descriptor.method(this.descriptor)
 
     /** The depth of the stack before an instruction: the deepest of its predecessors, a fixpoint around loops. */
-    circular(0) JInsn.stackIn: int = acc.max((p as JInsn).stackIn + (p as JInsn).delta) for p in this.method.controlFlow.pred(this) with acc = 0
+    circular(0) JInsn.stackIn: int = this.method.controlFlow.pred(this).fold(0) { acc, p -> acc.max(i.stackIn + i.delta) where i = p as JInsn }
 
     syn JMethod.maxStack: int = this.code.fold(0) { acc, i -> acc.max(i.stackIn.max(i.stackIn + i.delta)) }
 

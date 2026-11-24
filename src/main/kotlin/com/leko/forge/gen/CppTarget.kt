@@ -597,24 +597,6 @@ private class CppGeneration(private val module: LLIRModule, private val namespac
         is IfElse -> "(${b(v.cond)} ? ${expr(v.then)} : ${expr(v.alt)})"
         is Panic -> "(rt::fail(${string(v.message)}), rt::Null())"
 
-        is MapOp -> {
-            val iterable = expr(v.iterable)
-            names.scoped {
-                val x = names.bind(v.name)
-                "rt::map_list($iterable, [&](const V& $x) -> V { return ${expr(v.body)}; })"
-            }
-        }
-        is FoldOp -> {
-            val iterable = expr(v.iterable)
-            val init = expr(v.initAcc)
-            names.scoped {
-                val list = names.fresh("list")
-                val storage = names.fresh("fold")
-                val x = names.bind(v.item)
-                val acc = names.bind(v.acc)
-                "[&]() -> V { V $list = $iterable; V $storage = $init; for (const V& $x : rt::items($list)) { V $acc = $storage; $storage = ${expr(v.body)}; } return $storage; }()"
-            }
-        }
 
         is PortValue -> if (v.port.isNext) "rt::port_next()" else "port_${v.port.name}()"
         is PortRefValue -> "rt::port_ref(${expr(v.child)}, ${expr(PortValue(v.port))})"

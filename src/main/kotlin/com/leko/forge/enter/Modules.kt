@@ -372,12 +372,6 @@ class Modules private constructor(context: Context) {
                     return
                 }
                 is ForgeParser.TypeContext -> return type(ctx, typeParams)
-                is ForgeParser.ListComprehensionContext -> {
-                    expression(ctx.iterable, locals, typeParams)
-                    ctx.accInit?.let { expression(it, locals, typeParams) }
-                    expression(ctx.put, locals + ctx.name.text + listOfNotNull(ctx.acc?.text), typeParams)
-                    return
-                }
                 is ForgeParser.LambdaContext -> {
                     ctx.lambdaParam().forEach { p -> p.ty?.let { type(it, typeParams) } }
                     val implicit = if (ctx.ARROW() == null) listOf("it") else emptyList()

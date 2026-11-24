@@ -954,24 +954,6 @@ object KotlinTarget : Target {
                 }
                 is Panic -> sb.append("kotlin.error(${string(value.message)})")
 
-                // not Kotlin's `map`: a Forge program can declare a `List<T>.map` of its own (std.forge does)
-                is MapOp -> {
-                    sb.append("__mapAll(")
-                    value(value.iterable)
-                    sb.append(") { ${id(value.name)} -> ")
-                    value(value.body)
-                    sb.append(" }")
-                }
-                is FoldOp -> {
-                    val type = typeRepr(value.type)
-                    sb.append("run { var __acc: $type = ")
-                    value(value.initAcc)
-                    sb.append("; for (${id(value.item)} in ")
-                    value(value.iterable)
-                    sb.append(") { val ${id(value.acc)}: $type = __acc; __acc = ")
-                    value(value.body)
-                    sb.append(" }; __acc }")
-                }
 
                 is PortValue -> sb.append(if (value.port.isNext) "__Port.next" else "__port_${value.port.name}")
                 is PortRefValue -> {

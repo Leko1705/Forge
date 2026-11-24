@@ -515,22 +515,6 @@ private class OcamlGeneration(private val module: LLIRModule) {
         is IfElse -> "(if ${bool(v.cond)} then ${expr(v.then)} else ${expr(v.alt)})"
         is Panic -> "(Rt.fail ${string(v.message)})"
 
-        is MapOp -> {
-            val iterable = expr(v.iterable)
-            names.scoped {
-                val x = names.bind(v.name)
-                "(Rt.map_list ($iterable) (fun $x -> ${expr(v.body)}))"
-            }
-        }
-        is FoldOp -> {
-            val iterable = expr(v.iterable)
-            val init = expr(v.initAcc)
-            names.scoped {
-                val x = names.bind(v.item)
-                val acc = names.bind(v.acc)
-                "(Rt.fold ($iterable) ($init) (fun $acc $x -> ${expr(v.body)}))"
-            }
-        }
 
         is PortValue -> if (v.port.isNext) "(Port Rt.port_next)" else "(Port port_${v.port.name})"
         is PortRefValue -> "(PortRef (${expr(v.child)}, ${if (v.port.isNext) "Rt.port_next" else "port_${v.port.name}"}))"

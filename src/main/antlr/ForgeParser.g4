@@ -236,8 +236,6 @@ expression
     | value=expression IS ty=type                                            # instanceOf
     // x * y where x = 1, y: int = 2
     | expr=expression WHERE binding (COMMA binding)*                         # whereExpr
-    | put=expression FOR name=IDENT IN iterable=expression
-        (WITH acc=IDENT ASSIGN accInit=expression)?                          # listComprehension
 
     // loosest: right-extending constructs
     | IF cond=expression THEN then=expression ELSE alt=expression            # ifElse

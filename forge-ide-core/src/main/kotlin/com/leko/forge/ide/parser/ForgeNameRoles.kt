@@ -117,7 +117,6 @@ fun nameRole(context: ParserRuleContext, token: Token): ForgeNameRole? = when (c
     }
     is ForgeParser.PatternVariableContext -> LOCAL_VARIABLE.takeIf { token === context.name }
     is ForgeParser.DefinedParameterContext -> LOCAL_VARIABLE.takeIf { token === context.name }
-    is ForgeParser.ListComprehensionContext -> LOCAL_VARIABLE.takeIf { token === context.name || token === context.acc }
     // what an identifier in an expression is, only the analysis knows (ForgeSemantics)
     is ForgeParser.IdentifierContext -> IDENTIFIER
     else -> null
@@ -170,6 +169,5 @@ fun isDeclaration(context: ParserRuleContext, token: Token): Boolean = when (con
     is ForgeParser.ParserLabeledContext -> token === context.label
     is ForgeParser.PatternVariableContext -> true
     is ForgeParser.DefinedParameterContext -> true
-    is ForgeParser.ListComprehensionContext -> true
     else -> false
 }

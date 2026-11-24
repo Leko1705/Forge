@@ -31,7 +31,7 @@ fun Type.repr(): str = match this {
 // names visible in a function: its parameters
 inh scope: List<str> = []
 inh Function.scope {
-    body <- (p.name for p in this.params)
+    body <- this.params.map { it.name }
 }
 
 // the index of an argument in its call (-1 outside of calls)
@@ -90,7 +90,7 @@ fun constants(): int = answer + words.size
 
 fun safeDiv(a: int, b: int): int = if b == 0 then fail("division by zero: " + a.str() + " / 0") else a / b
 
-fun sum(xs: List<int>): int = acc + x for x in xs with acc = 0
+fun sum(xs: List<int>): int = xs.fold(0) { acc, x -> acc + x }
 fun describe(xs: List<int>): str = match xs {
     [] -> "empty"
     [x] -> "one: " + x.text()

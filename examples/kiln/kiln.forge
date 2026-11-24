@@ -273,7 +273,7 @@ syn Print.uses: List<int> = this.value.reads
 syn ExprStmt.uses: List<int> = this.expr.reads
 syn Return.uses: List<int> = if this.value == null then [] else this.value!!.reads
 
-circular([]) Vertex.liveOut: List<int> = acc.union(s.liveIn) for s in cfg.succ(this) with acc = []
+circular([]) Vertex.liveOut: List<int> = cfg.succ(this).fold(none) { acc, s -> acc.union(s.liveIn) } where none: List<int> = []
 circular([]) Vertex.liveIn: List<int> = this.uses.union(this.liveOut - this.defs)
 
 syn Stmt.deadStore: bool = false

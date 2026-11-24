@@ -79,11 +79,6 @@ val ForgeParser.ExpressionContext.symbol: Symbol? get() {
     return attrs?.get("symbol") as? Symbol
 }
 
-@Suppress("UNCHECKED_CAST")
-val ForgeParser.ListComprehensionContext.symbols: Pair<VarSymbol, VarSymbol>? get() {
-    val attrs = attributes[this]
-    return attrs?.get("symbols") as? Pair<VarSymbol, VarSymbol>
-}
 
 val ForgeParser.IdentifierContext.symbol: Symbol? get() {
     val attrs = attributes[this]

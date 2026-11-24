@@ -406,11 +406,6 @@ data class Builtin(val name: String, val receiver: Value?, val args: List<Value>
 data class IfElse(val cond: Value, val then: Value, val alt: Value, override val type: Type) : Value
 data class Panic(val message: String) : Value { override val type: Type get() = ArbitraryType }
 
-// ---- comprehensions ----
-data class MapOp(val iterable: Value, val name: String, val body: Value) : Value {
-    override val type: Type get() = ListType(body.type)
-}
-data class FoldOp(val iterable: Value, val initAcc: Value, val item: String, val acc: String, val body: Value, override val type: Type) : Value
 
 // ---- local bindings, functions as values, tuples ----
 /** `body where name = value`: [value] is computed once, then [body] with [name] bound to it. */

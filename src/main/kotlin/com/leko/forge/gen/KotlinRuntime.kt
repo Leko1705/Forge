@@ -505,13 +505,6 @@ fun __slice(s: kotlin.String, lo: kotlin.Int?, hi: kotlin.Int?): kotlin.String {
 
 fun __charAt(s: kotlin.String, i: kotlin.Int): kotlin.String = s[__position(i, s.length)].toString()
 
-/** [f] of each element; Kotlin's `map` may be hidden by a `map` of the program. */
-inline fun <T, R> __mapAll(xs: kotlin.collections.Iterable<T>, f: (T) -> R): kotlin.collections.List<R> {
-    val result = kotlin.collections.ArrayList<R>()
-    for (x in xs) result.add(f(x))
-    return result
-}
-
 fun __range(a: kotlin.Int, b: kotlin.Int): kotlin.collections.List<kotlin.Int> =
     if (b <= a) kotlin.collections.emptyList() else (a until b).toList()
 

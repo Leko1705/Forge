@@ -717,22 +717,6 @@ private class JavaGeneration(private val module: LLIRModule, private val outer: 
         is IfElse -> "(${b(v.cond)} ? (Object) (${expr(v.then)}) : (Object) (${expr(v.alt)}))"
         is Panic -> "__panic(${string(v.message)})"
 
-        is MapOp -> {
-            val iterable = expr(v.iterable)
-            names.scoped {
-                val x = names.bind(v.name)
-                "__mapList($iterable, (Object $x) -> ${expr(v.body)})"
-            }
-        }
-        is FoldOp -> {
-            val iterable = expr(v.iterable)
-            val init = expr(v.initAcc)
-            names.scoped {
-                val x = names.bind(v.item)
-                val acc = names.bind(v.acc)
-                "__fold($iterable, $init, (Object $acc, Object $x) -> ${expr(v.body)})"
-            }
-        }
 
         is PortValue -> if (v.port.isNext) "__PORT_NEXT" else "__port_${v.port.name}"
         is PortRefValue -> "new __PortRef(${expr(v.child)}, ${expr(PortValue(v.port))})"

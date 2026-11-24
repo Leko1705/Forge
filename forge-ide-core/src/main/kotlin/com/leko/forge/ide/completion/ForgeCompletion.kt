@@ -357,7 +357,7 @@ class ForgeCompletion(private val text: String, private val offset: Int, private
             "node", "record", "enum", "fun", "val", "ext", "op", "const", "syn", "inh", "circular", "coll", "contrib",
             "for", "parser", "rule", "port", "graph", "flow", "import", "mod", "use", "trait",
         )
-        val EXPRESSION_KEYWORDS = listOf("this", "if", "then", "else", "match", "true", "false", "null", "in", "as", "is", "for", "with", "where")
-        val FLOW_KEYWORDS = listOf("vertex")
+        val EXPRESSION_KEYWORDS = listOf("this", "if", "then", "else", "match", "true", "false", "null", "in", "as", "is", "where")
+        val FLOW_KEYWORDS = listOf("vertex", "for", "with")
     }
 }

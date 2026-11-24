@@ -40,20 +40,19 @@ fun postParse(root: ParserRuleContext, listener: org.antlr.v4.runtime.ANTLRError
         for (i in 0 until t.childCount) walk(t.getChild(i))
         // bottom up: a where moved out of an `if` may move out of the enclosing one
         if (t is ForgeParser.WhereExprContext) flatten(t)
-        if (t is ForgeParser.IfElseContext || t is ForgeParser.ListComprehensionContext) hoist(t as ParserRuleContext)
+        if (t is ForgeParser.IfElseContext) hoist(t)
     }
     walk(root)
     return errors
 }
 
 /**
- * A `where` at the end of an `if` or a comprehension is for all of it: `if c then a else b where x = 1` and
- * `f(x) for x in xs with acc = 0 where y = 2` parse with the `where` for `b` and `0` alone.
+ * A `where` at the end of an `if` is for all of it: `if c then a else b where x = 1` parses with the `where` for
+ * `b` alone.
  */
 private fun hoist(node: ParserRuleContext) {
     val trailing = when (node) {
         is ForgeParser.IfElseContext -> node.alt
-        is ForgeParser.ListComprehensionContext -> if (node.WITH() != null) node.accInit else node.iterable
         else -> null
     } as? ForgeParser.WhereExprContext ?: return
     val parent = node.parent as? ParserRuleContext ?: return

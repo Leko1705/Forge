@@ -93,8 +93,6 @@ fun Value.rewrite(f: (Value) -> Value): Value {
         is PutAllMapItems -> copy(map = map.r(), elements = elements.r())
 
         is IfElse -> copy(cond = cond.r(), then = then.r(), alt = alt.r())
-        is MapOp -> copy(iterable = iterable.r(), body = body.r())
-        is FoldOp -> copy(iterable = iterable.r(), initAcc = initAcc.r(), body = body.r())
 
         is Let -> copy(value = value.r(), body = body.r())
         is Lambda -> copy(body = body.r())

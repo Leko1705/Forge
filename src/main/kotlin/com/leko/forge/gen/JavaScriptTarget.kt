@@ -655,22 +655,6 @@ private class JavaScriptGeneration(private val module: LLIRModule, private val m
         is IfElse -> "(${expr(v.cond)} ? ${expr(v.then)} : ${expr(v.alt)})"
         is Panic -> "\$panic(${string(v.message)})"
 
-        is MapOp -> {
-            val iterable = expr(v.iterable)
-            names.scoped {
-                val x = names.bind(v.name)
-                "Array.from($iterable, ($x) => ${expr(v.body)})"
-            }
-        }
-        is FoldOp -> {
-            val iterable = expr(v.iterable)
-            val init = expr(v.initAcc)
-            names.scoped {
-                val x = names.bind(v.item)
-                val acc = names.bind(v.acc)
-                "\$fold($iterable, $init, ($acc, $x) => ${expr(v.body)})"
-            }
-        }
 
         is PortValue -> if (v.port.isNext) "\$PORT_NEXT" else "\$port_${v.port.name}"
         is PortRefValue -> "new \$PortRef(${expr(v.child)}, ${expr(PortValue(v.port))})"

@@ -788,15 +788,6 @@ class LLIR private constructor(private val context: Context) {
             }
         }
 
-        override fun visitListComprehension(ctx: ForgeParser.ListComprehensionContext): Value {
-            return if (ctx.WITH() == null) {
-                MapOp(ctx.iterable.transform(), ctx.name.text, ctx.put.transform())
-            }
-            else {
-                FoldOp(ctx.iterable.transform(), ctx.accInit.transform(), ctx.name.text, ctx.acc.text, ctx.put.transform(), ctx.type)
-            }
-        }
-
         override fun visitCast(ctx: ForgeParser.CastContext): Value {
             val value = ctx.value.transform()
             val from = ctx.value.type

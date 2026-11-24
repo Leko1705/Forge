@@ -77,7 +77,7 @@ record Money { cents: int }
 fun Money.str(): str = "\$${this.cents / 100}.${this.cents % 100}"
 fun Money.compareTo(other: Money): int = this.cents - other.cents
 
-fun <T: Named & Sized> heaviest(xs: List<T>): str = ((if x.weight > acc.weight then x else acc) for x in xs with acc = xs[0]).name()
+fun <T: Named & Sized> heaviest(xs: List<T>): str = xs.fold(xs[0]) { acc, x -> if x.weight > acc.weight then x else acc }.name()
 fun <T: Named> names(xs: List<T>): str = xs.map({ x -> x.name() }).join(", ")
 // a bound passed on to another generic function
 fun <T: Named & Sized> both(xs: List<T>): str = names(xs) + " / " + heaviest(xs)
@@ -91,7 +91,7 @@ syn Expr.total: int
 syn Num.total: int = this.value
 syn Add.total: int = this.l.total + this.r.total
 // a type as bound: its members are those of the type
-fun <T: Expr> sum(xs: List<T>): int = (acc + x.total) for x in xs with acc = 0
+fun <T: Expr> sum(xs: List<T>): int = xs.fold(0) { acc, x -> acc + x.total }
 // a lambda in an attribute sees `this`
 syn Add.scaled: (int) -> int = { k -> k * this.total }
 
@@ -115,7 +115,7 @@ fun lambdas(): str = (compose({ x: int -> x + 1 }, { x -> x * 2 }))(5).str() + "
 fun <A, B, C> compose(f: (A) -> B, g: (B) -> C): (A) -> C = { x -> g(f(x)) }
 fun apply2(f: (str, str) -> str, a: str, b: str): str = f(a, b)
 // a lambda after a call is its last argument; without `->` its parameter is `it`
-fun repeat(n: int, f: (int) -> str): str = acc + f(i) for i in [0:n] with acc = ""
+fun repeat(n: int, f: (int) -> str): str = [0:n].fold("") { acc, i -> acc + f(i) }
 fun now(f: () -> int): int = f()
 fun trailing(): str = [1, 2, 3].map { it * 10 }.filter { x -> x > 10 }.map { it.str() }.join(",")
     + " " + repeat(3) { i -> "<${i}>" } + " " + "${now { 42 }} ${[3, 1, 2].sortedBy { -it }.map { it.str() }.join("")}"

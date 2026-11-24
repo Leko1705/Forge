@@ -762,40 +762,6 @@ class Attr private constructor(context: Context) {
             return ctx.setType(ListType(res))
         }
 
-        override fun visitListComprehension(ctx: ForgeParser.ListComprehensionContext): Type {
-            val iterable = ctx.iterable.attribType()
-            if (iterable !is SetType) chk.checkAssignable(ListType(ArbitraryType), iterable)
-            val iterType = when (iterable) {
-                is ListType -> iterable.elem
-                is SetType -> iterable.elem
-                else -> ErrorType
-            }
-
-            if (ctx.acc == null) {
-                withChildScope {
-                    val iterSym = VarSymbol(ctx.name.text, iterType, ctx.name.span)
-                    ctx.setSym(iterSym)
-                    env.value.scope.enter(iterSym)
-                    return ctx.setType(ListType(ctx.put.attribType()))
-                }
-            } else {
-                val accInitType = ctx.accInit.attribType()
-                var put: Type = ErrorType
-                withChildScope {
-                    val iterSym = VarSymbol(ctx.name.text, iterType, ctx.name.span)
-                    val accSym = VarSymbol(ctx.acc.text, accInitType, ctx.acc.span)
-                    ctx.attach("symbols", iterSym to accSym)
-                    env.value.scope.enter(iterSym)
-                    env.value.scope.enter(accSym)
-                    put = ctx.put.attribType()
-                }
-                val superType = chk.checkShareCommonSuperType(accInitType, put, env.value.expected)
-                return ctx.setType(superType)
-            }
-
-            throw AssertionError("Should not reach here")
-        }
-
         override fun visitMapLiteral(ctx: ForgeParser.MapLiteralContext): Type {
             val keyTypes = ctx.expression().filterIndexed { i, _ -> i % 2 == 0 }.map { it.attribType() }
             val valueTypes = ctx.expression().filterIndexed { i, _ -> i % 2 == 1 }.map { it.attribType() }
