@@ -157,3 +157,6 @@ val ParserRuleContext.typeOrNull: Type? get() = attributes[this]?.get("type") as
 
 /** The variable or constant whose function value a call `f(x)` calls, if it calls one. */
 val ForgeParser.FunctionCallContext.callee: Symbol? get() = attributes[this]?.get("callee") as? Symbol
+
+/** What was expected of a call or a member access that resolves to nothing (for editors that create it). */
+val ParserRuleContext.expectedOfMissing: Type? get() = attributes[this]?.get("expected") as? Type

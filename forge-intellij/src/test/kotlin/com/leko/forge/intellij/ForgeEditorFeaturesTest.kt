@@ -145,7 +145,8 @@ class ForgeEditorFeaturesTest : BasePlatformTestCase() {
         // on a use: the declaration's signature and doc comment
         val type = documentation("if this.left.")
         assertTrue(type, "syn" in type && "Expr" in type && "type" in type)
-        assertTrue(type, "The type of an <code>Expr</code>, <code>int</code> or <code>str</code>." in type)
+        // [Expr] links to its declaration
+        assertTrue(type, "The type of an <a href=\"psi_element://Expr\"><code>Expr</code></a>, <code>int</code> or <code>str</code>." in type)
         assertTrue(type, "<p>Every node has one.</p>" in type)
         assertTrue(type, "synthesized attribute" in type)
         assertTrue(type, "Implemented in" in type && "syn Num.type" in type)
@@ -159,6 +160,38 @@ class ForgeEditorFeaturesTest : BasePlatformTestCase() {
 
         val local = documentation("Num(n.toInt()) -> ".let { "{ Num(" })
         assertTrue(local, "variable in rule Lang.expr: Num" in local && "str" in local)
+    }
+
+    fun testDocCommentsAreRendered() {
+        val text = """
+            /**
+             * Doubles [n], **always**:
+             *
+             * - for ints
+             * - also for *negative* ones
+             *
+             * ```
+             * twice(2) == 4
+             * ```
+             */
+            fun twice(n: int): int = n * 2
+            /* not a doc comment */
+            fun once(n: int): int = n
+        """.trimIndent()
+        myFixture.configureByText("d.forge", text)
+        val provider = ForgeDocumentationProvider()
+        val comments = mutableListOf<com.intellij.psi.PsiDocCommentBase>()
+        provider.collectDocComments(myFixture.file) { comments += it }
+        // only /** */ are doc comments; each has the declaration after it as its owner
+        assertEquals(1, comments.size)
+        assertEquals("twice", (comments[0].owner as com.leko.forge.intellij.psi.ForgeDeclaredName).name)
+        val html = provider.generateRenderedDoc(comments[0])!!
+        assertTrue(html, "<b>always</b>" in html)
+        assertTrue(html, "<ul><li>for ints</li><li>also for <i>negative</i> ones</li></ul>" in html)
+        // a parameter: a link to it; the code block highlighted
+        assertTrue(html, "href=\"psi_element://n\"" in html)
+        assertTrue(html, "<pre><code>" in html && "twice" in html.substringAfter("<pre><code>"))
+        assertNotNull(provider.getDocumentationElementForLink(psiManager, "n", comments[0]))
     }
 
     fun testBlockCommentsHaveTheColorOfDocComments() {

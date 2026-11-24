@@ -172,6 +172,10 @@ class LanguageCheckTest {
         assertError("expected type 'int' but got long", "fun f(): int = 1L")
         assertOk("record R { x: int }\nfun R.str(): str = \"r\"\nfun f(r: R): str = \"a ${'$'}{r} ${'$'}{1 + 1} ${'$'}{\"b\"}\"")
         assertError("can not be put into a string", "fun f(xs: List<int>): str = \"${'$'}{xs}\"")
+        // $name without braces
+        assertOk("fun f(n: int, s: str): str = \"${'$'}n and ${'$'}s\"\nfun g(): str = \"\\${'$'}n\"")
+        assertError("can not find 'nope'", "fun f(): str = \"${'$'}nope\"")
+        assertOk("fun f(): int = TODO(\"later\")")
         assertError("can not be put into a string", "fun f(x: int?): str = \"${'$'}{x}\"")
     }
 }

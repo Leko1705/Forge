@@ -58,6 +58,14 @@
               "beginCaptures": { "0": { "name": "punctuation.section.interpolation.begin.forge" } },
               "endCaptures": { "0": { "name": "punctuation.section.interpolation.end.forge" } },
               "patterns": [{ "include": "#interpolated" }]
+            },
+            {
+              "comment": "\"$name\": a name without braces",
+              "match": "(\\$)([A-Za-z_][A-Za-z0-9_]*)",
+              "captures": {
+                "1": { "name": "punctuation.section.interpolation.begin.forge" },
+                "2": { "name": "variable.other.forge" }
+              }
             }
           ]
         },
@@ -199,6 +207,7 @@
         { "name": "constant.language.boolean.forge", "match": "\\b(true|false)\\b" },
         { "name": "constant.language.null.forge", "match": "\\bnull\\b" },
         { "name": "variable.language.this.forge", "match": "\\bthis\\b" },
+        { "comment": "Self: the type that has a trait, in its members", "name": "keyword.other.self.forge", "match": "\\bSelf\\b" },
         { "name": "support.type.forge", "match": "\\b(List|Set|Map|int|long|float|bool|boolean|str|Nothing|Graph|Vertex|Edge|Span)\\b" }
       ]
     },

@@ -107,7 +107,8 @@ fun nameRole(context: ParserRuleContext, token: Token): ForgeNameRole? = when (c
     is ForgeParser.NamedTypeContext -> when {
         token !== context.name -> null
         typeParameterDeclaration(context, token) != null -> TYPE_PARAMETER
-        token.text == "Self" && generateSequence(context as ParserRuleContext) { it.parent as? ParserRuleContext }.any { it is ForgeParser.TraitDefContext } -> TYPE_PARAMETER
+        // the type that has the trait: a keyword of traits, as `this` is one of expressions
+        token.text == "Self" && generateSequence(context as ParserRuleContext) { it.parent as? ParserRuleContext }.any { it is ForgeParser.TraitDefContext } -> SOFT_KEYWORD
         token.text in builtinTypes -> BUILTIN_TYPE
         else -> TYPE_REFERENCE
     }

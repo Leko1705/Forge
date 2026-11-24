@@ -115,7 +115,7 @@ comes first.
 | `Set<T>`  | `size`, `toList()`, `remove(x)`, `map(f)` (a list), `fold(init, f)` (in the order the elements were added)                                                                                |
 | `Map<K, V>` | `size`, `keys()`, `values()` (lists, in the order of the map), `remove(key)`, `entries()` (`(key, value)` tuples), `mapValues(f)` |
 | traits    | `Comparable` (`op fun compareTo(other: Self): int`: int, long, float, str, so also `"a" < "b"`), `Printable` (`str(): str`: int, long, float, bool, str) |
-| -         | `char(code)`: a character as a str; `fail(message)`: stops with an error (`ForgeError`, `IllegalStateException` in Kotlin, a panic in Rust). Its type is `Nothing`, which fits wherever a value is expected: `x ?: fail("missing")`, `if b == 0 then fail("division by zero") else a / b` |
+| -         | `TODO(msg)`: stops with `todo: msg`, for what is not written yet (the quick fixes of the IDE generate it); `char(code)`: a character as a str; `fail(message)`: stops with an error (`ForgeError`, `IllegalStateException` in Kotlin, a panic in Rust). Its type is `Nothing`, which fits wherever a value is expected: `x ?: fail("missing")`, `if b == 0 then fail("division by zero") else a / b` |
 
 `map` and `fold` are Forge code too, recursive ones (they halve the list, so the depth of the recursion is the
 logarithm of its size); the other functions on lists are made of them. A program can write its own the same way:
@@ -220,7 +220,7 @@ and by `where (a, b) = t`. Nodes can not be generic: they are the tree that attr
 ### Traits and bounded type parameters
 
 A type parameter can have bounds: `fun <T: Named & Sized>`. A bound is a trait or a type. A **trait** names members
-that a type must have, with `Self` for the type itself:
+that a type must have, with the keyword `Self` for the type itself:
 
 ```
 trait Named { fun name(): str }
@@ -316,7 +316,8 @@ JavaScript, `Int64` in OCaml). `long.str()`, `str.toLong()`.
 `"total: ${a + b}!"` puts the values of expressions into a string: strs as they are, other values with their `str()`
 method (`int`, `long`, `float`, `bool`, and the types that declare one: `fun Money.str(): str = ...`). A value without
 one, like a list or an optional value, is an error. The expressions may contain strings themselves:
-`"${names.join(", ")}"`. `\$` is a `$`: `"\${x}"` is the text `${x}`.
+`"${names.join(", ")}"`. A name alone needs no braces, as in Kotlin: `"$name has $n"`. `\$` is a `$`: `"\${x}"` and
+`"\$x"` are the texts `${x}` and `$x`.
 
 ### Attributes
 
@@ -555,7 +556,8 @@ the compiler itself, so the editor sees what `forge -f` sees:
   overrides, `inh attr` and its `inh Node.attr { ... }` equations, an abstract rule and its alternatives. Find
   Usages of a definition also lists its implementations and their uses.
 - **Documentation on hover** (and `Ctrl+Q`): the highlighted signature, the `/** ... */` comment before the
-  declaration, what it is, the type of variables and how it relates to other declarations.
+  declaration (Markdown, as KDoc: code blocks highlighted, `[name]` a link to a declaration or a parameter; with
+  Render Doc Comments, the editor shows them rendered in place), what it is, the type of variables and how it relates to other declarations.
 - **Completion** (`Ctrl+Space`, and on its own after `.` and `@`): after `.` the members the compiler resolves for
   the receiver's type (fields, attributes, `val`s, methods of the program and the standard library, enum constants,
   rules); in expressions the locals in scope, constants, functions, nodes and records (with parentheses), and
@@ -564,7 +566,9 @@ the compiler itself, so the editor sees what `forge -f` sees:
 - **Parameter info** (`Ctrl+P`, and on its own after `(`) in calls of functions, methods, constructors of nodes and
   records and enum constants, with the argument of the caret; also while the call is typed.
 - **Quick fixes** (`Alt+Enter`) for errors of the compiler: `left` -> `this.left` for a child or an attribute, create
-  a missing node, implement a `syn` attribute a node is missing (`fail("not implemented")` until it is written).
+  a missing node, implement a `syn` attribute a node is missing; create a function, an extension function or a
+  `val` (of a node: a `syn` attribute) that is used but not declared, with the types of the arguments and what is
+  expected where it is used. Their value is `TODO("not yet implemented")` until it is written.
 - **Structure view** (`Alt+7`) of the declarations, with the fields, children and enum constants of a type, the
   declarations of modules and the members of traits, and
   **Go to Symbol / Go to Class** (`Ctrl+Alt+Shift+N`, `Ctrl+N`) over the declarations of all .forge files.

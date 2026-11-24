@@ -36,7 +36,14 @@ data class ForgeTextRange(val start: Int, val end: Int) {
  * A diagnostic in the editor: [range] in the analyzed text, or the whole file if `null`. [text] is the compiler's
  * message without its code, for quick fixes; `null` for problems the editor support finds.
  */
-data class ForgeProblem(val severity: ForgeSeverity, val message: String, val range: ForgeTextRange?, val text: String? = null)
+data class ForgeProblem(
+    val severity: ForgeSeverity,
+    val message: String,
+    val range: ForgeTextRange?,
+    val text: String? = null,
+    /** Changes that fix it, e.g. creating a function that is missing. */
+    val fixes: List<ForgeFix> = emptyList(),
+)
 
 /** The text of a file to analyze, with the file on disk its imports are relative to. */
 data class ForgeSource(val text: String, val file: File?)
@@ -78,6 +85,7 @@ object ForgeDiagnostics {
         }.toMap()
         if (problems.isNotEmpty()) return problems
 
+        var fixes: List<ForgeFix> = emptyList()
         val diagnostics = try {
             synchronized(ForgeSemantics.lock) {
                 try {
@@ -89,6 +97,8 @@ object ForgeDiagnostics {
                     MemberEnter.instance(context).enter(root)
                     Attr.instance(context).attr(root)
                     Dependency.instance(context).check(root)
+                    // while the attributes of the analysis are there
+                    fixes = ForgeMissingDeclarations(context, source.text).fixes(main)
                     Log.instance(context).diagnostics.toList()
                 } finally {
                     clearTreeAttributes()
@@ -115,8 +125,10 @@ object ForgeDiagnostics {
             problems += when {
                 span == null || span.startLine <= 0 -> ForgeProblem(severity, message, null)
                 // in this file: the main tree has the path of the file, or no source name without a file
-                span.source == null || spanPath == mainPath ->
-                    ForgeProblem(severity, message, positions.range(span), d.message)
+                span.source == null || spanPath == mainPath -> {
+                    val range = positions.range(span)
+                    ForgeProblem(severity, message, range, d.message, fixes.filter { it.name >= range.start && it.name < range.end }.distinctBy { it.title })
+                }
                 // in an imported file: on its import, or on the file if it is imported indirectly
                 else -> ForgeProblem(severity, "${File(span.source!!).name}:${span.startLine}:${span.startCol}: $message", imports[spanPath])
             }

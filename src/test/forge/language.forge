@@ -141,7 +141,10 @@ fun now(f: () -> int): int = f()
 fun trailing(): str = [1, 2, 3].map { it * 10 }.filter { x -> x > 10 }.map { it.str() }.join(",")
     + " " + repeat(3) { i -> "<${i}>" } + " " + "${now { 42 }} ${[3, 1, 2].sortedBy { -it }.map { it.str() }.join("")}"
     + " " + [1, 2, 3, 4].fold(0) { acc, x -> acc + x }.str() + " " + match [1].map { it + 1 } { [2] -> "two"  _ -> "?" }
-fun nested(): str = "${"a${"b${1}"}"}" + " ${[1, 2].size} ${{ x: int -> x }(3)}"
+// "$name" without braces; \$ is a $
+fun short(name: str, n: int): str = "$name has $n, \$name"
+fun later(n: int): int = if n > 0 then n else TODO("negative numbers")
+fun nested(): str = short("x", later(2)) + " " + "${"a${"b${1}"}"}" + " ${[1, 2].size} ${{ x: int -> x }(3)}"
 
 fun report(): List<str> = [
     modules(),

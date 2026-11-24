@@ -18,7 +18,9 @@ import com.leko.forge.intellij.psi.ForgeNameElement
  * Quick fixes (Alt+Enter) for errors of the compiler:
  * - `can not find 'left'` where `this.left` is meant: a child of the node or an attribute;
  * - `can not find 'Stmt'` for a type, `function 'Leaf' not found` for a constructor: creates the node;
- * - `Synthetic attribute 'Expr.type' is not implemented for Num`: adds the equation `syn Num.type`.
+ * - `Synthetic attribute 'Expr.type' is not implemented for Num`: adds the equation `syn Num.type`;
+ * - `function 'f' not found`, `method 'R.f' not found`, `attribute 'R.x' not found`: creates the function, the
+ *   extension function, the `val` (of a node: the `syn` attribute), with `TODO("not yet implemented")` as value.
  */
 object ForgeQuickFixes {
 
@@ -31,7 +33,10 @@ object ForgeQuickFixes {
     private fun topLevel(element: PsiElement): PsiElement? =
         generateSequence(element) { it.parent }.firstOrNull { it.parent?.rule() == "Root" }
 
-    fun fixesFor(file: PsiFile, problem: ForgeProblem): List<IntentionAction> {
+    fun fixesFor(file: PsiFile, problem: ForgeProblem): List<IntentionAction> =
+        problem.fixes.map { InsertFix(it) } + compilerFixes(file, problem)
+
+    private fun compilerFixes(file: PsiFile, problem: ForgeProblem): List<IntentionAction> {
         val text = problem.text ?: return emptyList()
         val range = problem.range?.textRange ?: return emptyList()
         notImplemented.find(text)?.let { match ->
@@ -83,6 +88,21 @@ object ForgeQuickFixes {
             PsiDocumentManager.getInstance(project).commitDocument(document(project, file))
     }
 
+    /** A change the analysis worked out: a declaration that is missing, inserted where it belongs. */
+    private class InsertFix(private val fix: com.leko.forge.ide.diagnostics.ForgeFix) : Fix() {
+        override fun getText(): String = fix.title
+
+        override fun invoke(project: Project, editor: Editor?, file: PsiFile) {
+            val document = document(project, file)
+            if (fix.offset > document.textLength) return
+            document.insertString(fix.offset, fix.text)
+            commit(project, file)
+            // the caret on the TODO, to write the body
+            val todo = document.charsSequence.indexOf("TODO(", fix.offset)
+            if (todo >= 0) editor?.caretModel?.moveToOffset(todo)
+        }
+    }
+
     /** `left` -> `this.left`, at the caret's error. */
     private class AddThisFix(private val name: String) : Fix() {
         override fun getText(): String = "Replace '$name' with 'this.$name'"
@@ -111,7 +131,7 @@ object ForgeQuickFixes {
         }
     }
 
-    /** `syn Num.type: Type = fail("not implemented")`, after the other equations of the attribute. */
+    /** `syn Num.type: Type = TODO("not yet implemented")`, after the other equations of the attribute. */
     private class ImplementSynFix(private val node: String, private val attribute: String) : Fix() {
         override fun getText(): String = "Implement 'syn $node.$attribute'"
 
@@ -123,7 +143,7 @@ object ForgeQuickFixes {
             val document = document(project, file)
             val anchor = declarations.maxOf { it.parent.textRange.endOffset }
             val lineEnd = document.getLineEndOffset(document.getLineNumber(anchor))
-            document.insertString(lineEnd, "\nsyn $node.$attribute: $type = fail(\"not implemented\")")
+            document.insertString(lineEnd, "\nsyn $node.$attribute: $type = TODO(\"not yet implemented\")")
             commit(project, file)
         }
     }

@@ -1002,6 +1002,7 @@ class Attr private constructor(context: Context) {
             }
 
             if (sym == null) {
+                inferable?.let { ctx.attach("expected", it) }
                 log.diag(attributeNotFound(ctx.name.span, recvTy.toString(), fieldName))
                 return ctx.setType(ErrorType)
             }
@@ -1027,7 +1028,9 @@ class Attr private constructor(context: Context) {
                 return ctx.setType(attribValueCall(ctx, value.type, ctx.expression()))
             }
             var sym = chk.resolveFunction(name) ?: run {
-                ctx.expression().forEach { it.attribType() }
+                // what was expected of the call: an editor can create the function
+                inferable?.let { ctx.attach("expected", it) }
+                ctx.expression().forEach { withoutExpected { it.attribType() } }
                 return ctx.setType(ErrorType)
             }
             // a generic function: its type parameters are what the arguments are
@@ -1207,7 +1210,8 @@ class Attr private constructor(context: Context) {
                     ctx.attach("field", field)
                     return ctx.setType(attribValueCall(ctx, fieldType!!, args))
                 }
-                args.forEach { it.attribType() }
+                inferable?.let { ctx.attach("expected", it) }
+                args.forEach { withoutExpected { it.attribType() } }
                 log.diag(methodNotFound(ctx.name.span, recvTy.toString(), methodName))
                 return ctx.setType(ErrorType)
             }

@@ -120,7 +120,7 @@ private fun flatten(ctx: ForgeParser.WhereExprContext) {
 private fun expand(ctx: ForgeParser.StringValueContext, listener: org.antlr.v4.runtime.ANTLRErrorListener?): Int {
     val token = ctx.STRING().symbol
     val text = token.text
-    if (!text.contains("\${")) return 0
+    if (!Regex("\\$[{A-Za-z_]").containsMatchIn(text)) return 0
     val parts = mutableListOf<Any>()
     var errors = 0
     var i = 1
@@ -145,6 +145,22 @@ private fun expand(ctx: ForgeParser.StringValueContext, listener: org.antlr.v4.r
                 parts += expr
             }
             i = close + 1
+            continue
+        }
+        // "$name": a name without braces, as in Kotlin
+        if (c == '$' && i + 1 < end && (text[i + 1].isLetter() || text[i + 1] == '_')) {
+            var stop = i + 1
+            while (stop < end && (text[stop].isLetterOrDigit() || text[stop] == '_')) stop++
+            if (literal.isNotEmpty()) parts += literal.toString()
+            literal = StringBuilder()
+            val (expr, n) = parseExpression(token, i + 1, stop, listener)
+            errors += n
+            if (expr != null) {
+                expr.parent = ctx
+                ctx.addAnyChild(expr)
+                parts += expr
+            }
+            i = stop
             continue
         }
         literal.append(c)

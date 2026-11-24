@@ -1,6 +1,7 @@
 package com.leko.forge.ide
 
 import ForgeLexer
+import ForgeParser
 import com.leko.forge.ide.completion.ForgeCandidateKind
 import com.leko.forge.ide.completion.ForgeCompletion
 import com.leko.forge.ide.diagnostics.ForgeDiagnostics
@@ -220,6 +221,26 @@ class ForgeIdeCoreTest {
     }
 
     @Test
+    fun missingDeclarationsCanBeCreated() {
+        fun fixes(text: String): List<String> = ForgeDiagnostics.analyze(ForgeSource(text, null), ForgeHost.DISK)
+            .flatMap { p -> p.fixes.map { text.substring(0, it.offset) + it.text + text.substring(it.offset) } }
+        val todo = "TODO(\"not yet implemented\")"
+        // a function, with the types of the arguments and what is expected of the call
+        assertEquals(listOf("fun f(x: int): str = g(x, \"a\")\n\nfun g(x: int, p2: str): str = $todo"),
+            fixes("fun f(x: int): str = g(x, \"a\")"))
+        // an extension function of the receiver
+        assertEquals(listOf("record R { n: int }\nfun f(r: R): bool = r.check(1)\n\nfun R.check(p1: int): bool = $todo"),
+            fixes("record R { n: int }\nfun f(r: R): bool = r.check(1)"))
+        // a val, of a node a syn attribute
+        assertEquals(listOf("fun f(xs: List<int>): int = xs.total\n\nval List<int>.total: int = $todo"), fixes("fun f(xs: List<int>): int = xs.total"))
+        assertEquals(listOf("node A(n: int)\nsyn A.x: int = this.y\n\nsyn A.y: int = $todo"), fixes("node A(n: int)\nsyn A.x: int = this.y"))
+        // what the expression around expects
+        assertTrue(fixes("fun f(): int = 1 + h()").single().endsWith("fun h(): int = $todo"))
+        // in a module: after the declaration, in the module
+        assertEquals(listOf("mod m {\n    fun f(): int = g()\n\n    fun g(): int = $todo\n}"), fixes("mod m {\n    fun f(): int = g()\n}"))
+    }
+
+    @Test
     fun theOutlineHasModulesAndTraits() {
         val text = "mod geo {\n    record Point { x: int }\n    mod deep { const c = 1 }\n}\ntrait Named { fun name(): str }"
         val declarations = ForgeDeclarations(text, ForgeAntlr.parse(text).first)
@@ -230,6 +251,15 @@ class ForgeIdeCoreTest {
         assertEquals(listOf("fun name(): str"), outline[1].children.map { it.label })
         assertEquals("module", declarations.info(outline[0].name)!!.kind)
         assertEquals("trait", declarations.info(outline[1].name)!!.kind)
+        // Self in a trait is a keyword
+        val self = "trait Ord { op fun compareTo(other: Self): int }"
+        val tree = ForgeAntlr.parse(self).first
+        val selfToken = ForgeAntlr.tokens(self).first { it.text == "Self" }
+        fun find(t: org.antlr.v4.runtime.tree.ParseTree): ForgeParser.NamedTypeContext? =
+            (t as? ForgeParser.NamedTypeContext)?.takeIf { it.name.startIndex == selfToken.startIndex }
+                ?: (0 until t.childCount).firstNotNullOfOrNull { find(t.getChild(it)) }
+        val type = find(tree)!!
+        assertEquals(ForgeNameRole.SOFT_KEYWORD, com.leko.forge.ide.parser.nameRole(type, type.name))
     }
 
     @Test

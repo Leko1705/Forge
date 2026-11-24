@@ -9,130 +9,365 @@
 
 // ---- builtins ------------------------------------------------------------------------------------------
 
-/** Stops with an error; of type Nothing, so it fits wherever a value is expected: `x ?: fail("missing")`. */
+/**
+ * Stops the program with an error with [message].
+ *
+ * Its type is `Nothing`, which fits wherever a value is expected:
+ *
+ * ```
+ * x ?: fail("missing")
+ * if b == 0 then fail("division by zero") else a / b
+ * ```
+ *
+ * The error is a `ForgeError` (an `IllegalStateException` in Kotlin, a panic in Rust).
+ */
 ext fun fail(message: str): Nothing
-/** The character with a code, as a str. */
+
+/**
+ * Stops the program with the error `todo: [msg]`: the value of what is not written yet.
+ *
+ * The quick fixes of the IDEs generate declarations with `TODO("not yet implemented")` as their value.
+ */
+fun TODO(msg: str): Nothing = fail("todo: $msg")
+
+/**
+ * The character with the code [code], as a str: `char(65)` is `"A"`.
+ */
 ext fun char(code: int): str
 
-/** As text; floats like Kotlin's `Float.toString`. */
+/**
+ * This int as text: `42.str()` is `"42"`.
+ */
 ext fun int.str(): str
+
+/**
+ * This long as text: `42L.str()` is `"42"`.
+ */
 ext fun long.str(): str
+
+/**
+ * This float as text, as Kotlin's `Float.toString` writes it: `1.5`, `1.0E10`.
+ */
 ext fun float.str(): str
+
+/**
+ * This bool as text: `"true"` or `"false"`.
+ */
 ext fun bool.str(): str
-/** The text itself, so that strs are `Printable`. */
+
+/**
+ * The text itself, so that strs are `Printable` too.
+ */
 fun str.str(): str = this
 
-/** The number of characters: UTF-16 code units in Kotlin and Java, code points in Python, bytes elsewhere. */
+/**
+ * The number of characters.
+ *
+ * They are UTF-16 code units in Kotlin, Java and JavaScript, code points in Python and bytes of UTF-8 in C++, Rust
+ * and OCaml: sizes agree for ASCII text.
+ */
 ext val str.size: int
-/** The number the whole text is; fails otherwise. */
+
+/**
+ * The int the whole text is: an optional sign and digits.
+ *
+ * Fails for any other text, also for a number that does not fit into an int: `"12".toInt()` is `12`.
+ */
 ext fun str.toInt(): int
+
+/**
+ * The float the whole text is, e.g. `"1.5"`, `"-2"`, `"1e3"`; fails for any other text.
+ */
 ext fun str.toFloat(): float
+
+/**
+ * The long the whole text is: an optional sign and digits; fails for any other text.
+ */
 ext fun str.toLong(): long
-/** Where [part] first occurs; -1 if it does not. */
+
+/**
+ * Where [part] first occurs in this text; `-1` if it does not: `"abcb".indexOf("b")` is `1`.
+ */
 ext fun str.indexOf(part: str): int
+
+/**
+ * Whether this text starts with [prefix].
+ */
 ext fun str.startsWith(prefix: str): bool
+
+/**
+ * Whether this text ends with [suffix].
+ */
 ext fun str.endsWith(suffix: str): bool
-/** Every occurrence of [old] replaced by [replacement]. */
+
+/**
+ * This text with every occurrence of [old] replaced by [replacement].
+ */
 ext fun str.replace(old: str, replacement: str): str
+
+/**
+ * This text in upper case (of ASCII letters in every target).
+ */
 ext fun str.upper(): str
+
+/**
+ * This text in lower case (of ASCII letters in every target).
+ */
 ext fun str.lower(): str
-/** Without whitespace at the start and the end. */
+
+/**
+ * This text without the whitespace at its start and its end.
+ */
 ext fun str.trim(): str
+
+/**
+ * The parts of this text between occurrences of [separator]: `"a,b,,c".split(",")` is `["a", "b", "", "c"]`.
+ */
 ext fun str.split(separator: str): List<str>
-/** The code of the character at [index]. */
+
+/**
+ * The code of the character at [index] (see [size] for what a character is).
+ */
 ext fun str.code(index: int): int
-/** The bytes of the UTF-8 encoding. */
+
+/**
+ * The bytes of the UTF-8 encoding of this text, each from 0 to 255.
+ */
 ext fun str.utf8(): List<int>
-/** With escapes replaced: `\n`, `\t`, `\r`, `\0`; `\x` is x for any other character. */
+
+/**
+ * This text with its escapes replaced: `\n`, `\t`, `\r` and `\0`; `\x` is `x` for any other character.
+ *
+ * For the literals a parser reads: `literal[1:-1].unescape()`.
+ */
 ext fun str.unescape(): str
 
-/** The number of elements, entries. */
+/**
+ * The number of elements.
+ */
 ext val <T> List<T>.size: int
+
+/**
+ * The number of elements.
+ */
 ext val <T> Set<T>.size: int
+
+/**
+ * The number of entries.
+ */
 ext val <K, V> Map<K, V>.size: int
 
-/** Where [x] first is; -1 if it is not. */
+/**
+ * Where [x] first is in this list; `-1` if it is not.
+ */
 ext fun <T> List<T>.indexOf(x: T): int
+
+/**
+ * The elements in the opposite order.
+ */
 ext fun <T> List<T>.reversed(): List<T>
+
+/**
+ * The elements as a set: without duplicates, in the order they first occur.
+ */
 ext fun <T> List<T>.toSet(): Set<T>
+
+/**
+ * The texts one after another, with [separator] between them: `["a", "b"].join(", ")` is `"a, b"`.
+ */
 ext fun List<str>.join(separator: str): str
 
-/** The elements in the order they were added. */
+/**
+ * The elements as a list, in the order they were added.
+ */
 ext fun <T> Set<T>.toList(): List<T>
+
+/**
+ * This set without [x].
+ */
 ext fun <T> Set<T>.remove(x: T): Set<T>
 
-/** The keys and the values, in the order of the map. */
+/**
+ * The keys, in the order of the map.
+ */
 ext fun <K, V> Map<K, V>.keys(): List<K>
+
+/**
+ * The values, in the order of the map.
+ */
 ext fun <K, V> Map<K, V>.values(): List<V>
+
+/**
+ * This map without the entry of [key].
+ */
 ext fun <K, V> Map<K, V>.remove(key: K): Map<K, V>
 
 // ---- lists as sets: the order of the elements is kept, no element is added twice --------------------
 
-/** The elements of this list, then those of [other] that it does not contain. */
+/**
+ * The elements of this list, then those of [other] it does not contain; no element twice.
+ *
+ * `[1, 2].union([2, 3])` is `[1, 2, 3]`.
+ */
 fun <T> List<T>.union(other: List<T>): List<T> = other.fold(this.distinct()) { acc, x -> if x in acc then acc else acc ++ [x] }
 
-/** The elements of this list that [other] does not contain; also `xs - ys`. */
+/**
+ * The elements of this list that [other] does not contain; also written `xs - ys`.
+ */
 op fun <T> List<T>.minus(other: List<T>): List<T> = this.filter { !(it in other) }
 
-/** The elements without duplicates, each where it first occurs. */
+/**
+ * The elements without duplicates, each where it first occurs.
+ */
 fun <T> List<T>.distinct(): List<T> = this.toSet().toList()
 
-/** Whether the lists have no element in common. */
+/**
+ * Whether this list and [other] have no element in common.
+ */
 fun <T> List<T>.disjoint(other: List<T>): bool = this.all { !(it in other) }
 
 // ---- numbers -------------------------------------------------------------------------------------------
 
+/**
+ * The sum of the elements; `0` for no elements.
+ */
 fun List<int>.sum(): int = this.fold(0) { acc, x -> acc + x }
+
+/**
+ * The sum of the elements; `0.0` for no elements.
+ */
 fun List<float>.sum(): float = this.fold(0.0) { acc, x -> acc + x }
 
-/** The largest element; fails for an empty list. */
+/**
+ * The largest element; fails for an empty list.
+ */
 fun List<int>.max(): int = match this {
     first :: rest -> rest.fold(first) { acc, x -> if x > acc then x else acc }
     _ -> fail("max of an empty list")
 }
+
+/**
+ * The largest element; fails for an empty list.
+ */
 fun List<float>.max(): float = match this {
     first :: rest -> rest.fold(first) { acc, x -> if x > acc then x else acc }
     _ -> fail("max of an empty list")
 }
 
-/** The smallest element; fails for an empty list. */
+/**
+ * The smallest element; fails for an empty list.
+ */
 fun List<int>.min(): int = match this {
     first :: rest -> rest.fold(first) { acc, x -> if x < acc then x else acc }
     _ -> fail("min of an empty list")
 }
+
+/**
+ * The smallest element; fails for an empty list.
+ */
 fun List<float>.min(): float = match this {
     first :: rest -> rest.fold(first) { acc, x -> if x < acc then x else acc }
     _ -> fail("min of an empty list")
 }
 
+/**
+ * The larger of this and [other].
+ */
 fun int.max(other: int): int = if this > other then this else other
+
+/**
+ * The smaller of this and [other].
+ */
 fun int.min(other: int): int = if this < other then this else other
+
+/**
+ * The larger of this and [other].
+ */
 fun float.max(other: float): float = if this > other then this else other
+
+/**
+ * The smaller of this and [other].
+ */
 fun float.min(other: float): float = if this < other then this else other
+
+/**
+ * This int without its sign (`Int.MIN_VALUE` stays as it is, as on the JVM).
+ */
 fun int.abs(): int = if this < 0 then -this else this
+
+/**
+ * The larger of this and [other].
+ */
 fun long.max(other: long): long = if this > other then this else other
+
+/**
+ * The smaller of this and [other].
+ */
 fun long.min(other: long): long = if this < other then this else other
+
+/**
+ * This long without its sign.
+ */
 fun long.abs(): long = if this < 0 then -this else this
+
+/**
+ * The sum of the elements; `0` for no elements.
+ */
 fun List<long>.sum(): long = this.fold(0L) { acc, x -> acc + x }
 
 // ---- traits ---------------------------------------------------------------------------------------------
 
-/** Values with an order: `fun <T: Comparable>` can compare them with `<`, `>`, `<=`, `>=` and `compareTo`. */
+/**
+ * Values with an order.
+ *
+ * A type parameter with this bound can be compared with `<`, `>`, `<=` and `>=` and sorted:
+ *
+ * ```
+ * fun <T: Comparable> largest(a: T, b: T): T = if a > b then a else b
+ * ```
+ *
+ * `int`, `long`, `float` and `str` are comparable; a type of the program is with an `op fun compareTo`.
+ */
 trait Comparable {
-    /** Below 0 if this comes before [other], 0 if they are equal, above 0 if it comes after it. */
+    /**
+     * Below 0 if this comes before [other], 0 if they are equal, above 0 if it comes after it.
+     */
     op fun compareTo(other: Self): int
 }
 
-/** Values that can be shown as text: `fun <T: Printable>` can call `str()` on them (also in "${x}"). */
+/**
+ * Values that can be shown as text: a type parameter with this bound can be put into strings, `"${x}"`.
+ *
+ * `int`, `long`, `float`, `bool` and `str` are printable; a type of the program is with a `fun str(): str`.
+ */
 trait Printable {
+    /**
+     * The value as text.
+     */
     fun str(): str
 }
 
 // operators of types that compare with the builtin `<` already: so that they are Comparable
+/**
+ * `-1`, `0` or `1` as this int is smaller, equal or larger than [other]: ints are `Comparable`.
+ */
 op fun int.compareTo(other: int): int = if this < other then -1 else if this > other then 1 else 0
+
+/**
+ * `-1`, `0` or `1` as this long is smaller, equal or larger than [other]: longs are `Comparable`.
+ */
 op fun long.compareTo(other: long): int = if this < other then -1 else if this > other then 1 else 0
+
+/**
+ * `-1`, `0` or `1` as this float is smaller, equal or larger than [other]: floats are `Comparable`.
+ */
 op fun float.compareTo(other: float): int = if this < other then -1 else if this > other then 1 else 0
-/** By the codes of the characters (the order of ASCII text is the same in every target); also `"a" < "b"`. */
+
+/**
+ * Compares texts by the codes of their characters, a shorter text before a longer one it starts.
+ *
+ * So strs are `Comparable`, and `"a" < "b"` holds. The order of ASCII text is the same in every target.
+ */
 op fun str.compareTo(other: str): int = (if first != 0 then first else (this.size - other.size).compareTo(0))
     where first = [0:this.size.min(other.size)].fold(0) { acc, i -> if acc != 0 then acc else this.code(i) - other.code(i) }
 
@@ -141,56 +376,126 @@ op fun str.compareTo(other: str): int = (if first != 0 then first else (this.siz
 // map and fold are the iteration of Forge: the other functions on lists use them. Both halve the list, so the depth
 // of the recursion grows with the logarithm of its size, not with its size.
 
-/** [f] of each element, in the order of the elements. */
+/**
+ * [f] of each element, in the order of the elements.
+ *
+ * ```
+ * [1, 2, 3].map { it * 2 }                // [2, 4, 6]
+ * ```
+ *
+ * With [fold], the iteration of Forge: it halves the list, so the depth of the recursion is the logarithm of its size.
+ */
 fun <T, R> List<T>.map(f: (T) -> R): List<R> =
     if this.size == 0 then [] else if this.size == 1 then [f(this[0])] else this[0:half].map(f) ++ this[half:].map(f)
     where half = this.size / 2
-/** [f] applied to [init] and the first element, then to that and the second element, ...; [init] for no elements. */
+
+/**
+ * [f] applied to [init] and the first element, then to that result and the second element, and so on; [init]
+ * for an empty list.
+ *
+ * ```
+ * [1, 2, 3].fold(0) { acc, x -> acc + x }  // 6
+ * ```
+ *
+ * With [map], the iteration of Forge: it halves the list, so the depth of the recursion is the logarithm of its size.
+ */
 fun <T, A> List<T>.fold(init: A, f: (A, T) -> A): A =
     if this.size == 0 then init else if this.size == 1 then f(init, this[0]) else this[half:].fold(this[0:half].fold(init, f), f)
     where half = this.size / 2
-/** The lists [f] returns for the elements, one after another. */
+
+/**
+ * The lists [f] returns for the elements, one after another: `[1, 2].flatMap { [it, it] }` is `[1, 1, 2, 2]`.
+ */
 fun <T, R> List<T>.flatMap(f: (T) -> List<R>): List<R> =
     if this.size == 0 then [] else if this.size == 1 then f(this[0]) else this[0:half].flatMap(f) ++ this[half:].flatMap(f)
     where half = this.size / 2
-/** The elements for which [p] holds. */
+
+/**
+ * The elements for which [p] holds, in their order: `[1, 2, 3].filter { it > 1 }` is `[2, 3]`.
+ */
 fun <T> List<T>.filter(p: (T) -> bool): List<T> = this.flatMap { if p(it) then [it] else none } where none: List<T> = []
-/** Whether [p] holds for an element. */
+
+/**
+ * Whether [p] holds for an element; `false` for an empty list.
+ */
 fun <T> List<T>.any(p: (T) -> bool): bool = this.fold(false) { acc, x -> acc || p(x) }
-/** Whether [p] holds for every element. */
+
+/**
+ * Whether [p] holds for every element; `true` for an empty list.
+ */
 fun <T> List<T>.all(p: (T) -> bool): bool = this.fold(true) { acc, x -> acc && p(x) }
-/** The number of elements for which [p] holds. */
+
+/**
+ * The number of elements for which [p] holds.
+ */
 fun <T> List<T>.count(p: (T) -> bool): int = this.fold(0) { acc, x -> if p(x) then acc + 1 else acc }
-/** The first element for which [p] holds; null if there is none. */
+
+/**
+ * The first element for which [p] holds; `null` if there is none.
+ */
 fun <T> List<T>.find(p: (T) -> bool): T? = match this.filter(p) {
     first :: _ -> first
     _ -> null
 }
-/** The elements with their indexes: [(0, a), (1, b), ...]. */
+
+/**
+ * The elements with their indexes: `["a", "b"].withIndex()` is `[(0, "a"), (1, "b")]`.
+ */
 fun <T> List<T>.withIndex(): List<(int, T)> = [0:this.size].map { (it, this[it]) }
-/** The pairs of the elements at the same indexes, as many as the shorter list has. */
+
+/**
+ * The pairs of the elements at the same indexes, as many as the shorter list has.
+ *
+ * `[1, 2, 3].zip(["a", "b"])` is `[(1, "a"), (2, "b")]`.
+ */
 fun <A, B> List<A>.zip(other: List<B>): List<(A, B)> = [0:this.size.min(other.size)].map { (this[it], other[it]) }
-/** The elements by what [key] returns for them, in the order of the elements. */
+
+/**
+ * The elements by what [key] returns for them, each group in the order of the elements.
+ *
+ * `[1, 2, 3].groupBy { it % 2 }` is `{1: [1, 3], 0: [2]}`.
+ */
 fun <T, K> List<T>.groupBy(key: (T) -> K): Map<K, List<T>> =
     this.fold(empty) { acc, x -> acc ++ {k: (if k in acc then acc[k] else none) ++ [x]} where k = key(x) }
     where empty: Map<K, List<T>> = {:}, none: List<T> = []
-/** The texts [f] returns for the elements, with [separator] between them. */
+
+/**
+ * The texts [f] returns for the elements, with [separator] between them.
+ *
+ * `[1, 2].joinWith(", ") { "#$it" }` is `"#1, #2"`.
+ */
 fun <T> List<T>.joinWith(separator: str, f: (T) -> str): str = this.map(f).join(separator)
 
-/** The elements in ascending order; equal elements keep their order. */
+/**
+ * The elements in ascending order; equal elements keep their order.
+ */
 fun <T: Comparable> List<T>.sorted(): List<T> = this.sortedWith { a, b -> a.compareTo(b) }
-/** The elements in the ascending order of [key]; equal ones keep their order. */
+
+/**
+ * The elements in the ascending order of what [key] returns for them; equal ones keep their order.
+ *
+ * `["bb", "a"].sortedBy { it.size }` is `["a", "bb"]`.
+ */
 fun <T, K: Comparable> List<T>.sortedBy(key: (T) -> K): List<T> = this.sortedWith { a, b -> key(a).compareTo(key(b)) }
-/** The elements in the order of [compare] (below 0: the first comes first); equal ones keep their order. */
+
+/**
+ * The elements in the order [compare] gives: below 0 if its first argument comes first. Equal ones keep their order.
+ */
 fun <T> List<T>.sortedWith(compare: (T, T) -> int): List<T> =
     this.fold(empty) { acc, x -> acc.filter { compare(it, x) <= 0 } ++ [x] ++ acc.filter { compare(it, x) > 0 } }
     where empty: List<T> = []
-/** The largest element by [key]; null for an empty list. */
+
+/**
+ * The element for which [key] is the largest; `null` for an empty list.
+ */
 fun <T, K: Comparable> List<T>.maxBy(key: (T) -> K): T? = match this.sortedBy(key).reversed() {
     first :: _ -> first
     _ -> null
 }
-/** The smallest element by [key]; null for an empty list. */
+
+/**
+ * The element for which [key] is the smallest; `null` for an empty list.
+ */
 fun <T, K: Comparable> List<T>.minBy(key: (T) -> K): T? = match this.sortedBy(key) {
     first :: _ -> first
     _ -> null
@@ -198,15 +503,25 @@ fun <T, K: Comparable> List<T>.minBy(key: (T) -> K): T? = match this.sortedBy(ke
 
 // ---- sets: in the order their elements were added ---------------------------------------------------
 
-/** [f] of each element. */
+/**
+ * [f] of each element, in the order they were added, as a list.
+ */
 fun <T, R> Set<T>.map(f: (T) -> R): List<R> = this.toList().map(f)
-/** As the fold of a list, over the elements in the order they were added. */
+
+/**
+ * As [List.fold], over the elements in the order they were added.
+ */
 fun <T, A> Set<T>.fold(init: A, f: (A, T) -> A): A = this.toList().fold(init, f)
 
 // ---- maps -----------------------------------------------------------------------------------------------
 
-/** The entries as (key, value), in the order of the map. */
+/**
+ * The entries as `(key, value)` tuples, in the order of the map.
+ */
 fun <K, V> Map<K, V>.entries(): List<(K, V)> = this.keys().map { (it, this[it]) }
-/** [f] of each value, with the same keys. */
+
+/**
+ * A map with the same keys and [f] of each value.
+ */
 fun <K, V, R> Map<K, V>.mapValues(f: (V) -> R): Map<K, R> = this.keys().fold(empty) { acc, k -> acc ++ {k: f(this[k])} }
     where empty: Map<K, R> = {:}

@@ -45,11 +45,34 @@ class ForgeQuickFixTest : BasePlatformTestCase() {
         fix("node A\nconst leaf = <caret>Leaf()", "Create node 'Leaf'", "node A\nconst leaf = Leaf()\nnode Leaf()\n")
     }
 
+    fun testCreateMissingDeclarations() {
+        fix(
+            "fun f(x: int): str = <caret>describe(x)",
+            "Create function 'describe'",
+            "fun f(x: int): str = describe(x)\n\nfun describe(x: int): str = TODO(\"not yet implemented\")",
+        )
+        fix(
+            "record R { n: int }\nfun f(r: R): bool = r.<caret>check(1)",
+            "Create extension function 'R.check'",
+            "record R { n: int }\nfun f(r: R): bool = r.check(1)\n\nfun R.check(p1: int): bool = TODO(\"not yet implemented\")",
+        )
+        fix(
+            "record R { n: int }\nfun f(r: R): str = r.<caret>label",
+            "Create property 'val R.label'",
+            "record R { n: int }\nfun f(r: R): str = r.label\n\nval R.label: str = TODO(\"not yet implemented\")",
+        )
+        fix(
+            "node A(n: int)\nsyn A.x: int = this.<caret>y + 1",
+            "Create attribute 'syn A.y'",
+            "node A(n: int)\nsyn A.x: int = this.y + 1\n\nsyn A.y: int = TODO(\"not yet implemented\")",
+        )
+    }
+
     fun testImplementSyn() {
         fix(
             "node Expr\nnode Num(value: int): Expr\nnode Add(l: Expr, r: Expr): Expr\nsyn Expr.<caret>type: str\nsyn Add.type: str = \"add\"",
             "Implement 'syn Num.type'",
-            "node Expr\nnode Num(value: int): Expr\nnode Add(l: Expr, r: Expr): Expr\nsyn Expr.type: str\nsyn Add.type: str = \"add\"\nsyn Num.type: str = fail(\"not implemented\")",
+            "node Expr\nnode Num(value: int): Expr\nnode Add(l: Expr, r: Expr): Expr\nsyn Expr.type: str\nsyn Add.type: str = \"add\"\nsyn Num.type: str = TODO(\"not yet implemented\")",
         )
     }
 }

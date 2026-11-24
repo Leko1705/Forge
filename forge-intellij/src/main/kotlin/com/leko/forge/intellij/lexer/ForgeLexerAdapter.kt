@@ -1,5 +1,6 @@
 package com.leko.forge.intellij.lexer
 
+import ForgeLexer
 import com.intellij.lexer.LexerBase
 import com.intellij.psi.tree.IElementType
 import com.leko.forge.ide.lexer.ForgeEditorLexer
@@ -22,7 +23,12 @@ class ForgeLexerAdapter : LexerBase() {
     }
 
     override fun getState(): Int = 0
-    override fun getTokenType(): IElementType? = lexer?.tokenType?.let(ForgeTokenTypes::of)
+    override fun getTokenType(): IElementType? = lexer?.let { l ->
+        val type = l.tokenType ?: return null
+        // `/** ... */` is a doc comment (`/**/` is an empty block comment)
+        if (type == ForgeLexer.BLOCK_COMMENT && l.tokenEnd - l.tokenStart > 4 && buffer.startsWith("/**", l.tokenStart)) ForgeTokenTypes.DOC_COMMENT
+        else ForgeTokenTypes.of(type)
+    }
     override fun getTokenStart(): Int = lexer?.tokenStart ?: 0
     override fun getTokenEnd(): Int = lexer?.tokenEnd ?: 0
     override fun getBufferSequence(): CharSequence = buffer
