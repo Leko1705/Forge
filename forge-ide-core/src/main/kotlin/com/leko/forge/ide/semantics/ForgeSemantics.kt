@@ -47,6 +47,9 @@ class ForgeAnalysis(val context: Context, val main: ForgeParser.RootContext, val
  */
 data class ForgeTraitImplementation(val trait: String, val type: String, val member: ForgeResolution)
 
+/** A declaration ([declaration]: a method, a property, an attribute or a field) of [type] that implements a member of a trait. */
+data class ForgeTraitImplementer(val type: String, val label: String, val declaration: ForgeResolution)
+
 /** A declaration related to another one: [resolution] is where it is; [abstract] if it has no implementation of its own. */
 data class ForgeRelated(val resolution: ForgeResolution, val abstract: Boolean, val label: String)
 
@@ -80,6 +83,8 @@ class ForgeSemantics(
     val declarationTypes: Map<Pair<Int, Int>, String> = emptyMap(),
     /** The members of traits that the methods and properties of the file implement, by the offset of their names. */
     val traitImplementations: Map<Int, List<ForgeTraitImplementation>> = emptyMap(),
+    /** The implementations of the members of the traits of the file (by the offset of their names), in the whole program. */
+    val traitImplementers: Map<Int, List<ForgeTraitImplementer>> = emptyMap(),
 ) {
 
     /** These semantics in a changed text: what is on lines that are still there, moved with them; the rest is gone. */
@@ -103,6 +108,11 @@ class ForgeSemantics(
                 val moved = list.mapNotNull { i -> i.member.moved()?.let { i.copy(member = it) } }
                 newOffset to moved
             }.filter { it.second.isNotEmpty() }.toMap(),
+            traitImplementers = traitImplementers.entries.mapNotNull { (offset, list) ->
+                val newOffset = map.offset(offset) ?: return@mapNotNull null
+                val moved = list.mapNotNull { i -> i.declaration.moved()?.let { i.copy(declaration = it) } }
+                newOffset to moved
+            }.filter { it.second.isNotEmpty() }.toMap(),
         )
     }
 
@@ -117,8 +127,55 @@ class ForgeSemantics(
             val collector = Collector(analysis.context).apply { visit(analysis.main) }
             return ForgeSemantics(
                 collector.resolutions, Hierarchy(analysis.context, analysis.root).compute(), collector.declarationTypes,
-                traitImplementations(analysis),
+                traitImplementations(analysis), traitImplementers(analysis),
             )
+        }
+
+        /**
+         * For each member of a trait of the analyzed file, its implementations in the whole program: of every type
+         * that has all the members of the trait, the declaration the compiler takes for the member.
+         */
+        private fun traitImplementers(analysis: ForgeAnalysis): Map<Int, List<ForgeTraitImplementer>> {
+            val traits = com.leko.forge.attr.Traits.instance(analysis.context)
+            val symTab = SymTab.instance(analysis.context)
+            val typeMap = TypeMap.instance(analysis.context)
+            val resolve = com.leko.forge.attr.Resolve.instance(analysis.context)
+            // the types that may have a member: receivers of methods, owners of attributes and fields of that name
+            fun candidates(name: String): List<com.leko.forge.types.Type> = buildList {
+                analysis.root.function().forEach { f -> val sym = f.symbol; if (sym?.name == name) sym.receiver?.type?.let { add(it) } }
+                typeMap.nodeAttributes.forEach { (owner, attributes) -> if (attributes.any { it.name == name }) add(owner.type) }
+                symTab.table.values.forEach { t ->
+                    val fields = when (t) { is ConcreteNodeSymbol -> t.fields; is RecordSymbol -> if (t.span != null) t.fields else emptyList(); else -> emptyList() }
+                    if (fields.any { it.name == name }) add(t.type)
+                }
+            }.distinct()
+            fun label(type: com.leko.forge.types.Type, sym: Symbol): String = when (sym) {
+                is FunctionSymbol -> (if (sym.isOperator) "op " else "") + (if (sym.isProperty) "val " else "fun ") + "$type.${sym.name}"
+                is AttributeSymbol -> "attribute $type.${sym.name}"
+                else -> "field $type.${sym.name}"
+            }
+            val result = mutableMapOf<Int, List<ForgeTraitImplementer>>()
+            fun traitDefs(t: ParseTree): List<ForgeParser.TraitDefContext> = when (t) {
+                is ForgeParser.TraitDefContext -> listOf(t)
+                is ForgeParser.RootContext, is ForgeParser.ModDefContext -> (0 until t.childCount).flatMap { traitDefs(t.getChild(it)) }
+                else -> emptyList()
+            }
+            for (traitDef in traitDefs(analysis.main)) {
+                val trait = symTab.traits[traitDef.name.text] ?: continue
+                for ((member, ctx) in trait.members.zip(traitDef.traitMember())) {
+                    if (ctx.name.startIndex < 0) continue
+                    val implementers = candidates(member.name).mapNotNull { type ->
+                        val sym = traits.implementations(type, trait)?.get(member) ?: return@mapNotNull null
+                        val declaration = (sym as? FunctionSymbol)?.declaration ?: sym
+                        val span = declaration.span ?: return@mapNotNull null
+                        if (span.startLine <= 0) return@mapNotNull null
+                        ForgeTraitImplementer(type.toString(), label(type, declaration),
+                            ForgeResolution(declaration.name, span.source, span.startLine, span.startCol, null))
+                    }.distinctBy { it.declaration }
+                    if (implementers.isNotEmpty()) result[ctx.name.startIndex] = implementers
+                }
+            }
+            return result
         }
 
         /**

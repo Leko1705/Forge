@@ -205,6 +205,18 @@ class ForgeIdeCoreTest {
         assertNull(implementations[text.indexOf("compareTo(other: Dog)")])
         // a generic record has it through generic methods
         assertEquals(listOf("Box<T>"), implementations.getValue(text.indexOf("name(): str = \"box\"")).map { it.type })
+        // and the other way: the members of the trait know their implementations
+        val implementers = ForgeSemantics.compute(text, null, ForgeHost.DISK).traitImplementers
+        val name = implementers.getValue(text.indexOf("name(): str\n"))
+        assertEquals(listOf("fun Dog.name", "fun Box<T>.name"), name.map { it.label })
+        assertEquals(5, name[0].declaration.line)
+        assertEquals(listOf("val Dog.size", "val Box<T>.size"), implementers.getValue(text.indexOf("size: int }")).map { it.label })
+        // a val member: also an attribute or a field
+        val nodes = "trait Sized { val size: int }\nnode Expr\nnode Num(size: int): Expr\nnode Neg(e: Expr): Expr\nsyn Neg.size: int = 1\nrecord R { size: int }"
+        val sized = ForgeSemantics.compute(nodes, null, ForgeHost.DISK).traitImplementers.getValue(nodes.indexOf("size: int }"))
+        // (and the size of the builtin types, from the standard library)
+        assertEquals(setOf("field Num.size", "attribute Neg.size", "field R.size", "val str.size", "val List<T>.size", "val Set<T>.size", "val Map<K, V>.size"),
+            sized.map { it.label }.toSet())
     }
 
     @Test

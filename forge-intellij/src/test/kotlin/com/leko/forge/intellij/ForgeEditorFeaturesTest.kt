@@ -101,8 +101,13 @@ class ForgeEditorFeaturesTest : BasePlatformTestCase() {
         myFixture.configureByText("t.forge", text)
         val gutters = myFixture.findAllGutters().filterIsInstance<LineMarkerInfo.LineMarkerGutterIconRenderer<*>>()
             .filter { it.icon === ForgeIcons.TRAIT_IMPLEMENTATION }
-        assertEquals(1, gutters.size)
-        val gutter = gutters.single()
+        assertEquals(2, gutters.size)
+        // on the member of the trait: its implementations
+        val member = gutters.single { myFixture.editor.document.getLineNumber(it.lineMarkerInfo.startOffset) == 0 }
+        assertTrue(member.tooltipText.toString(), "Is implemented by<br><b>fun Dog.name</b>" in member.tooltipText.toString())
+        val implementations = (member.lineMarkerInfo as com.intellij.codeInsight.daemon.RelatedItemLineMarkerInfo<*>).createGotoRelatedItems().map { it.element }
+        assertEquals(listOf(2), implementations.map { myFixture.editor.document.getLineNumber(it!!.textOffset) })
+        val gutter = gutters.single { it !== member }
         assertEquals(2, myFixture.editor.document.getLineNumber(gutter.lineMarkerInfo.startOffset))
         assertTrue(gutter.tooltipText.toString(), "Implements <b>Named.name</b>: Dog is Named" in gutter.tooltipText.toString())
         // it leads to the member of the trait

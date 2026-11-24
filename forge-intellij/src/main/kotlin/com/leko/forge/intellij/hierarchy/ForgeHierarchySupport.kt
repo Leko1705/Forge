@@ -57,6 +57,18 @@ class ForgeLineMarkerProvider : RelatedItemLineMarkerProvider() {
                 .setPopupTitle("Implemented Trait Members")
                 .createLineMarkerInfo(element)
         }
+        // the other way: a member of a trait, with the declarations that implement it
+        val implementers = ForgeFileSemantics.of(file).traitImplementers[name.textRange.startOffset].orEmpty()
+        if (implementers.isNotEmpty()) {
+            result += NavigationGutterIconBuilder
+                .create(com.leko.forge.intellij.ForgeIcons.TRAIT_IMPLEMENTATION)
+                .setTargets(implementers.mapNotNull { i ->
+                    ForgeImports.fileOf(i.declaration.source, file)?.let { ForgeReference.findDeclaration(it, i.declaration) }
+                })
+                .setTooltipText(implementers.joinToString("<br>", "<html>Is implemented by<br>", "</html>") { "<b>${it.label}</b>" })
+                .setPopupTitle("Implementations of the Trait Member")
+                .createLineMarkerInfo(element)
+        }
         val hierarchy = name.hierarchy ?: return
         if (hierarchy.supers.isNotEmpty()) {
             val implements = hierarchy.supers.all { it.abstract }
