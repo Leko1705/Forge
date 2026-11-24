@@ -23,6 +23,7 @@ class ForgeColorSettingsPage : ColorSettingsPage {
         AttributesDescriptor("String", ForgeColors.STRING),
         AttributesDescriptor("String expression (\${ } and \$)", ForgeColors.INTERPOLATION),
         AttributesDescriptor("Regular expression", ForgeColors.REGEX),
+        AttributesDescriptor("TODO call", ForgeColors.TODO_CALL),
         AttributesDescriptor("Number", ForgeColors.NUMBER),
         AttributesDescriptor("Comments//Line comment", ForgeColors.LINE_COMMENT),
         AttributesDescriptor("Comments//Block comment", ForgeColors.BLOCK_COMMENT),

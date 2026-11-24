@@ -69,10 +69,12 @@ class ForgeIdeCoreTest {
     }
 
     @Test
-    fun todoCallsAreWarnings() {
+    fun todoCallsAreColoredNotWarnings() {
         val text = "fun f(n: int): int = if n > 0 then n else TODO(\"negative\")"
-        val warnings = ForgeDiagnostics.analyze(ForgeSource(text, null), ForgeHost.DISK).filter { it.severity == ForgeSeverity.WARNING }
-        val todo = warnings.single { it.message == "TODO: negative" }
+        val problems = ForgeDiagnostics.analyze(ForgeSource(text, null), ForgeHost.DISK)
+        assertTrue(problems.none { it.severity == ForgeSeverity.WARNING || it.severity == ForgeSeverity.ERROR }, problems.toString())
+        val todo = problems.single { it.severity == ForgeSeverity.TODO }
+        assertEquals("TODO: negative", todo.message)
         assertEquals("TODO(\"negative\")", text.substring(todo.range!!.start, todo.range!!.end))
     }
 

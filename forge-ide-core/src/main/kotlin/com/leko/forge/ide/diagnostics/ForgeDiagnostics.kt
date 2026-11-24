@@ -22,8 +22,11 @@ import org.antlr.v4.runtime.Token
 import java.io.File
 import java.util.logging.Level
 
-/** How bad a [ForgeProblem] is; [INFO] for the compiler's notes. */
-enum class ForgeSeverity { ERROR, WARNING, INFO }
+/**
+ * How bad a [ForgeProblem] is; [INFO] for the compiler's notes. [TODO] is no problem but a call of `TODO`, which
+ * editors color like a TODO comment (yellow, as Kotlin's `TODO()`), not as a warning.
+ */
+enum class ForgeSeverity { ERROR, WARNING, INFO, TODO }
 
 /** The characters from [start] to [end] (exclusive) of a text. */
 data class ForgeTextRange(val start: Int, val end: Int) {
@@ -142,8 +145,8 @@ object ForgeDiagnostics {
 }
 
 /**
- * The calls of `TODO` of the standard library: warnings, so that what is not written yet stands out (in yellow, as
- * in other languages); the message is the one of the call, if it is a literal.
+ * The calls of `TODO` of the standard library, so that editors color what is not written yet (in yellow, as in other
+ * languages); the message is the one of the call, if it is a literal.
  */
 private fun todos(main: ForgeParser.RootContext): List<ForgeProblem> = buildList {
     fun walk(t: org.antlr.v4.runtime.tree.ParseTree) {
@@ -155,7 +158,7 @@ private fun todos(main: ForgeParser.RootContext): List<ForgeProblem> = buildList
                 val message = (t.expression().singleOrNull() as? ForgeParser.StringValueContext)?.STRING()?.text
                     ?.let { it.substring(1, it.length - 1) }
                 val text = if (message.isNullOrEmpty()) "TODO" else "TODO: $message"
-                add(ForgeProblem(ForgeSeverity.WARNING, text, ForgeTextRange(start, stop + 1), text))
+                add(ForgeProblem(ForgeSeverity.TODO, text, ForgeTextRange(start, stop + 1), text))
             }
         }
         for (i in 0 until t.childCount) walk(t.getChild(i))

@@ -1,5 +1,7 @@
 package com.leko.forge.intellij
 
+import ForgeLexer
+
 import com.intellij.codeInsight.daemon.LineMarkerInfo
 import com.intellij.testFramework.EditorTestUtil
 import com.intellij.openapi.editor.DefaultLanguageHighlighterColors
@@ -198,10 +200,17 @@ class ForgeEditorFeaturesTest : BasePlatformTestCase() {
         myFixture.checkResult("fun f(): str = \"<caret>\"")
     }
 
-    fun testTodoIsAWarning() {
-        myFixture.configureByText("t.forge", "fun f(n: int): int = TODO(\"later\")")
-        val warnings = myFixture.doHighlighting().filter { it.severity == com.intellij.lang.annotation.HighlightSeverity.WARNING }
-        assertTrue(warnings.toString(), warnings.any { it.description == "TODO: later" && it.text == "TODO(\"later\")" })
+    fun testTodoIsYellowNotAWarning() {
+        myFixture.configureByText("t.forge", "fun f(n: int): int = match n { _ -> TODO(\"later\") }")
+        val infos = myFixture.doHighlighting()
+        assertTrue(infos.toString(), infos.none { it.severity == com.intellij.lang.annotation.HighlightSeverity.WARNING })
+        // the whole call in the color of TODO comments
+        val todo = infos.single { it.forcedTextAttributesKey == com.leko.forge.intellij.highlight.ForgeColors.TODO_CALL }
+        assertEquals("TODO(\"later\")", todo.text)
+        assertEquals(com.intellij.openapi.editor.colors.CodeInsightColors.TODO_DEFAULT_ATTRIBUTES, todo.forcedTextAttributesKey.fallbackAttributeKey)
+        // `_` is plain text
+        assertEquals(0, com.leko.forge.intellij.highlight.ForgeSyntaxHighlighter()
+            .getTokenHighlights(com.leko.forge.intellij.lexer.ForgeTokenTypes.of(ForgeLexer.UNDERSCORE)).size)
     }
 
     fun testDocCommentsAreRendered() {

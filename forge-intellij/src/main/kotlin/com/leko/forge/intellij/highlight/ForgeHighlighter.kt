@@ -67,6 +67,8 @@ object ForgeColors {
     val ANNOTATION = key("ANNOTATION", Default.METADATA)
     val SOFT_KEYWORD = key("SOFT_KEYWORD", Default.KEYWORD)
     val INTERPOLATION = key("INTERPOLATION", Default.KEYWORD)
+    // a call of TODO: in the color of TODO comments (yellow), as Kotlin colors its TODO()
+    val TODO_CALL = key("TODO_CALL", com.intellij.openapi.editor.colors.CodeInsightColors.TODO_DEFAULT_ATTRIBUTES)
     // modules are like packages, traits like interfaces
     val MODULE = key("MODULE", Default.IDENTIFIER)
     val TRAIT = key("TRAIT", Default.INTERFACE_NAME)
@@ -128,7 +130,7 @@ class ForgeSyntaxHighlighter : SyntaxHighlighterBase() {
                 ForgeLexer.SEMI -> ForgeColors.SEMICOLON
                 ForgeLexer.AT -> ForgeColors.ANNOTATION
                 ForgeLexer.IDENT -> ForgeColors.IDENTIFIER
-                ForgeLexer.UNDERSCORE -> ForgeColors.KEYWORD
+                // `_` is plain text, as in Kotlin
                 else -> null
             }
         }
