@@ -532,7 +532,6 @@ private class OcamlGeneration(private val module: LLIRModule) {
             "long.str" -> "(Str (Int64.to_string (Rt.long_of (${expr(b.receiver!!)}))))"
             "str.toLong" -> rt("to_long")
             "float.str" -> "(Str (Rt.show_float (Rt.float_of (${expr(b.receiver!!)}))))"
-            "bool.str" -> "(Str (Rt.show (${expr(b.receiver!!)})))"
             "str.toInt" -> rt("to_int")
             "str.toFloat" -> rt("to_float")
             "str.indexOf" -> rt("str_index_of")

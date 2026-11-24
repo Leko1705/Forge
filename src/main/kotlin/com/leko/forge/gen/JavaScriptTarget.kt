@@ -671,7 +671,6 @@ private class JavaScriptGeneration(private val module: LLIRModule, private val m
             "int.str", "long.str" -> "String($r)"
             "str.toLong" -> "\$toLong($r)"
             "float.str" -> "\$showFloat($r)"
-            "bool.str" -> "String($r)"
             "str.toInt" -> "\$toInt($r)"
             "str.toFloat" -> "\$toFloat($r)"
             "str.indexOf" -> "$r.indexOf(${a[0]})"

@@ -617,7 +617,6 @@ private class PythonGeneration(private val module: LLIRModule, private val modul
             "int.str", "long.str" -> "str($r)"
             "str.toLong" -> "_to_long($r)"
             "float.str" -> "_show_float($r)"
-            "bool.str" -> "(\"true\" if $r else \"false\")"
             "str.toInt" -> "_to_int($r)"
             "str.toFloat" -> "_to_float($r)"
             "str.indexOf" -> "$r.find(${a[0]})"

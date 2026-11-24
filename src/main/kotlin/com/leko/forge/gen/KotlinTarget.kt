@@ -997,7 +997,7 @@ object KotlinTarget : Target {
                 sb.append(")")
             }
             when (b.name) {
-                "int.str", "long.str", "float.str", "bool.str" -> method("toString")
+                "int.str", "long.str", "float.str" -> method("toString")
                 "str.toInt" -> call("__toInt")
                 "str.toLong" -> call("__toLong")
                 "str.toFloat" -> call("__toFloat")

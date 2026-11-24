@@ -585,7 +585,6 @@ private class RustGeneration(private val module: LLIRModule, private val moduleN
             "long.str" -> "rt::s(&rt::long_of(${r(b.receiver!!)}).to_string())"
             "str.toLong" -> rt("to_long")
             "float.str" -> "rt::s(&rt::show_float(rt::float_of(${r(b.receiver!!)})))"
-            "bool.str" -> "rt::s(&rt::show(${r(b.receiver!!)}))"
             "str.toInt" -> rt("to_int")
             "str.toFloat" -> rt("to_float")
             "str.indexOf" -> rt("str_index_of")

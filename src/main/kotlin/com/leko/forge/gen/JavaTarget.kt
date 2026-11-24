@@ -731,7 +731,7 @@ private class JavaGeneration(private val module: LLIRModule, private val outer: 
         val a = b.args.map { expr(it) }
         val s = "((String) ($r))"
         return when (b.name) {
-            "int.str", "long.str", "float.str", "bool.str" -> "String.valueOf($r)"
+            "int.str", "long.str", "float.str" -> "String.valueOf($r)"
             "str.toInt" -> "__toInt($r)"
             "str.toLong" -> "__toLong($r)"
             "str.toFloat" -> "__toFloat($r)"

@@ -53,7 +53,7 @@ ext fun float.str(): str
 /**
  * This bool as text: `"true"` or `"false"`.
  */
-ext fun bool.str(): str
+fun bool.str(): str = if this then "true" else "false"
 
 /**
  * The text itself, so that strs are `Printable` too.

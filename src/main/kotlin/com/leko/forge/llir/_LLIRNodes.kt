@@ -391,7 +391,7 @@ data class PutAllMapItems(val map: Value, val elements: Value) : Value { overrid
 // ---- builtins ----
 /**
  * An operation every runtime implements. [name] is one of
- * - methods: `int.str`, `float.str`, `bool.str`, `str.toInt`, `str.toFloat`, `str.indexOf`, `str.startsWith`,
+ * - methods: `int.str`, `long.str`, `float.str`, `str.toInt`, `str.toFloat`, `str.indexOf`, `str.startsWith`,
  *   `str.endsWith`, `str.replace`, `str.upper`, `str.lower`, `str.trim`, `str.split`, `str.code`, `str.utf8`,
  *   `str.unescape`, `List.indexOf`, `List.reversed`, `List.toSet`, `List.join`, `Map.keys`, `Map.values`,
  *   `Map.remove`, `Set.toList`, `Set.remove`, and the functions `char` and `fail` (stops with an error)

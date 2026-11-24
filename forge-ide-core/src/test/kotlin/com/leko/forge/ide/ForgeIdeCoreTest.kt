@@ -52,6 +52,31 @@ class ForgeIdeCoreTest {
     }
 
     @Test
+    fun theEditorLexerSplitsStringsWithExpressions() {
+        val text = "\"a ${'$'}{f(1)} ${'$'}n \\${'$'}x\" \"plain\""
+        val tokens = mutableListOf<Pair<Int, String>>()
+        ForgeEditorLexer(text, 0, text.length, interpolations = true).apply {
+            while (tokenType != null) { tokens += tokenType!! to text.substring(tokenStart, tokenEnd); advance() }
+        }
+        assertEquals(listOf(
+            ForgeLexer.STRING to "\"a ", ForgeEditorLexer.INTERPOLATION_START to "${'$'}{", ForgeLexer.IDENT to "f",
+            ForgeLexer.LPAREN to "(", ForgeLexer.INT to "1", ForgeLexer.RPAREN to ")", ForgeEditorLexer.INTERPOLATION_END to "}",
+            ForgeLexer.STRING to " ", ForgeEditorLexer.INTERPOLATION_START to "${'$'}", ForgeLexer.IDENT to "n",
+            ForgeLexer.STRING to " \\${'$'}x\"", ForgeLexer.WS to " ", ForgeLexer.STRING to "\"plain\"",
+        ), tokens)
+        // without splitting, a string is one token
+        assertEquals(3, lex(text).size)
+    }
+
+    @Test
+    fun todoCallsAreWarnings() {
+        val text = "fun f(n: int): int = if n > 0 then n else TODO(\"negative\")"
+        val warnings = ForgeDiagnostics.analyze(ForgeSource(text, null), ForgeHost.DISK).filter { it.severity == ForgeSeverity.WARNING }
+        val todo = warnings.single { it.message == "TODO: negative" }
+        assertEquals("TODO(\"negative\")", text.substring(todo.range!!.start, todo.range!!.end))
+    }
+
+    @Test
     fun theParserTokensHaveTheOffsetsOfTheText() {
         val text = "node A(n: int)\n\n  node B"
         val tokens = ForgeAntlr.tokens(text)

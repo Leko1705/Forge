@@ -614,7 +614,6 @@ private class CppGeneration(private val module: LLIRModule, private val namespac
             "long.str" -> "rt::S(std::to_string(rt::long_of(${expr(b.receiver!!)})))"
             "str.toLong" -> rt("to_long")
             "float.str" -> "rt::S(rt::show_float(rt::float_of(${expr(b.receiver!!)})))"
-            "bool.str" -> "rt::S(rt::show(${expr(b.receiver!!)}))"
             "str.toInt" -> rt("to_int")
             "str.toFloat" -> rt("to_float")
             "str.indexOf" -> rt("str_index_of")

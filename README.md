@@ -535,11 +535,13 @@ the compiler itself, so the editor sees what `forge -f` sees:
 
 - **Highlighting** with the compiler's lexer (keywords, strings, regular expressions, numbers, comments) and
   parser: names are colored by their role in the grammar (nodes, records and enums, type references, builtin types,
-  attributes, functions and calls, constants, ports and graphs, parsers, rules and `@` annotations, ...). The colors
-  are in Settings | Editor | Color Scheme | Forge.
+  attributes, functions and calls, constants, ports and graphs, parsers, rules and `@` annotations, ...). The
+  expressions in strings are code: `${`, `$` and `}` have the color of keywords, and their names resolve and
+  complete like any other. The colors are in Settings | Editor | Color Scheme | Forge.
 - **Syntax errors** of the compiler's parser while typing.
 - **Errors and warnings of the analysis** (Enter, MemberEnter, Attr, Dependency, with the imported files and the
-  standard library) where the compiler reports them; an error in an imported file is shown on its `import`.
+  standard library) where the compiler reports them; an error in an imported file is shown on its `import`. A call
+  of `TODO(...)` is a warning (yellow, like TODO in other languages) with its message.
 - **Navigation and usages**: Ctrl+Click (Go to Declaration) on a name goes to what the compiler resolves it to,
   also into imported files and the standard library; Ctrl+Click on a declaration, Find Usages (`Alt+F7`) and
   Rename (`Shift+F6`) find its uses. The names are resolved by the compiler's analysis, so while a file has syntax

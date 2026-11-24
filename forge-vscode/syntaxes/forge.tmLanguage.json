@@ -55,15 +55,15 @@
               "name": "meta.embedded.interpolation.forge",
               "begin": "\\$\\{",
               "end": "\\}",
-              "beginCaptures": { "0": { "name": "punctuation.section.interpolation.begin.forge" } },
-              "endCaptures": { "0": { "name": "punctuation.section.interpolation.end.forge" } },
+              "beginCaptures": { "0": { "name": "keyword.other.interpolation.begin.forge" } },
+              "endCaptures": { "0": { "name": "keyword.other.interpolation.end.forge" } },
               "patterns": [{ "include": "#interpolated" }]
             },
             {
               "comment": "\"$name\": a name without braces",
               "match": "(\\$)([A-Za-z_][A-Za-z0-9_]*)",
               "captures": {
-                "1": { "name": "punctuation.section.interpolation.begin.forge" },
+                "1": { "name": "keyword.other.interpolation.begin.forge" },
                 "2": { "name": "variable.other.forge" }
               }
             }

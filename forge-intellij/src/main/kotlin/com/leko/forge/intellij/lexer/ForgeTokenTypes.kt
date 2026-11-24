@@ -39,8 +39,16 @@ object ForgeTokenTypes {
         }
     }
 
+    /** `${` (or `$`) and `}` around an expression in a string; only editors split strings into them. */
+    @JvmField val INTERPOLATION_START: IElementType = IElementType("INTERPOLATION_START", ForgeLanguage)
+    @JvmField val INTERPOLATION_END: IElementType = IElementType("INTERPOLATION_END", ForgeLanguage)
+
     /** The IntelliJ type of an ANTLR token type; characters ForgeLexer has no token for are bad characters. */
-    fun of(antlrType: Int): IElementType = types.getOrNull(antlrType) ?: TokenType.BAD_CHARACTER
+    fun of(antlrType: Int): IElementType = when (antlrType) {
+        ForgeEditorLexer.INTERPOLATION_START -> INTERPOLATION_START
+        ForgeEditorLexer.INTERPOLATION_END -> INTERPOLATION_END
+        else -> types.getOrNull(antlrType) ?: TokenType.BAD_CHARACTER
+    }
 
     @JvmField val WS = of(ForgeLexer.WS)
     @JvmField val LINE_COMMENT = of(ForgeLexer.LINE_COMMENT)

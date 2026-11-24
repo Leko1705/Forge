@@ -104,9 +104,10 @@ test("modules, traits, longs and strings with expressions", async () => {
     assert.equal(await scopeOf("const big: long = 1", "long"), "support.type.forge");
     assert.equal(await scopeOf("const f = 3.25", "3.25"), "constant.numeric.float.forge");
     const text = 'fun f(n: int): str = "n = ${n + size("a}")} \\${x}"';
-    assert.equal(await scopeOf(text, "${"), "punctuation.section.interpolation.begin.forge");
+    assert.equal(await scopeOf(text, "${"), "keyword.other.interpolation.begin.forge");
     assert.equal(await scopeOf(text, "size"), "entity.name.function.call.forge");
     assert.equal(await scopeOf(text, "\\$"), "constant.character.escape.forge");
+    assert.equal(await scopeOf('fun f(n: int): str = "a $n"', "$"), "keyword.other.interpolation.begin.forge");
 });
 
 test("the Forge files of the repository have no invalid tokens", async () => {

@@ -9,7 +9,8 @@ import com.leko.forge.ide.lexer.ForgeEditorLexer
  * The compiler's lexer, ForgeLexer, as an IntelliJ lexer: [ForgeEditorLexer], which keeps whitespace and comments
  * and makes the characters ForgeLexer has no token for bad characters.
  *
- * ForgeLexer has no modes, so every token starts in the same state and the lexer can restart at any token.
+ * ForgeLexer has no modes, so every token starts in the same state and the lexer can restart at any token, except in
+ * a string with expressions, which it splits into its text, `${`, `}` and the tokens of the expressions.
  */
 class ForgeLexerAdapter : LexerBase() {
     private var buffer: CharSequence = ""
@@ -19,10 +20,11 @@ class ForgeLexerAdapter : LexerBase() {
     override fun start(buffer: CharSequence, startOffset: Int, endOffset: Int, initialState: Int) {
         this.buffer = buffer
         this.endOffset = endOffset
-        this.lexer = ForgeEditorLexer(buffer, startOffset, endOffset)
+        // strings with expressions are split, so that the expressions are colored as code
+        this.lexer = ForgeEditorLexer(buffer, startOffset, endOffset, interpolations = true)
     }
 
-    override fun getState(): Int = 0
+    override fun getState(): Int = lexer?.state ?: 0
     override fun getTokenType(): IElementType? = lexer?.let { l ->
         val type = l.tokenType ?: return null
         // `/** ... */` is a doc comment (`/**/` is an empty block comment)

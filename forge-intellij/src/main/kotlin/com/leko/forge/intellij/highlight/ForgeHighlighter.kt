@@ -66,6 +66,7 @@ object ForgeColors {
     val PARSER_RULE = key("PARSER_RULE", Default.FUNCTION_DECLARATION)
     val ANNOTATION = key("ANNOTATION", Default.METADATA)
     val SOFT_KEYWORD = key("SOFT_KEYWORD", Default.KEYWORD)
+    val INTERPOLATION = key("INTERPOLATION", Default.KEYWORD)
     // modules are like packages, traits like interfaces
     val MODULE = key("MODULE", Default.IDENTIFIER)
     val TRAIT = key("TRAIT", Default.INTERFACE_NAME)
@@ -107,6 +108,8 @@ class ForgeSyntaxHighlighter : SyntaxHighlighterBase() {
 
     private fun attributes(type: IElementType): TextAttributesKey? {
         if (type == TokenType.BAD_CHARACTER) return ForgeColors.BAD_CHARACTER
+        // `${`, `$` and `}` around an expression in a string, as in Kotlin
+        if (type == ForgeTokenTypes.INTERPOLATION_START || type == ForgeTokenTypes.INTERPOLATION_END) return ForgeColors.INTERPOLATION
         if (type !is ForgeTokenType) return null
         return when {
             type in ForgeTokenTypes.KEYWORDS -> ForgeColors.KEYWORD

@@ -162,6 +162,48 @@ class ForgeEditorFeaturesTest : BasePlatformTestCase() {
         assertTrue(local, "variable in rule Lang.expr: Num" in local && "str" in local)
     }
 
+    fun testExpressionsInStringsAreCode() {
+        val text = "fun f(n: int): str = \"a ${'$'}{n + 1} b ${'$'}n\""
+        myFixture.configureByText("s.forge", text)
+        // the lexer: text, `${`, the expression's tokens, `}`, text, `$`, a name
+        val lexer = com.leko.forge.intellij.lexer.ForgeLexerAdapter()
+        lexer.start(text, 0, text.length, 0)
+        val tokens = buildList {
+            while (lexer.tokenType != null) {
+                add(lexer.tokenType.toString() to text.substring(lexer.tokenStart, lexer.tokenEnd))
+                lexer.advance()
+            }
+        }
+        val string = tokens.dropWhile { it.second != "\"a " }
+        assertEquals(listOf("STRING" to "\"a ", "INTERPOLATION_START" to "${'$'}{", "IDENT" to "n", "WS" to " ", "PLUS" to "+", "WS" to " ",
+            "INT" to "1", "INTERPOLATION_END" to "}", "STRING" to " b ", "INTERPOLATION_START" to "${'$'}", "IDENT" to "n", "STRING" to "\""), string)
+        // `${` has the color of keywords
+        assertEquals(DefaultLanguageHighlighterColors.KEYWORD,
+            com.leko.forge.intellij.highlight.ForgeSyntaxHighlighter().getTokenHighlights(com.leko.forge.intellij.lexer.ForgeTokenTypes.INTERPOLATION_START)[0].fallbackAttributeKey)
+        // a name in a string is a name: it leads to its declaration
+        val inString = text.indexOf("n + 1")
+        val target = myFixture.file.findReferenceAt(inString)?.resolve()
+        assertNotNull(target)
+        assertEquals(text.indexOf("n: int"), target!!.textOffset)
+    }
+
+    fun testQuotesAfterAnExpressionInAString() {
+        // typing `"` at the end of a string with an expression closes it instead of opening another
+        myFixture.configureByText("q.forge", "fun f(n: int): str = \"a ${'$'}{n}<caret>\"")
+        myFixture.type("\"")
+        myFixture.checkResult("fun f(n: int): str = \"a ${'$'}{n}\"<caret>")
+        // a new string gets its closing quote
+        myFixture.configureByText("r.forge", "fun f(): str = <caret>")
+        myFixture.type("\"")
+        myFixture.checkResult("fun f(): str = \"<caret>\"")
+    }
+
+    fun testTodoIsAWarning() {
+        myFixture.configureByText("t.forge", "fun f(n: int): int = TODO(\"later\")")
+        val warnings = myFixture.doHighlighting().filter { it.severity == com.intellij.lang.annotation.HighlightSeverity.WARNING }
+        assertTrue(warnings.toString(), warnings.any { it.description == "TODO: later" && it.text == "TODO(\"later\")" })
+    }
+
     fun testDocCommentsAreRendered() {
         val text = """
             /**

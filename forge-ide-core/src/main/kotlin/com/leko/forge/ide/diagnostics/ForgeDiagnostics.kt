@@ -4,6 +4,7 @@ import ForgeParser
 import com.leko.forge.analysis.Dependency
 import com.leko.forge.attr.Attr
 import com.leko.forge.attr.clearTreeAttributes
+import com.leko.forge.attr.symbol
 import com.leko.forge.context.Context
 import com.leko.forge.enter.Enter
 import com.leko.forge.enter.MemberEnter
@@ -86,6 +87,7 @@ object ForgeDiagnostics {
         if (problems.isNotEmpty()) return problems
 
         var fixes: List<ForgeFix> = emptyList()
+        var todos: List<ForgeProblem> = emptyList()
         val diagnostics = try {
             synchronized(ForgeSemantics.lock) {
                 try {
@@ -99,6 +101,7 @@ object ForgeDiagnostics {
                     Dependency.instance(context).check(root)
                     // while the attributes of the analysis are there
                     fixes = ForgeMissingDeclarations(context, source.text).fixes(main)
+                    todos = todos(main)
                     Log.instance(context).diagnostics.toList()
                 } finally {
                     clearTreeAttributes()
@@ -112,6 +115,7 @@ object ForgeDiagnostics {
             return listOf(ForgeProblem(ForgeSeverity.WARNING, "the Forge analysis failed: $e", null))
         }
 
+        problems += todos
         val mainPath = source.file?.canonicalPath
         for (d in diagnostics) {
             val severity = when (d.severity) {
@@ -135,6 +139,28 @@ object ForgeDiagnostics {
         }
         return problems
     }
+}
+
+/**
+ * The calls of `TODO` of the standard library: warnings, so that what is not written yet stands out (in yellow, as
+ * in other languages); the message is the one of the call, if it is a literal.
+ */
+private fun todos(main: ForgeParser.RootContext): List<ForgeProblem> = buildList {
+    fun walk(t: org.antlr.v4.runtime.tree.ParseTree) {
+        if (t is ForgeParser.FunctionCallContext) {
+            val sym = (t.symbol as? com.leko.forge.model.FunctionSymbol)?.declaration
+            val start = t.start?.startIndex ?: -1
+            val stop = t.stop?.stopIndex ?: -1
+            if (sym != null && sym.name == "TODO" && sym.span.source == com.leko.forge.parse.STD_SOURCE && start >= 0 && stop >= start) {
+                val message = (t.expression().singleOrNull() as? ForgeParser.StringValueContext)?.STRING()?.text
+                    ?.let { it.substring(1, it.length - 1) }
+                val text = if (message.isNullOrEmpty()) "TODO" else "TODO: $message"
+                add(ForgeProblem(ForgeSeverity.WARNING, text, ForgeTextRange(start, stop + 1), text))
+            }
+        }
+        for (i in 0 until t.childCount) walk(t.getChild(i))
+    }
+    walk(main)
 }
 
 /** Offsets of the lines and columns of the compiler's spans; ANTLR's lines start at 1, its columns at 0. */
