@@ -430,3 +430,18 @@ forge-ide-core, for VS Code and other editors (Neovim, Helix, Zed, Emacs, ...). 
 java -jar forge-lsp/build/libs/forge-lsp-1.0-SNAPSHOT-all.jar
 ./gradlew :forge-lsp:test
 ```
+
+## VS Code extension
+
+[forge-vscode](forge-vscode) is the extension for VS Code: it starts the language server (with Java 21 or newer, from
+`forge.java.home`, `JAVA_HOME` or the `PATH`), highlights with a TextMate grammar until the server's semantic tokens
+are there, and has **Forge: Compile**, which runs the compiler on a file with the `forge.compile.*` settings.
+
+```
+cd forge-vscode
+npm install
+npm run server && npm run build   # the server jar (with Gradle) and the bundled extension
+npm test                          # the grammar, finding Java, the command line of the compiler
+xvfb-run -a npm run test:integration   # in a VS Code it downloads (VSCODE_VERSION, default stable)
+npm run package                   # forge-vscode-1.0.0.vsix: code --install-extension forge-vscode-1.0.0.vsix
+```

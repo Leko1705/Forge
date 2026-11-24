@@ -48,3 +48,10 @@ bin/
 
 ### JVM heap dumps ###
 *.hprof
+
+### the VS Code extension ###
+forge-vscode/node_modules/
+forge-vscode/server/*.jar
+*.vsix
+!forge-vscode/.vscode/
+forge-vscode/.vscode-test/

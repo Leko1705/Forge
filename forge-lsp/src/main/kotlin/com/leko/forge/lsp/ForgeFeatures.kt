@@ -67,7 +67,10 @@ class ForgeFeatures(private val workspace: ForgeWorkspace) {
     fun completion(analysis: ForgeDocumentAnalysis, offset: Int): List<CompletionItem> {
         val text = analysis.text
         if (inCommentOrString(text, offset)) return emptyList()
-        val withDummy = text.substring(0, offset) + ForgeCompletion.DUMMY_PREFIX + " " + text.substring(offset)
+        // the rest of the name after the caret goes, as the editor replaces the whole name with the completion
+        var nameEnd = offset
+        while (nameEnd < text.length && (text[nameEnd].isLetterOrDigit() || text[nameEnd] == '_')) nameEnd++
+        val withDummy = text.substring(0, offset) + ForgeCompletion.DUMMY_PREFIX + " " + text.substring(nameEnd)
         val candidates = ForgeCompletion(withDummy, offset, analysis.document.file, workspace).candidates()
         return candidates.distinctBy { it.name to it.kind }.map(::completionItem)
     }

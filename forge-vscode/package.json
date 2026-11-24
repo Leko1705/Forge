@@ -1,0 +1,262 @@
+{
+  "name": "forge-vscode",
+  "displayName": "Forge",
+  "description": "Forge, the compiler definition language: diagnostics, completion, navigation and highlighting with the Forge compiler itself",
+  "version": "1.0.0",
+  "publisher": "leko",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Leko1705/Forge"
+  },
+  "engines": {
+    "vscode": "^1.91.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "keywords": [
+    "forge",
+    "compiler",
+    "attribute grammars",
+    "language server"
+  ],
+  "main": "./out/extension.cjs",
+  "activationEvents": [],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "In an untrusted workspace, the settings that choose the programs the extension runs and where the compiler writes are only read from the user settings.",
+      "restrictedConfigurations": [
+        "forge.java.home",
+        "forge.server.path",
+        "forge.server.vmArguments",
+        "forge.compile.outputDirectory"
+      ]
+    }
+  },
+  "contributes": {
+    "languages": [
+      {
+        "id": "forge",
+        "aliases": [
+          "Forge",
+          "forge"
+        ],
+        "extensions": [
+          ".forge"
+        ],
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./images/forge.svg",
+          "dark": "./images/forge.svg"
+        }
+      }
+    ],
+    "grammars": [
+      {
+        "language": "forge",
+        "scopeName": "source.forge",
+        "path": "./syntaxes/forge.tmLanguage.json"
+      }
+    ],
+    "semanticTokenTypes": [
+      {
+        "id": "attribute",
+        "superType": "property",
+        "description": "An attribute of a node: syn, inh, circular or coll."
+      },
+      {
+        "id": "port",
+        "superType": "variable",
+        "description": "A port of a flow graph."
+      },
+      {
+        "id": "graph",
+        "superType": "namespace",
+        "description": "A flow graph."
+      },
+      {
+        "id": "parser",
+        "superType": "class",
+        "description": "A parser."
+      },
+      {
+        "id": "rule",
+        "superType": "method",
+        "description": "A rule of a parser."
+      }
+    ],
+    "semanticTokenScopes": [
+      {
+        "language": "forge",
+        "scopes": {
+          "attribute": [
+            "variable.other.property.attribute.forge"
+          ],
+          "port": [
+            "variable.other.constant.port.forge"
+          ],
+          "graph": [
+            "entity.name.namespace.graph.forge"
+          ],
+          "parser": [
+            "entity.name.type.class.parser.forge"
+          ],
+          "rule": [
+            "entity.name.function.rule.forge"
+          ]
+        }
+      }
+    ],
+    "configurationDefaults": {
+      "[forge]": {
+        "editor.semanticHighlighting.enabled": true
+      }
+    },
+    "commands": [
+      {
+        "command": "forge.compile",
+        "title": "Compile",
+        "category": "Forge",
+        "icon": "$(play)",
+        "enablement": "resourceLangId == forge"
+      },
+      {
+        "command": "forge.restartServer",
+        "title": "Restart Language Server",
+        "category": "Forge"
+      }
+    ],
+    "taskDefinitions": [
+      {
+        "type": "forge",
+        "required": [
+          "file"
+        ],
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "The .forge file to compile."
+          }
+        }
+      }
+    ],
+    "menus": {
+      "editor/title/run": [
+        {
+          "command": "forge.compile",
+          "when": "resourceLangId == forge"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "forge.compile",
+          "when": "resourceLangId == forge",
+          "group": "navigation"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "forge.compile",
+          "when": "resourceLangId == forge"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Forge",
+      "properties": {
+        "forge.java.home": {
+          "type": "string",
+          "default": "",
+          "scope": "machine-overridable",
+          "markdownDescription": "The Java installation (21 or newer) that runs the language server and the compiler. Empty: `JAVA_HOME`, then `java` on the `PATH`."
+        },
+        "forge.server.path": {
+          "type": "string",
+          "default": "",
+          "scope": "machine-overridable",
+          "markdownDescription": "The jar of the language server (and the compiler), e.g. one built with `./gradlew :forge-lsp:serverJar`. Empty: the jar of the extension."
+        },
+        "forge.server.vmArguments": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "Arguments for the Java VM of the language server, e.g. `-Xmx1g`."
+        },
+        "forge.compile.outputDirectory": {
+          "type": "string",
+          "default": "build/generated/forge",
+          "markdownDescription": "Where **Forge: Compile** writes the generated code (`-d`); a relative path is relative to the workspace folder of the file."
+        },
+        "forge.compile.package": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "The package of the generated code (`-p`; the namespace for C++). Empty: none."
+        },
+        "forge.compile.target": {
+          "type": "string",
+          "default": "kotlin",
+          "enum": [
+            "kotlin",
+            "java",
+            "python",
+            "cpp",
+            "rust",
+            "ocaml",
+            "javascript"
+          ],
+          "markdownDescription": "The language the compiler generates (`-t`)."
+        },
+        "forge.compile.optimize": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Optimize before code is generated (`-opt`): constant folding and dead code elimination."
+        },
+        "forge.compile.keep": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "With `forge.compile.optimize`: names that dead code elimination keeps (`-keep`), e.g. `ClassFile` or `Recv.g`."
+        },
+        "forge.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Traces the communication between VS Code and the Forge language server."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "server": "node scripts/server.mjs",
+    "build": "esbuild src/extension.ts --bundle --outfile=out/extension.cjs --external:vscode --format=cjs --platform=node --target=node20 --sourcemap",
+    "check": "tsc --noEmit",
+    "test": "node --test test/*.test.ts",
+    "vscode:prepublish": "npm run check && npm run build -- --minify",
+    "package": "vsce package --no-dependencies",
+    "test:integration": "node test/integration/run.mjs"
+  },
+  "dependencies": {
+    "vscode-languageclient": "10.1.2"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "@types/vscode": "1.91.0",
+    "@vscode/test-electron": "3.1.0",
+    "@vscode/vsce": "3.9.2",
+    "esbuild": "0.28.2",
+    "typescript": "5.9.3",
+    "vscode-oniguruma": "2.0.1",
+    "vscode-textmate": "9.3.2"
+  }
+}

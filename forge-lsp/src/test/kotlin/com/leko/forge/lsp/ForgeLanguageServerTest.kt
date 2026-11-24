@@ -186,6 +186,11 @@ class ForgeLanguageServerTest {
         val keywordUri = open("k.forge", "\nnode B(n: int)")
         val keywords = text.completion(CompletionParams(TextDocumentIdentifier(keywordUri), Position(0, 0))).get().left
         assertTrue(keywords.any { it.label == "node" && it.kind == CompletionItemKind.Keyword }, "${keywords.map { it.label }}")
+        // before a name: the members of what is before the `.`, as the name is replaced
+        val before = "node A(count: int)\nsyn A.x: int = this.count * 2"
+        val beforeUri = open("before.forge", before)
+        val members = text.completion(CompletionParams(TextDocumentIdentifier(beforeUri), after(before, "this."))).get().left
+        assertTrue(members.any { it.label == "count" }, "${members.map { it.label }}")
         // a call: parentheses follow
         val calls = "fun twice(x: int): int = x * 2\nconst c = tw"
         val callUri = open("b.forge", calls)
