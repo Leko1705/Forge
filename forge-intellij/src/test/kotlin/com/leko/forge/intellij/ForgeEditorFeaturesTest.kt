@@ -138,3 +138,34 @@ class ForgeEditorFeaturesTest : BasePlatformTestCase() {
         assertEquals(DefaultLanguageHighlighterColors.DOC_COMMENT, ForgeColors.BLOCK_COMMENT.fallbackAttributeKey)
     }
 }
+
+class ForgeTypeParameterTest : com.intellij.testFramework.fixtures.BasePlatformTestCase() {
+    private val text = "fun <T> List<T>.second(): T? = this[1]\nfun <T> List<T>.first(): T? = this[0]"
+
+    fun testTypeParametersHaveTheColorOfGenerics() {
+        assertEquals("TYPE_PARAMETER_NAME_ATTRIBUTES", ForgeColors.TYPE_PARAMETER.fallbackAttributeKey?.externalName)
+        // the platform's schemes define it: cyan in the dark ones, teal in the light ones
+        val scheme = com.intellij.openapi.editor.colors.EditorColorsManager.getInstance().globalScheme
+        assertNotNull(scheme.getAttributes(ForgeColors.TYPE_PARAMETER).foregroundColor)
+    }
+
+    fun testDeclarationsAndUsesOfTypeParametersAreColored() {
+        myFixture.configureByText("a.forge", text)
+        val colored = myFixture.doHighlighting()
+            .filter { it.forcedTextAttributesKey == ForgeColors.TYPE_PARAMETER }
+            .map { it.startOffset }
+        val expected = Regex("\\bT\\b").findAll(text).map { it.range.first }.toList()
+        assertEquals(6, expected.size)
+        assertEquals(expected, colored.sorted())
+    }
+
+    fun testTypeParametersNavigateToTheirDeclaration() {
+        val use = text.indexOf("(): T") + 4
+        myFixture.configureByText("a.forge", text.substring(0, use) + "<caret>" + text.substring(use))
+        assertEquals(text.indexOf("<T>") + 1, myFixture.elementAtCaret.textOffset)
+        // the T of the second function is its own
+        val second = text.lastIndexOf("(): T") + 4
+        myFixture.configureByText("a.forge", text.substring(0, second) + "<caret>" + text.substring(second))
+        assertEquals(text.indexOf("fun <T>", text.indexOf('\n')) + "fun <".length, myFixture.elementAtCaret.textOffset)
+    }
+}

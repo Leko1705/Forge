@@ -21,6 +21,7 @@ import com.leko.forge.enter.MemberEnter
 import com.leko.forge.intellij.parser.ForgeNameRole
 import com.leko.forge.intellij.parser.ForgePsiParser
 import com.leko.forge.intellij.parser.nameRole
+import com.leko.forge.intellij.parser.typeParameterDeclaration
 import com.leko.forge.model.*
 import com.leko.forge.model.span
 import com.leko.forge.parse.parseForgeImports
@@ -210,6 +211,15 @@ class ForgeSemantics(
                 val context = tree.parent as? ParserRuleContext ?: return
                 val token = tree.symbol
                 if (token.type != ForgeParser.IDENT || token.startIndex < 0) return
+                // a type parameter: the compiler has no symbol for it, its declaration is in the `<...>` of the function
+                if (context is ForgeParser.NamedTypeContext) {
+                    typeParameterDeclaration(context, token)?.let { declaration ->
+                        resolutions[token.startIndex] = ForgeResolution(
+                            token.text, null, declaration.line, declaration.charPositionInLine, ForgeNameRole.TYPE_PARAMETER,
+                        )
+                        return
+                    }
+                }
                 val symbol = resolve(context, token) ?: return
                 val span = symbol.span ?: return
                 if (span.startLine <= 0) return

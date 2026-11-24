@@ -86,6 +86,7 @@ fun nameRole(context: ParserRuleContext, token: Token): ForgeNameRole? = when (c
     is ForgeParser.NonterminalRuleContext -> PARSER_RULE.takeIf { token === context.name }
     is ForgeParser.NamedTypeContext -> when {
         token !== context.name -> null
+        typeParameterDeclaration(context, token) != null -> TYPE_PARAMETER
         token.text in builtinTypes -> BUILTIN_TYPE
         else -> TYPE_REFERENCE
     }
@@ -104,6 +105,12 @@ fun nameRole(context: ParserRuleContext, token: Token): ForgeNameRole? = when (c
     is ForgeParser.IdentifierContext -> IDENTIFIER
     else -> null
 }
+
+/** The declaration of the type parameter [token] names (`T` in `fun <T> List<T>.second(): T?`), if it names one. */
+fun typeParameterDeclaration(context: ParserRuleContext, token: Token): Token? =
+    generateSequence(context) { it.parent as? ParserRuleContext }
+        .filterIsInstance<ForgeParser.FunctionContext>().firstOrNull()
+        ?.typeParams?.firstOrNull { it.text == token.text }
 
 /** Whether [token], a name with a [nameRole] directly below [context], declares something, or uses a declaration. */
 fun isDeclaration(context: ParserRuleContext, token: Token): Boolean = when (context) {

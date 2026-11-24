@@ -45,7 +45,9 @@ object ForgeColors {
     val TYPE_DECLARATION = key("TYPE_DECLARATION", Default.CLASS_NAME)
     val TYPE_REFERENCE = key("TYPE_REFERENCE", Default.CLASS_REFERENCE)
     val BUILTIN_TYPE = key("BUILTIN_TYPE", Default.KEYWORD)
-    val TYPE_PARAMETER = key("TYPE_PARAMETER", Default.CLASS_REFERENCE)
+    // the cyan of generics in Java and Kotlin: the platform's color schemes define it, Kotlin's type parameters
+    // inherit it too
+    val TYPE_PARAMETER = key("TYPE_PARAMETER", TextAttributesKey.find("TYPE_PARAMETER_NAME_ATTRIBUTES"))
     val ENUM_CONSTANT = key("ENUM_CONSTANT", Default.STATIC_FIELD)
     val FUNCTION_DECLARATION = key("FUNCTION_DECLARATION", Default.FUNCTION_DECLARATION)
     val FUNCTION_CALL = key("FUNCTION_CALL", Default.FUNCTION_CALL)
