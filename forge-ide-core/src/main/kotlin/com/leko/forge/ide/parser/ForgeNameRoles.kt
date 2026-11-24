@@ -1,9 +1,19 @@
-package com.leko.forge.intellij.parser
+package com.leko.forge.ide.parser
 
 import ForgeParser
-import com.leko.forge.intellij.parser.ForgeNameRole.*
+import com.leko.forge.ide.parser.ForgeNameRole.*
 import org.antlr.v4.runtime.ParserRuleContext
 import org.antlr.v4.runtime.Token
+
+/** What a name is, e.g. the name of a node declaration or a type in a type reference; it decides its color. */
+enum class ForgeNameRole {
+    NODE_DECLARATION, TYPE_DECLARATION, TYPE_REFERENCE, BUILTIN_TYPE, TYPE_PARAMETER,
+    ENUM_CONSTANT, FUNCTION_DECLARATION, FUNCTION_CALL, METHOD_CALL, PROPERTY,
+    CONSTANT, FIELD, PARAMETER, LOCAL_VARIABLE, ATTRIBUTE, PORT, GRAPH,
+    PARSER, PARSER_RULE, ANNOTATION, SOFT_KEYWORD,
+    /** An identifier in an expression: a variable, a field, an attribute, a constant, ... */
+    IDENTIFIER,
+}
 
 /** The types the compiler knows without a declaration (TypeRes); the graph types are declared by the compiler. */
 private val builtinTypes = setOf("int", "float", "bool", "boolean", "str", "Nothing", "Graph", "Vertex", "Edge", "Span")

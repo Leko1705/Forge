@@ -1,14 +1,15 @@
 package com.leko.forge.intellij
 
-import com.intellij.lang.annotation.HighlightSeverity
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
-import com.leko.forge.intellij.annotator.ForgeCompilerAnnotator
-import com.leko.forge.intellij.annotator.ForgeSource
+import com.leko.forge.ide.diagnostics.ForgeDiagnostics
+import com.leko.forge.ide.diagnostics.ForgeSeverity
+import com.leko.forge.ide.diagnostics.ForgeSource
+import com.leko.forge.intellij.semantics.ForgeImports
 
 class ForgeQuickFixTest : BasePlatformTestCase() {
 
     private fun errors(text: String) =
-        ForgeCompilerAnnotator.analyze(ForgeSource(text, null)).filter { it.severity == HighlightSeverity.ERROR }
+        ForgeDiagnostics.analyze(ForgeSource(text, null), ForgeImports).filter { it.severity == ForgeSeverity.ERROR }
 
     /** Applies the fix [name] at `<caret>` of [before]; the result must be [after], a program without errors. */
     private fun fix(before: String, name: String, after: String) {

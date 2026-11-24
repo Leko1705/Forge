@@ -5,11 +5,11 @@ import com.intellij.openapi.fileTypes.SyntaxHighlighter
 import com.intellij.openapi.options.colors.AttributesDescriptor
 import com.intellij.openapi.options.colors.ColorDescriptor
 import com.intellij.openapi.options.colors.ColorSettingsPage
+import com.leko.forge.ide.parser.ForgeAntlr
+import com.leko.forge.ide.parser.ForgeNameRole
+import com.leko.forge.ide.parser.nameRole
+import com.leko.forge.ide.semantics.ForgeSemantics
 import com.leko.forge.intellij.ForgeIcons
-import com.leko.forge.intellij.parser.ForgeNameRole
-import com.leko.forge.intellij.parser.ForgePsiParser
-import com.leko.forge.intellij.parser.nameRole
-import com.leko.forge.intellij.semantics.ForgeSemantics
 import org.antlr.v4.runtime.ParserRuleContext
 import org.antlr.v4.runtime.tree.ParseTree
 import org.antlr.v4.runtime.tree.TerminalNode
@@ -74,7 +74,7 @@ class ForgeColorSettingsPage : ColorSettingsPage {
     private fun tag(role: ForgeNameRole) = "forge_" + role.name.lowercase()
 
     private fun tagNames(text: String): String {
-        val (tree, _) = ForgePsiParser.parseAntlr(text)
+        val (tree, _) = ForgeAntlr.parse(text)
         val semantics = ForgeSemantics.compute(text, null) { error("the demo imports nothing") }
         val names = mutableListOf<Pair<IntRange, ForgeNameRole>>()
         fun visit(node: ParseTree) {

@@ -16,10 +16,10 @@ import com.intellij.psi.PsiElement
 import com.intellij.psi.search.FilenameIndex
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.psi.util.PsiTreeUtil
+import com.leko.forge.ide.project.ForgeProjectOptions
 import com.leko.forge.intellij.lexer.ForgeTokenTypes
 import com.leko.forge.intellij.parser.ForgeFile
 import com.leko.forge.intellij.parser.ForgeRuleType
-import com.leko.forge.intellij.wizard.ForgeProjectOptions
 import java.io.File
 
 /** Right click on a .forge file (in the editor or the project view) | Run: compiles it. */

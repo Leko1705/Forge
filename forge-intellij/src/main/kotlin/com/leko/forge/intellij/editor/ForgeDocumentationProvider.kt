@@ -8,14 +8,14 @@ import com.intellij.openapi.util.text.StringUtil
 import com.intellij.psi.PsiComment
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiWhiteSpace
+import com.leko.forge.ide.parser.ForgeNameRole
 import com.leko.forge.intellij.ForgeLanguage
 import com.leko.forge.intellij.hierarchy.hierarchy
 import com.leko.forge.intellij.lexer.ForgeTokenTypes
-import com.leko.forge.intellij.parser.ForgeNameRole
 import com.leko.forge.intellij.parser.ForgeRuleType
 import com.leko.forge.intellij.psi.ForgeDeclaredName
 import com.leko.forge.intellij.psi.ForgeNameElement
-import com.leko.forge.intellij.semantics.ForgeSemantics
+import com.leko.forge.intellij.semantics.ForgeFileSemantics
 
 /**
  * The documentation of a declaration, shown on hover and with Ctrl+Q: its signature, highlighted, its doc
@@ -109,7 +109,7 @@ class ForgeDocumentationProvider : AbstractDocumentationProvider() {
                 val document = name.containingFile.viewProvider.document ?: return null
                 val line = document.getLineNumber(name.textOffset)
                 val column = name.textOffset - document.getLineStartOffset(line)
-                return ForgeSemantics.of(name.containingFile).declarationTypes[(line + 1) to column]
+                return ForgeFileSemantics.of(name.containingFile).declarationTypes[(line + 1) to column]
             }
 
             fun of(name: ForgeDeclaredName): Info? {

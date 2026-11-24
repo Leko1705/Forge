@@ -24,8 +24,8 @@ import com.intellij.openapi.options.SettingsEditor
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.NotNullLazyValue
 import com.intellij.openapi.vfs.LocalFileSystem
+import com.leko.forge.ide.project.ForgeTarget
 import com.leko.forge.intellij.ForgeIcons
-import com.leko.forge.intellij.wizard.ForgeTarget
 import com.leko.forge.parse.ImportException
 import java.io.File
 import java.nio.file.Path

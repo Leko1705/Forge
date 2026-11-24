@@ -24,6 +24,10 @@ import com.intellij.ui.dsl.builder.bindItem
 import com.intellij.ui.dsl.builder.bindSelected
 import com.intellij.ui.dsl.builder.bindText
 import com.intellij.ui.dsl.builder.columns
+import com.leko.forge.ide.project.ForgeProjectKind
+import com.leko.forge.ide.project.ForgeProjectOptions
+import com.leko.forge.ide.project.ForgeProjectTemplate
+import com.leko.forge.ide.project.ForgeTarget
 import com.leko.forge.intellij.ForgeIcons
 import java.nio.file.Files
 import java.nio.file.Path

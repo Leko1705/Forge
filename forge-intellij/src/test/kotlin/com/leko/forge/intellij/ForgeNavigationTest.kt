@@ -1,19 +1,21 @@
 package com.leko.forge.intellij
 
-import com.intellij.lang.annotation.HighlightSeverity
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.vfs.newvfs.impl.VfsRootAccess
 import com.intellij.psi.PsiElement
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
-import com.leko.forge.intellij.annotator.ForgeCompilerAnnotator
-import com.leko.forge.intellij.annotator.ForgeSource
+import com.leko.forge.ide.diagnostics.ForgeDiagnostics
+import com.leko.forge.ide.diagnostics.ForgeSeverity
+import com.leko.forge.ide.diagnostics.ForgeSource
+import com.leko.forge.ide.parser.ForgeNameRole
+import com.leko.forge.ide.semantics.ForgeSemantics
 import com.leko.forge.intellij.highlight.ForgeColors
 import com.leko.forge.intellij.highlight.ForgeColorSettingsPage
-import com.leko.forge.intellij.parser.ForgeNameRole
 import com.leko.forge.intellij.psi.ForgeDeclaredName
 import com.leko.forge.intellij.psi.ForgeNameElement
-import com.leko.forge.intellij.semantics.ForgeSemantics
+import com.leko.forge.intellij.semantics.ForgeFileSemantics
+import com.leko.forge.intellij.semantics.ForgeImports
 import com.leko.forge.parse.STD_SOURCE
 import org.antlr.v4.runtime.ANTLRInputStream
 import java.awt.Font
@@ -155,7 +157,7 @@ class ForgeNavigationTest : BasePlatformTestCase() {
     fun testIncompleteProgramsAreNotResolved() {
         // while it is typed, a program can not be analyzed: nothing is resolved, and nothing fails
         val file = myFixture.configureByText("a.forge", "node A(n: int)\nsyn A.x: int = this.n +")
-        assertTrue(ForgeSemantics.of(file).resolutions.isEmpty())
+        assertTrue(ForgeFileSemantics.of(file).resolutions.isEmpty())
         myFixture.doHighlighting()
     }
 
@@ -165,7 +167,7 @@ class ForgeNavigationTest : BasePlatformTestCase() {
         assertTrue(demo, "<forge_property>isError</forge_property>" in demo)
         // the demo is a correct program, so that the analysis resolves all of it
         val text = demo.replace(Regex("</?forge_[a-z_]+>"), "")
-        val errors = ForgeCompilerAnnotator.analyze(ForgeSource(text, null)).filter { it.severity == HighlightSeverity.ERROR }
+        val errors = ForgeDiagnostics.analyze(ForgeSource(text, null), ForgeImports).filter { it.severity == ForgeSeverity.ERROR }
         assertEquals(emptyList<Any>(), errors)
     }
 }
@@ -197,8 +199,7 @@ class ForgeRenameTest : com.intellij.testFramework.fixtures.BasePlatformTestCase
         val expected = program.replace(Regex("\\.type\\b"), ".kind")
         assertEquals(expected, renameAt("syn Expr.", "kind"))
         // the program still compiles
-        assertEquals(emptyList<Any>(), com.leko.forge.intellij.annotator.ForgeCompilerAnnotator.analyze(
-            com.leko.forge.intellij.annotator.ForgeSource(expected, null)).filter { it.severity == com.intellij.lang.annotation.HighlightSeverity.ERROR })
+        assertEquals(emptyList<Any>(), ForgeDiagnostics.analyze(ForgeSource(expected, null), ForgeImports).filter { it.severity == ForgeSeverity.ERROR })
     }
 
     fun testRenamingAnImplementationRenamesTheDefinition() {
@@ -236,12 +237,12 @@ class ForgeLastGoodAnalysisTest : com.intellij.testFramework.fixtures.BasePlatfo
 
     fun testNamesStayResolvedWhileADeclarationIsTyped() {
         val file = myFixture.configureByText("a.forge", program)
-        assertFalse(com.leko.forge.intellij.semantics.ForgeSemantics.of(file).resolutions.isEmpty())
+        assertFalse(com.leko.forge.intellij.semantics.ForgeFileSemantics.of(file).resolutions.isEmpty())
         // lines above, and an incomplete declaration below: the file can not be analyzed now
         type(0, "// the tree\n\n")
         type(myFixture.editor.document.textLength, "\nsyn Num.triple: int = if this.value > 0 then 1")
         val text = myFixture.editor.document.text
-        assertNull("the compiler can not analyze it", com.leko.forge.intellij.semantics.ForgeSemantics.analyze(text, null, { error("") }) { it })
+        assertNull("the compiler can not analyze it", com.leko.forge.ide.semantics.ForgeSemantics.analyze(text, null, { error("") }) { it })
 
         // `this.value` in the line of double: still goes to the field, which moved down two lines
         myFixture.editor.caretModel.moveToOffset(text.indexOf("this.value * 2") + "this.".length)
@@ -250,7 +251,7 @@ class ForgeLastGoodAnalysisTest : com.intellij.testFramework.fixtures.BasePlatfo
         // the gutter icons are still there
         assertTrue(myFixture.findAllGutters().any { it.tooltipText == "Is implemented in syn Num.type" })
         // a changed line has nothing of the old analysis
-        val semantics = com.leko.forge.intellij.semantics.ForgeSemantics.of(file)
+        val semantics = com.leko.forge.intellij.semantics.ForgeFileSemantics.of(file)
         assertTrue(semantics.resolutions.keys.none { it >= text.indexOf("syn Num.triple") })
     }
 

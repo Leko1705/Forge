@@ -1,0 +1,9 @@
+**
+!package.json
+!README.md
+!LICENSE
+!language-configuration.json
+!syntaxes/**
+!images/**
+!out/extension.cjs
+!server/forge-lsp.jar

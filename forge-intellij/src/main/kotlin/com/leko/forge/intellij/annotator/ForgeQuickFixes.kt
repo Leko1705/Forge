@@ -8,7 +8,8 @@ import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.util.PsiTreeUtil
-import com.leko.forge.intellij.parser.ForgeNameRole
+import com.leko.forge.ide.diagnostics.ForgeProblem
+import com.leko.forge.ide.parser.ForgeNameRole
 import com.leko.forge.intellij.parser.ForgeRuleType
 import com.leko.forge.intellij.psi.ForgeDeclaredName
 import com.leko.forge.intellij.psi.ForgeNameElement
@@ -32,7 +33,7 @@ object ForgeQuickFixes {
 
     fun fixesFor(file: PsiFile, problem: ForgeProblem): List<IntentionAction> {
         val text = problem.text ?: return emptyList()
-        val range = problem.range ?: return emptyList()
+        val range = problem.range?.textRange ?: return emptyList()
         notImplemented.find(text)?.let { match ->
             val (_, attribute, node) = match.destructured
             return listOf(ImplementSynFix(node, attribute))

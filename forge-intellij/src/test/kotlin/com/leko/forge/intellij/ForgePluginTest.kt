@@ -3,7 +3,6 @@ package com.leko.forge.intellij
 import ForgeLexer
 
 import ForgeParser
-import com.intellij.lang.annotation.HighlightSeverity
 import org.antlr.v4.runtime.BaseErrorListener
 import org.antlr.v4.runtime.CharStreams
 import org.antlr.v4.runtime.CommonTokenStream
@@ -14,14 +13,16 @@ import com.intellij.psi.TokenType
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.PsiErrorElement
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
-import com.leko.forge.intellij.annotator.ForgeCompilerAnnotator
-import com.leko.forge.intellij.annotator.ForgeSource
+import com.leko.forge.ide.diagnostics.ForgeDiagnostics
+import com.leko.forge.ide.diagnostics.ForgeSeverity
+import com.leko.forge.ide.diagnostics.ForgeSource
+import com.leko.forge.ide.parser.ForgeNameRole
 import com.leko.forge.intellij.highlight.ForgeColors
 import com.leko.forge.intellij.highlight.ForgeColorSettingsPage
 import com.leko.forge.intellij.lexer.ForgeLexerAdapter
 import com.leko.forge.intellij.lexer.ForgeTokenTypes
-import com.leko.forge.intellij.parser.ForgeNameRole
 import com.leko.forge.intellij.parser.ForgeNameType
+import com.leko.forge.intellij.semantics.ForgeImports
 import java.io.File
 
 class ForgePluginTest : BasePlatformTestCase() {
@@ -160,11 +161,11 @@ class ForgePluginTest : BasePlatformTestCase() {
 
     fun testCompilerErrorsAreAtTheirSpans() {
         val text = "node A(n: int)\nsyn A.x: int = \"text\"\nsyn A.y: Missing = 0"
-        val problems = ForgeCompilerAnnotator.analyze(ForgeSource(text, null))
-        val errors = problems.filter { it.severity == HighlightSeverity.ERROR }
+        val problems = ForgeDiagnostics.analyze(ForgeSource(text, null), ForgeImports)
+        val errors = problems.filter { it.severity == ForgeSeverity.ERROR }
         assertTrue(problems.toString(), errors.size >= 2)
         for (error in errors) assertNotNull(error.toString(), error.range)
-        val covered = errors.map { text.substring(it.range!!.startOffset, it.range.endOffset) }
+        val covered = errors.map { text.substring(it.range!!.start, it.range!!.end) }
         assertEquals(setOf("\"text\"", "Missing"), covered.toSet())
     }
 
@@ -173,17 +174,17 @@ class ForgePluginTest : BasePlatformTestCase() {
         VfsRootAccess.allowRootAccess(testRootDisposable, root.absolutePath)
         for (path in listOf("examples/kiln/kiln.forge", "src/test/forge/conformance.forge", "src/test/forge/flow.forge")) {
             val file = File(root, path)
-            val problems = ForgeCompilerAnnotator.analyze(ForgeSource(file.readText(), file))
-            assertEquals(path, emptyList<Any>(), problems.filter { it.severity == HighlightSeverity.ERROR })
+            val problems = ForgeDiagnostics.analyze(ForgeSource(file.readText(), file), ForgeImports)
+            assertEquals(path, emptyList<Any>(), problems.filter { it.severity == ForgeSeverity.ERROR })
         }
     }
 
     fun testMissingImport() {
         val dir = createTempDir()
         val file = File(dir, "a.forge").apply { writeText("import \"nothere.forge\"\nnode A(n: int)") }
-        val problems = ForgeCompilerAnnotator.analyze(ForgeSource(file.readText(), file))
+        val problems = ForgeDiagnostics.analyze(ForgeSource(file.readText(), file), ForgeImports)
         assertEquals(1, problems.size)
-        assertEquals("\"nothere.forge\"", file.readText().substring(problems[0].range!!.startOffset, problems[0].range!!.endOffset))
+        assertEquals("\"nothere.forge\"", file.readText().substring(problems[0].range!!.start, problems[0].range!!.end))
     }
 
     fun testErrorsInTheEditor() {

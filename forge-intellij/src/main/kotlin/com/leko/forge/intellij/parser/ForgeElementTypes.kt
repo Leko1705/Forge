@@ -3,22 +3,13 @@ package com.leko.forge.intellij.parser
 import ForgeParser
 import com.intellij.psi.tree.IElementType
 import com.intellij.psi.tree.IFileElementType
+import com.leko.forge.ide.parser.ForgeNameRole
 import com.leko.forge.intellij.ForgeLanguage
 import org.antlr.v4.runtime.ParserRuleContext
 
 /** A node of ForgeParser's parse tree: a rule, or an alternative labeled with `# name`; [ruleName] says which. */
 class ForgeRuleType(val contextClass: Class<out ParserRuleContext>, val ruleName: String) :
     IElementType(ruleName, ForgeLanguage)
-
-/** What a name is, e.g. the name of a node declaration or a type in a type reference; it decides its color. */
-enum class ForgeNameRole {
-    NODE_DECLARATION, TYPE_DECLARATION, TYPE_REFERENCE, BUILTIN_TYPE, TYPE_PARAMETER,
-    ENUM_CONSTANT, FUNCTION_DECLARATION, FUNCTION_CALL, METHOD_CALL, PROPERTY,
-    CONSTANT, FIELD, PARAMETER, LOCAL_VARIABLE, ATTRIBUTE, PORT, GRAPH,
-    PARSER, PARSER_RULE, ANNOTATION, SOFT_KEYWORD,
-    /** An identifier in an expression: a variable, a field, an attribute, a constant, ... */
-    IDENTIFIER,
-}
 
 /** A name with a [role]; it holds one IDENT token, and [declares][declaration] or uses something. */
 class ForgeNameType(val role: ForgeNameRole, val declaration: Boolean) :

@@ -9,8 +9,8 @@ import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBTextField
 import com.intellij.ui.dsl.builder.AlignX
 import com.intellij.ui.dsl.builder.panel
+import com.leko.forge.ide.project.ForgeTarget
 import com.leko.forge.intellij.ForgeFileType
-import com.leko.forge.intellij.wizard.ForgeTarget
 import javax.swing.JComponent
 
 class ForgeRunConfigurationEditor(project: Project) : SettingsEditor<ForgeRunConfiguration>() {

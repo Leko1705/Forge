@@ -2,6 +2,7 @@ package com.leko.forge.intellij.semantics
 
 import com.intellij.util.diff.Diff
 import com.intellij.util.diff.FilesTooBigForDiffException
+import com.leko.forge.ide.semantics.ForgeLineMapping
 
 /**
  * Where the lines of an old text are in a new one: the lines both have (by a line diff) move by the lines inserted
@@ -12,15 +13,15 @@ class ForgeLineMap private constructor(
     private val newText: String,
     /** For each old line (from 0), its new line, or -1. */
     private val lines: IntArray,
-) {
+) : ForgeLineMapping {
     private val oldStarts = lineStarts(oldText)
     private val newStarts = lineStarts(newText)
 
     /** The new line of [line] (from 1), `null` if it changed. */
-    fun line(line: Int): Int? = lines.getOrNull(line - 1)?.takeIf { it >= 0 }?.plus(1)
+    override fun line(line: Int): Int? = lines.getOrNull(line - 1)?.takeIf { it >= 0 }?.plus(1)
 
     /** The new offset of [offset] of the old text, `null` if its line changed. */
-    fun offset(offset: Int): Int? {
+    override fun offset(offset: Int): Int? {
         val line = oldStarts.indexOfLast { it <= offset }
         val newLine = lines.getOrNull(line)?.takeIf { it >= 0 } ?: return null
         return newStarts[newLine] + (offset - oldStarts[line])

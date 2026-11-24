@@ -5,7 +5,7 @@ import com.intellij.lang.refactoring.NamesValidator
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiElement
 import com.intellij.refactoring.rename.RenamePsiElementProcessor
-import com.leko.forge.intellij.parser.ForgeNameRole
+import com.leko.forge.ide.parser.ForgeNameRole
 import com.leko.forge.intellij.psi.ForgeDeclaredName
 
 /**
