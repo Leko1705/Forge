@@ -346,6 +346,8 @@ the compiler itself, so the editor sees what `forge -f` sees:
   rules); in expressions the locals in scope, constants, functions, nodes and records (with parentheses), and
   keywords; types in type positions; the nodes, attributes, parsers and rules a declaration names (`syn Num.`
   offers the attributes `Num` implements); `@u2`, `@infixLeft`, ...; top level keywords at the start of a line.
+- **Parameter info** (`Ctrl+P`, and on its own after `(`) in calls of functions, methods, constructors of nodes and
+  records and enum constants, with the argument of the caret; also while the call is typed.
 - **Quick fixes** (`Alt+Enter`) for errors of the compiler: `left` -> `this.left` for a child or an attribute, create
   a missing node, implement a `syn` attribute a node is missing (`fail("not implemented")` until it is written).
 - **Structure view** (`Alt+7`) of the declarations, with the fields, children and enum constants of a type, and

@@ -85,13 +85,18 @@ class ForgeCompletionContributor : CompletionContributor() {
     }
 }
 
-/** Opens the completion popup after `.` and `@` in Forge files. */
+/** Opens the completion popup after `.` and `@`, and parameter info after `(`, in Forge files. */
 class ForgeTypedHandler : TypedHandlerDelegate() {
     override fun checkAutoPopup(charTyped: Char, project: Project, editor: Editor, file: PsiFile): Result {
         if (file is ForgeFile && (charTyped == '.' || charTyped == '@')) {
             AutoPopupController.getInstance(project).scheduleAutoPopup(editor)
             return Result.STOP
         }
+        return Result.CONTINUE
+    }
+
+    override fun charTyped(c: Char, project: Project, editor: Editor, file: PsiFile): Result {
+        if (file is ForgeFile && c == '(') AutoPopupController.getInstance(project).autoPopupParameterInfo(editor, null)
         return Result.CONTINUE
     }
 }

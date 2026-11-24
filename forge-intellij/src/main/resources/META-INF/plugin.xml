@@ -66,6 +66,7 @@
         <completion.contributor language="Forge"
                                 implementationClass="com.leko.forge.intellij.completion.ForgeCompletionContributor"/>
         <typedHandler implementation="com.leko.forge.intellij.completion.ForgeTypedHandler"/>
+        <codeInsight.parameterInfo language="Forge" implementationClass="com.leko.forge.intellij.completion.ForgeParameterInfoHandler"/>
         <lang.formatter language="Forge" implementationClass="com.leko.forge.intellij.format.ForgeFormattingModelBuilder"/>
         <lang.psiStructureViewFactory language="Forge" implementationClass="com.leko.forge.intellij.structure.ForgeStructureViewFactory"/>
         <fileBasedIndex implementation="com.leko.forge.intellij.structure.ForgeSymbolIndex"/>
