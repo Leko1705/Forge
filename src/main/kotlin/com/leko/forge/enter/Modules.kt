@@ -226,10 +226,12 @@ class Modules private constructor(context: Context) {
                     declaration(ctx.name)
                     ctx.parameter().forEach { type(it.ty, emptySet()) }
                     reference(ctx.parent, emptySet())
+                    ctx.forwarding()?.let { expression(it.forward, emptySet(), emptySet()) }
                 }
                 is ForgeParser.NodeInterfaceImplContext -> {
                     reference(ctx.extended, emptySet())
                     reference(ctx.iface, emptySet())
+                    ctx.forwarding()?.let { expression(it.forward, emptySet(), emptySet()) }
                 }
                 is ForgeParser.EnumContext -> {
                     declaration(ctx.name)

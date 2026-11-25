@@ -293,8 +293,20 @@ class _Node(Vertex):
         self._parent = None
         self._span = None
         self._cache = {}
+        # a child that already has a parent is copied: a node is the child of one node
+        for f in self._fields:
+            v = getattr(self, f)
+            c = _claim(v)
+            if c is not v:
+                setattr(self, f, c)
         for c in self._children():
             c._parent = self
+
+    def _copy(self):
+        """A copy of the tree below this node (with fresh attributes), without a parent."""
+        n = type(self)(*[_copy_children(getattr(self, f)) for f in self._fields])
+        n._span = self._span
+        return n
 
     def _children(self):
         result = []
@@ -317,6 +329,42 @@ class _Node(Vertex):
     def __str__(self):
         return self._name + "(" + ", ".join(_show(getattr(self, f)) for f in self._fields) + ")"
     __repr__ = __str__
+
+def _claim(v):
+    """A child for a new node: v itself, or a copy of the nodes in it that already have a parent."""
+    if isinstance(v, _Node):
+        return v._copy() if v._parent is not None else v
+    if isinstance(v, list) and any(isinstance(x, _Node) and x._parent is not None for x in v):
+        return [_claim(x) for x in v]
+    return v
+
+def _copy_children(v):
+    """Copies of the nodes in v (a node, None, or a list of them), for the copy of the node it is a field of."""
+    if isinstance(v, _Node):
+        return v._copy()
+    if isinstance(v, list):
+        return [_copy_children(x) for x in v]
+    return v
+
+def _adopt_children(owner, v, spans):
+    """The value of a child syn: the nodes in it (a node, None, a list of nodes or a dict with nodes as values)
+    become children of owner; a node that already has a parent is copied. With spans (the tree a node forwards
+    to) the nodes without a span get the one of owner."""
+    def one(x):
+        if not isinstance(x, _Node):
+            return x
+        child = x._copy() if x._parent is not None else x
+        child._parent = owner
+        if spans and owner._span is not None:
+            for n in _preorder(child):
+                if n._span is None:
+                    n._span = owner._span
+        return child
+    if isinstance(v, list):
+        return [one(x) for x in v]
+    if isinstance(v, dict):
+        return {k: one(x) for k, x in v.items()}
+    return one(v)
 
 def _preorder(node):
     """The nodes of the tree below node (including it), parents before children."""

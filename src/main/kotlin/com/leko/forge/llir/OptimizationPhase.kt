@@ -229,7 +229,7 @@ class DeadCodeElimination(private val keep: Set<String>) : OptimizationPhase() {
                     node.synthetics[name]?.let { scan(it.body) }
                     node.circulars[name]?.let { scan(it.init); scan(it.body) }
                     node.collections[name]?.let { c -> scan(c.init); c.contributions.forEach { scan(it.target); scan(it.value) } }
-                    node.inhEquations[name]?.let { eq -> eq.delegates.forEach { scan(it.key); scan(it.value) } }
+                    node.inhEquations[name]?.let { eq -> eq.delegates.forEach { scan(it.key); scan(it.value); scan(it.child) } }
                 }
                 module.inherited[name]?.let { scan(it.init) }
             }

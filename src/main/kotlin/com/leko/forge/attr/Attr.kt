@@ -29,6 +29,8 @@ class Attr private constructor(context: Context) {
         val expected: Type? = null,
         val matched: Type? = null,
         var delegateIndexVarEnabled: Boolean = false,
+        /** The type of the variable a key of an `inh` equation introduces: an index, or the key of a map. */
+        var delegateIndexVarType: Type = IntType,
         /** Set inside `flow` bodies: ports and the flow operations (`entry`, `sequence`, `bound`) are visible. */
         val inFlow: Boolean = false,
         /**
@@ -108,7 +110,7 @@ class Attr private constructor(context: Context) {
             if (sym == null) sym = symTab.constants[name]?.also { attribConst(it) }
             if (sym == null) sym = resolve.resolve(name)
             if (sym == null && env.value.delegateIndexVarEnabled) {
-                sym = VarSymbol(name, IntType, ctx.IDENT().span)
+                sym = VarSymbol(name, env.value.delegateIndexVarType, ctx.IDENT().span)
                 env.value.scope.enter(sym)
                 env.value.delegateIndexVarEnabled = false
             }
@@ -382,6 +384,17 @@ class Attr private constructor(context: Context) {
             return null
         }
 
+        /** `node N(...): I by tree`: the tree is computed like a syn equation of N and must be an I. */
+        override fun visitForwarding(ctx: ForgeParser.ForwardingContext): Type? {
+            val sym = ctx.symbol ?: return null
+            withExpected(sym.type) {
+                withReceiver(sym.owner.type) {
+                    chk.checkAssignable(sym.type, ctx.forward.attribType())
+                }
+            }
+            return null
+        }
+
         override fun visitCircularDef(ctx: ForgeParser.CircularDefContext): Type? {
             val attrSym = ctx.symbol ?: return null
             withExpected(attrSym.type) {
@@ -485,6 +498,29 @@ class Attr private constructor(context: Context) {
             val childSym = resolveMember(env.value.receiver!!, childName, Kind.VAL, Kind.VAL)
             if (childSym == null) {
                 log.diag(canNotFindIdentifier(ctx.child.span, childName))
+                return null
+            }
+            // the children of a node: its fields, and its child syns (also the tree it forwards to)
+            if (childSym is AttributeSymbol && (childSym !is SynSymbol || !childSym.isChild)) {
+                log.diag(invalidChildAttribute(ctx.child.span, "'$childName' is an attribute, not a child; only fields and child syns are children"))
+                return null
+            }
+            if (childSym.type is MapType) {
+                val map = childSym.type as MapType
+                if (key == null) {
+                    log.diag(invalidChildAttribute(ctx.span, "can not delegate to a map of children; use $childName[key] <- .. instead"))
+                    chk.checkAssignable(env.value.expected!!, value.attribType())
+                    return null
+                }
+                withChildScope {
+                    env.value.delegateIndexVarType = map.key
+                    withDelegateIndexVarEnabled {
+                        chk.checkAssignable(map.key, key.attribType())
+                    }
+                    env.value.delegateIndexVarType = IntType
+                    env.value.scope.members.firstOrNull()?.let { ctx.attach("binder", it) }
+                    chk.checkAssignable(env.value.expected!!, value.attribType())
+                }
                 return null
             }
 

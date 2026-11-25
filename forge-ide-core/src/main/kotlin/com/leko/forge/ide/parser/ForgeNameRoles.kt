@@ -54,8 +54,12 @@ fun nameRole(context: ParserRuleContext, token: Token): ForgeNameRole? = when (c
     is ForgeParser.SynDefContext -> when (token) {
         context.node -> TYPE_REFERENCE
         context.attrName -> ATTRIBUTE
+        // `child syn`
+        context.modifier -> SOFT_KEYWORD
         else -> null
     }
+    // `node N(...): I by tree`
+    is ForgeParser.ForwardingContext -> SOFT_KEYWORD.takeIf { token === context.by }
     is ForgeParser.InhDefContext -> ATTRIBUTE.takeIf { token === context.attrName }
     is ForgeParser.InhImplContext -> when (token) {
         context.node -> TYPE_REFERENCE

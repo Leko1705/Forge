@@ -104,6 +104,10 @@ private class JavaGeneration(private val module: LLIRModule, private val outer: 
 
     // ---- types ---------------------------------------------------------------------------------------
 
+    /** Whether a field of this type holds children: a node, an optional node or a list of (optional) nodes. */
+    private fun holdsChildren(type: Type): Boolean = s.isNode(type) || type is OptionalType && s.isNode(type.elem) ||
+        type is ListType && (s.isNode(type.elem) || type.elem is OptionalType && s.isNode((type.elem as OptionalType).elem))
+
     private fun jtype(type: Type): String = when (type) {
         IntType -> "Integer"
         LongType -> "Long"
@@ -163,9 +167,12 @@ private class JavaGeneration(private val module: LLIRModule, private val outer: 
             for ((f, t) in node.fields) line("        public final ${jtype(t)} ${id(f)};")
             line("        public $cls(${node.fields.entries.joinToString(", ") { (f, t) -> "${jtype(t)} ${id(f)}" }}) {")
             line("            super(${kinds.getValue(node)});")
-            for (f in node.fields.keys) line("            this.${id(f)} = ${id(f)};")
+            // a child that already has a parent is copied: a node is the child of one node
+            for ((f, t) in node.fields) line(if (holdsChildren(t)) "            this.${id(f)} = (${jtype(t)}) __claim(${id(f)});" else "            this.${id(f)} = ${id(f)};")
             line("            __adopt();")
             line("        }")
+            val copied = node.fields.entries.joinToString(", ") { (f, t) -> if (holdsChildren(t)) "(${jtype(t)}) __copyChildren(this.${id(f)})" else "this.${id(f)}" }
+            line("        @Override __Node __copy() { $cls c = new $cls($copied); c.__span = this.__span; return c; }")
             line("        @Override java.util.List<__Node> __children() {")
             line("            java.util.ArrayList<__Node> c = new java.util.ArrayList<>();")
             for (f in node.fields.keys) line("            __addChildren(c, ${id(f)});")
@@ -284,10 +291,10 @@ private class JavaGeneration(private val module: LLIRModule, private val outer: 
                 names.scoped {
                     names.alias("this", "self")
                     for (d in eq.delegates) {
-                        val field = "(($cls) self).${id(d.field)}"
+                        val field = "((java.util.List<Object>) ${expr(d.child)})"
                         val key = d.key
-                        if (key == null || node.fields[d.field] !is ListType) {
-                            line("        if (child == $field) return ${expr(d.value)};")
+                        if (key == null || d.child.type !is ListType) {
+                            line("        if (child == ${expr(d.child)}) return ${expr(d.value)};")
                         } else {
                             val index = names.fresh("index")
                             val k = names.fresh("k")
@@ -764,6 +771,7 @@ private class JavaGeneration(private val module: LLIRModule, private val outer: 
             "Set.of" -> "__set(${a.joinToString(", ")})"
             "Set.contains" -> "__s($r).contains(${a[0]})"
             "Set.union" -> "__union($r, ${a[0]})"
+            "node.adopt" -> "__adoptChildren((__Node) $r, ${a[0]}, __bool(${a[1]}))"
             else -> throw IllegalStateException("unknown builtin ${b.name}")
         }
     }

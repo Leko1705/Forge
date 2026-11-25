@@ -110,6 +110,9 @@ val ForgeParser.SynDefContext.symbol: SynSymbol? get() {
     return attrs?.get("symbol") as? SynSymbol
 }
 
+/** The [FORWARD] attribute of the node: `by tree`. */
+val ForgeParser.ForwardingContext.symbol: SynSymbol? get() = attributes[this]?.get("symbol") as? SynSymbol
+
 val ForgeParser.CollContext.symbol: CollSymbol? get() {
     val attrs = attributes[this]
     return attrs?.get("symbol") as? CollSymbol

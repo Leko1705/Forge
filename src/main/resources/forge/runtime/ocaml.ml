@@ -381,7 +381,32 @@ let children n =
     | _ -> ()) n.nfields;
   List.rev !acc
 
-let new_node kind fields =
+let has_parent = function Node { parent = Some _; _ } -> true | _ -> false
+
+(** A child for a new node: v itself, or a copy of the nodes in it that already have a parent. *)
+let rec claim v = match v with
+  | Node _ -> if has_parent v then copy_node v else v
+  | List a -> if Array.exists has_parent a then List (Array.map claim a) else v
+  | _ -> v
+
+(** Copies of the nodes in v (a node, null, or a list of them), for the copy of the node it is a field of. *)
+and copy_children v = match v with
+  | Node _ -> copy_node v
+  | List a -> List (Array.map copy_children a)
+  | _ -> v
+
+(** A copy of the tree below a node (with fresh attributes), without a parent. *)
+and copy_node v = match v with
+  | Node n ->
+    let c = new_node n.kind (Array.map copy_children n.nfields) in
+    (match c with Node m -> m.span <- n.span | _ -> ());
+    c
+  | _ -> fail "a node was expected"
+
+(** A node; it becomes the parent of its children (a child that already has a parent is copied). *)
+and new_node kind fields =
+  (* the vertices of flows (kind < 0) are not part of the tree *)
+  let fields = if kind >= 0 then Array.map claim fields else fields in
   let n = { kind; nid = next_id (); nfields = fields; parent = None; span = Null; cache = Hashtbl.create 8 } in
   List.iter (fun c -> c.parent <- Some n) (children n);
   Node n
@@ -395,6 +420,28 @@ let preorder n =
   let rec walk n = result := Node n :: !result; List.iter walk (children n) in
   walk n;
   List.rev !result
+
+(** The value of a child syn: the nodes in it (a node, null, a list of nodes or a map with nodes as values) become
+    children of owner; a node that already has a parent is copied. With spans (the tree a node forwards to) the
+    nodes without a span get the one of owner. *)
+let adopt_children owner v spans =
+  let o = match owner with Node o -> o | _ -> fail "a node was expected" in
+  let one x = match x with
+    | Node _ ->
+      let child = if has_parent x then copy_node x else x in
+      (match child with
+       | Node c ->
+         c.parent <- Some o;
+         let is_null = function Null -> true | _ -> false in
+         if truth spans && not (is_null o.span) then
+           List.iter (function Node m when is_null m.span -> m.span <- o.span | _ -> ()) (preorder c)
+       | _ -> ());
+      child
+    | _ -> x in
+  match v with
+  | List a -> List (Array.map one a)
+  | Map a -> Map (Array.map (fun (k, x) -> (k, one x)) a)
+  | _ -> one v
 
 let index_of_child list child =
   let a = items list in

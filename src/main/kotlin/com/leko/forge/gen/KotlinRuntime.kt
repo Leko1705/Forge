@@ -474,6 +474,41 @@ fun __preorder(node: __Node): kotlin.collections.List<__Node> {
     return result
 }
 
+/** A child for a new node: [value] itself, or a copy of the nodes in it that already have a parent. */
+fun __claim(value: kotlin.Any?): kotlin.Any? = when (value) {
+    is __Node -> if (value.__parent != null) value.__copy() else value
+    is kotlin.collections.List<*> -> if (value.any { it is __Node && it.__parent != null }) value.map { __claim(it) } else value
+    else -> value
+}
+
+/** Copies of the nodes in [value] (a node, `null`, or a list of them), for the copy of the node it is a field of. */
+fun __copyChildren(value: kotlin.Any?): kotlin.Any? = when (value) {
+    is __Node -> value.__copy()
+    is kotlin.collections.List<*> -> value.map { __copyChildren(it) }
+    else -> value
+}
+
+/**
+ * The value of a child syn: the nodes in it (it is a node, `null`, a list of nodes or a map with nodes as values)
+ * become children of [owner]; a node that already has a parent is copied. With [spans] (the tree a node forwards
+ * to) the nodes without a span get the one of [owner].
+ */
+fun __adoptChildren(owner: __Node, value: kotlin.Any?, spans: kotlin.Boolean): kotlin.Any? {
+    fun one(v: kotlin.Any?): kotlin.Any? {
+        if (v !is __Node) return v
+        val child = if (v.__parent != null) v.__copy() else v
+        child.__parent = owner
+        val span = owner.__span
+        if (spans && span != null) for (n in __preorder(child)) if (n.__span == null) n.__span = span
+        return child
+    }
+    return when (value) {
+        is kotlin.collections.List<*> -> value.map { one(it) }
+        is kotlin.collections.Map<*, *> -> value.entries.associateTo(kotlin.collections.LinkedHashMap()) { (k, v) -> k to one(v) }
+        else -> one(value)
+    }
+}
+
 // ---- builtins ---------------------------------------------------------------------------------
 
 /** A position for a list of [size] elements: below 0 counts from the end. */

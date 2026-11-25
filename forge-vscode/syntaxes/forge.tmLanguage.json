@@ -202,6 +202,7 @@
       "patterns": [
         { "name": "storage.type.forge", "match": "\\b(node|record|enum|fun|val|const|syn|inh|circular|coll|contrib|parser|rule|port|graph|flow|vertex|mod|trait)\\b" },
         { "name": "storage.modifier.forge", "match": "\\b(ext|impl)\\b" },
+        { "comment": "soft keywords: child syn, node N(...): I by tree", "name": "storage.modifier.forge", "match": "\\bchild(?=\\s+syn\\b)|(?<=[A-Za-z0-9_)]\\s)by(?=\\s+(this\\b|[A-Z]))" },
         { "name": "keyword.control.forge", "match": "\\b(if|then|else|match|for|with|where)\\b" },
         { "name": "keyword.operator.word.forge", "match": "!in\\b|\\b(in|is|as)\\b" },
         { "name": "constant.language.boolean.forge", "match": "\\b(true|false)\\b" },

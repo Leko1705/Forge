@@ -275,7 +275,7 @@ class ForgeSemantics(
             }
             for (def in root.synDef()) {
                 val owner = node(def.node?.text) ?: continue
-                add(Decl(Kind.ATTRIBUTE, def.attrName, owner, def.attrName.text, def.syn == null, "syn ${def.node.text}.${def.attrName.text}"))
+                add(Decl(Kind.ATTRIBUTE, def.attrName, owner, def.attrName.text, def.syn == null, (if (def.modifier != null) "${def.modifier.text} " else "") + "syn ${def.node.text}.${def.attrName.text}"))
             }
             for (def in root.circularDef()) {
                 val owner = node(def.node?.text) ?: continue

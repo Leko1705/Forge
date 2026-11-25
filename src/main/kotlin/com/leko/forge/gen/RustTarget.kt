@@ -141,9 +141,9 @@ private class RustGeneration(private val module: LLIRModule, private val moduleN
                 names.scoped {
                     names.alias("this", "self_.clone()")
                     for (d in eq.delegates) {
-                        val field = "rt::field(&self_, ${node.fields.keys.indexOf(d.field)})"
+                        val field = "(${expr(d.child)})"
                         val key = d.key
-                        if (key == null || node.fields[d.field] !is ListType) {
+                        if (key == null || d.child.type !is ListType) {
                             line("            if rt::same(&child, &$field) { return ${expr(d.value)}; }")
                         } else {
                             val list = names.fresh("list")
@@ -606,6 +606,7 @@ private class RustGeneration(private val module: LLIRModule, private val moduleN
             "range" -> rt("range")
             "List.indexOf" -> rt("list_index_of")
             "List.reversed" -> rt("reversed")
+            "node.adopt" -> rt("adopt_children")
             "List.toSet" -> rt("to_set")
             "List.join" -> rt("join_str")
             "Map.keys" -> rt("map_keys")

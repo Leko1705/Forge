@@ -84,10 +84,15 @@ simpleParameterPattern:
     name=IDENT # definedParameter
     | UNDERSCORE # undefinedParameter;
 
-nodeDef: NODE name=IDENT (LPAREN (parameter (COMMA parameter)*)? RPAREN)? (COLON parent=IDENT)?;
-nodeInterfaceImpl: FOR extended=IDENT IMPL iface=IDENT;
+// `node CompoundAssign(...): Stmt by Assign(...)`: forwarding. The attributes of Stmt (and of its interfaces) the
+// node has no equation for are those of the tree after `by`, a child of the node; `by` is only a keyword here
+nodeDef: NODE name=IDENT (LPAREN (parameter (COMMA parameter)*)? RPAREN)? (COLON parent=IDENT forwarding?)?;
+nodeInterfaceImpl: FOR extended=IDENT IMPL iface=IDENT forwarding?;
+forwarding: by=IDENT forward=expression;
 
-synDef: SYN node=IDENT DOT attrName=IDENT COLON attrType=type (ASSIGN syn=expression)?;
+// `child syn Program.builtins: List<Decl> = ...`: the value is a tree that becomes a child of the node (a
+// nonterminal attribute); `child` is only a keyword here
+synDef: (modifier=IDENT)? SYN node=IDENT DOT attrName=IDENT COLON attrType=type (ASSIGN syn=expression)?;
 
 inhDef: INH attrName=IDENT COLON attrType=type ASSIGN init=expression;
 inhImpl: INH node=IDENT DOT attrName=IDENT LBRACE inhDelegate* RBRACE;

@@ -259,6 +259,26 @@ fun flows(): List<str> = flowsOf(
         Print(Lit(2))
     ])))
 
+// forwarding: Inc and Unless have the attributes and the flow of the tree they forward to
+node Inc(target: str): Stmt by Assign(this.target, Add(Var(this.target), Lit(1)))
+node Unless(cond: Cond, body: Stmt): Stmt by If(this.cond, Block([]), this.body)
+
+fun forwardedFlows(): List<str> = forwardedFlowsOf(Proc("q", Block([
+    Assign("i", Lit(0)),
+    Inc("i"),
+    Unless(Less(Var("i"), Lit(3)), Print(Var("i"))),
+    Print(Lit(7))
+])))
+fun forwardedFlowsOf(p: Proc): List<str> = forwardedDetails(p, p.body as Block)
+fun forwardedDetails(p: Proc, block: Block): List<str> = [
+    "forwarded vertices " + cfg.get(p).vertices.size.text() + ", edges " + cfg.get(p).edges.size.text(),
+    "forwarded reachable " + kinds(cfg.get(p).reachable()),
+    "forwarded uses " + strs(block.stmts[1].uses) + " defs " + strs(block.stmts[1].defs),
+    "forwarded live out of first " + strs(block.stmts[0].liveOut),
+    "forwarded dead " + b(block.stmts[1].dead) + " " + b(block.stmts[2].dead),
+    "forward is a copy " + b(((block.stmts[2] as Unless).forward as If).cond != (block.stmts[2] as Unless).cond)
+]
+
 fun flowsOf(p: Proc): List<str> = details(p, p.body as Block)
 fun details(p: Proc, block: Block): List<str> = [
     "vertices " + cfg.get(p).vertices.size.text() + ", edges " + cfg.get(p).edges.size.text(),
@@ -284,6 +304,74 @@ fun callGraph(f: Proc, g: Proc, h: Proc): List<str> = [
     "edge label " + (calls(f, g, h).edges[0].label ?: "none") + " " + (calls(f, g, h).edges[1].label ?: "none"),
     "reachable " + calls(f, g, h).reachable().size.text()
 ]
+
+// ---- child syns and forwarding -------------------------------------------------------------------------
+
+node MProg(stmts: List<MStmt>)
+node MDecl(name: str)
+node MStmt
+node MSet(name: str, value: MExpr): MStmt
+node MBlock(stmts: List<MStmt>): MStmt
+node MIncr(name: str, amount: MExpr): MStmt by MSet(this.name, MAdd(MVar(this.name), this.amount))
+node MTwice(body: MStmt): MStmt
+for MTwice impl MStmt by MBlock([this.body, this.body])
+node MExpr
+node MNum(value: int): MExpr
+node MVar(name: str): MExpr
+node MAdd(l: MExpr, r: MExpr): MExpr
+
+// trees that are not in the source: children of the program, with inherited attributes of their own
+child syn MProg.builtins: List<MDecl> = [MDecl("zero"), MDecl("one")]
+child syn MProg.table: Map<str, MDecl> = {"first": MDecl("a"), "second": MDecl("b")}
+child syn MProg.extra: MDecl? = if this.stmts.size > 1 then MDecl("extra") else null
+child syn MStmt.lowered: MStmt
+syn MSet.lowered: MStmt = MSet(this.name, this.value)
+syn MBlock.lowered: MStmt = MBlock(this.stmts)
+syn MIncr.lowered: MStmt = this.forward
+syn MTwice.lowered: MStmt = this.body
+
+inh mscope: List<str> = []
+inh MProg.mscope {
+    stmts[i] <- this.builtins.map { it.name } ++ ["s${i}"]
+    builtins[i] <- ["builtin ${i}"]
+    table[k] <- ["key ${k}"]
+    extra <- ["the extra"]
+}
+inh MIncr.mscope { forward <- this.mscope ++ ["incr"] }
+
+syn MDecl.seen: str = this.mscope.join(",")
+syn MStmt.code: str
+syn MSet.code: str = this.name + "=" + this.value.code
+syn MBlock.code: str = this.stmts.map { it.code }.join(";")
+syn MExpr.code: str
+syn MNum.code: str = this.value.text()
+syn MVar.code: str = if this.name in this.mscope then this.name else "?" + this.name
+syn MAdd.code: str = "(" + this.l.code + "+" + this.r.code + ")"
+syn MStmt.size: int = 1
+syn MBlock.size: int = this.stmts.fold(0) { acc, s -> acc + s.size }
+syn MStmt.errors: List<str> = []
+syn MIncr.errors: List<str> = if this.amount is MNum then [] else ["incr needs a number"]
+
+fun children(): List<str> = childrenOf(MProg([
+    MSet("zero", MNum(1)),
+    MIncr("zero", MNum(2)),
+    MIncr("incr", MVar("x")),
+    MTwice(MSet("one", MVar("zero")))
+]))
+fun childrenOf(p: MProg): List<str> = [
+    "builtins " + p.builtins.map { it.seen }.join(" | ") + " same " + b(p.builtins[0] == p.builtins[0]),
+    "table " + p.table.values().map { it.name + ":" + it.seen }.join(" | "),
+    "extra " + seenOf(p.extra) + " " + seenOf(MProg([]).extra),
+    "code " + p.stmts.map { it.code }.join(" / "),
+    "size " + p.stmts.map { it.size.text() }.join(" "),
+    "errors " + p.stmts.flatMap { it.errors }.join(","),
+    "lowered " + p.stmts.map { it.lowered.code }.join(" / "),
+    "lowered scope " + p.stmts[0].lowered.code + " " + b(p.stmts[0].lowered != p.stmts[0]),
+    "copied " + copied(p.stmts[0])
+]
+fun seenOf(d: MDecl?): str = if d == null then "none" else d!!.seen
+// a node that already has a parent is copied when it becomes a child of another one
+fun copied(s: MStmt): str = (s.code + " " + other.code + " " + b(other.stmts[0] != s) + " " + s.size.text()) where other = MBlock([s])
 
 // ---- parsers ----------------------------------------------------------------------------------------
 
@@ -518,7 +606,7 @@ fun report(): List<str> = attributes(prog()) ++ [
     failing(),
     standard(),
     properties()
-] ++ builtins() ++ flows() ++ graphs() ++ parsing() ++ binary()
+] ++ builtins() ++ flows() ++ forwardedFlows() ++ graphs() ++ children() ++ parsing() ++ binary()
 
 ext fun int.text(): str
 ext fun str.toInt(): int

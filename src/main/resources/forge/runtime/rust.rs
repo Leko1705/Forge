@@ -357,8 +357,65 @@ pub mod rt {
         r
     }
 
-    /** A node; it becomes the parent of its children (which keeps the tree alive as long as any node of it is). */
+    fn has_parent(v: &V) -> bool { match v { V::Node(n) => !is_null(&n.parent.borrow()), _ => false } }
+
+    /** A child for a new node: v itself, or a copy of the nodes in it that already have a parent. */
+    pub fn claim(v: V) -> V {
+        match &v {
+            V::Node(_) => if has_parent(&v) { copy_node(&v) } else { v },
+            V::List(l) => if l.iter().any(has_parent) { list(l.iter().map(|x| claim(x.clone())).collect()) } else { v },
+            _ => v,
+        }
+    }
+
+    /** Copies of the nodes in v (a node, null, or a list of them), for the copy of the node it is a field of. */
+    pub fn copy_children(v: &V) -> V {
+        match v {
+            V::Node(_) => copy_node(v),
+            V::List(l) => list(l.iter().map(copy_children).collect()),
+            _ => v.clone(),
+        }
+    }
+
+    /** A copy of the tree below a node (with fresh attributes), without a parent. */
+    pub fn copy_node(v: &V) -> V {
+        let n = node_of(v);
+        let c = new_node(n.kind, n.name, n.fields.iter().map(copy_children).collect());
+        *node_of(&c).span.borrow_mut() = n.span.borrow().clone();
+        c
+    }
+
+    /**
+     * The value of a child syn: the nodes in it (a node, null, a list of nodes or a map with nodes as values) become
+     * children of owner; a node that already has a parent is copied. With spans (the tree a node forwards to) the
+     * nodes without a span get the one of owner.
+     */
+    pub fn adopt_children(owner: &V, v: &V, spans: &V) -> V {
+        let spans = truth(spans);
+        let one = |x: &V| -> V {
+            if !matches!(x, V::Node(_)) { return x.clone(); }
+            let child = if has_parent(x) { copy_node(x) } else { x.clone() };
+            *node_of(&child).parent.borrow_mut() = owner.clone();
+            let span = node_of(owner).span.borrow().clone();
+            if spans && !is_null(&span) {
+                for n in preorder(&child) { let s = &node_of(&n).span; if is_null(&s.borrow()) { *s.borrow_mut() = span.clone(); } }
+            }
+            child
+        };
+        match v {
+            V::List(l) => list(l.iter().map(one).collect()),
+            V::Map(m) => V::Map(Rc::new(m.iter().map(|(k, x)| (k.clone(), one(x))).collect())),
+            _ => one(v),
+        }
+    }
+
+    /**
+     * A node; it becomes the parent of its children (which keeps the tree alive as long as any node of it is). A
+     * child that already has a parent is copied.
+     */
     pub fn new_node(kind: i32, name: &'static str, fields: Vec<V>) -> V {
+        // the vertices of flows ([kind] < 0) are not part of the tree
+        let fields = if kind >= 0 { fields.into_iter().map(claim).collect() } else { fields };
         let n = Rc::new(Node { kind, name, id: next_id(), fields, parent: RefCell::new(V::Null), span: RefCell::new(V::Null), cache: RefCell::new(HashMap::new()) });
         let v = V::Node(n.clone());
         for c in children(&n) { *node_of(&c).parent.borrow_mut() = v.clone(); }

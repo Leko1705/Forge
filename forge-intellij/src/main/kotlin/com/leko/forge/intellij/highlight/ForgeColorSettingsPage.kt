@@ -19,7 +19,7 @@ class ForgeColorSettingsPage : ColorSettingsPage {
 
     private val descriptors = arrayOf(
         AttributesDescriptor("Keyword", ForgeColors.KEYWORD),
-        AttributesDescriptor("Soft keyword (op, parser options)", ForgeColors.SOFT_KEYWORD),
+        AttributesDescriptor("Soft keyword (op, child, by, parser options)", ForgeColors.SOFT_KEYWORD),
         AttributesDescriptor("String", ForgeColors.STRING),
         AttributesDescriptor("String expression (\${ } and \$)", ForgeColors.INTERPOLATION),
         AttributesDescriptor("Regular expression", ForgeColors.REGEX),
