@@ -272,6 +272,18 @@ A type as bound, `fun <T: Expr>`, makes the members of `Expr` (fields, attribute
 
 The standard library has the traits `Comparable` and `Printable` (`fun <T: Comparable> List<T>.sorted()`).
 
+A trait can be the type of a parameter, as a short way to write a type parameter used once:
+
+```
+fun show(x: Printable): str = "<${x.str()}>"           // is fun <T: Printable> show(x: T): str
+fun both(a: Printable, b: Printable): str = ...         // two type parameters: both(1, "a") works
+fun names(xs: List<Named>): str = ...                   // a list of one type that is Named
+```
+
+Each such parameter has a type parameter of its own; parameters that must have the same type, and results of that
+type, need the written form (`fun <T: Comparable> largest(a: T, b: T): T`). A trait is not a type otherwise: not of a
+result, a field or a local.
+
 ### Modules
 
 `mod name { ... }` groups declarations; outside of it they are named `name::Decl`. Modules can be nested

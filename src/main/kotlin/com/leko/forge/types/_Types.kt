@@ -108,7 +108,8 @@ data class FlowGraphType(val name: String, val root: String) : Type {
 
 /** A type parameter of a generic function: `T` in `fun <T> List<T>.distinct(): List<T>`. */
 data class TypeVar(val name: String) : Type {
-    override fun toString(): String = name
+    // the type parameter of a parameter whose type is a trait (`x: Printable`) is shown as the trait
+    override fun toString(): String = com.leko.forge.enter.traitOfParameter(name)?.let { displayName(it) } ?: name
 }
 
 /** The type of `fail(message)`, which never returns: it can be used wherever any value is expected. */

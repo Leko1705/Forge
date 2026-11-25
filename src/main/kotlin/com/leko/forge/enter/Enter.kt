@@ -30,6 +30,8 @@ class Enter private constructor(context: Context) {
     private val typeMap = TypeMap.instance(context)
 
     fun enter(root: ForgeParser.RootContext) {
+        // `fun show(x: Printable)` is `fun <T: Printable> show(x: T)`
+        desugarTraitParameters(root)
         Builtins.enter(symTab, typeMap)
         for (node in root.nodeDef()) {
             if (node.LPAREN() == null) {
