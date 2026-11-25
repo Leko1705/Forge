@@ -25,10 +25,10 @@ class ChildrenTest {
         node Program(stmts: List<Stmt>)
         node Decl(name: str)
         node Stmt
-        node Set(name: str, value: int): Stmt
+        node Put(name: str, value: int): Stmt
         node Block(stmts: List<Stmt>): Stmt
         syn Stmt.code: str
-        syn Set.code: str = this.name
+        syn Put.code: str = this.name
         syn Block.code: str = this.stmts.map { it.code }.join(";")
     """
 
@@ -82,7 +82,7 @@ class ChildrenTest {
             child syn Program.byName: Map<str, Decl> = {"int": Decl("int")}
             child syn Program.main: Decl? = null
             child syn Stmt.lowered: Stmt
-            syn Set.lowered: Stmt = Set(this.name, this.value)
+            syn Put.lowered: Stmt = Put(this.name, this.value)
             child syn Block.lowered: Stmt = Block(this.stmts)
             inh env: List<str> = []
             inh Program.env {
@@ -95,7 +95,7 @@ class ChildrenTest {
         assertError("unexpected 'kid' before 'syn'", language + "kid syn Program.d: Decl = Decl(\"x\")")
         assertError("a child syn must be a node", language + "child syn Program.n: int = 1")
         assertError("a child syn must be a node", language + "child syn Program.n: Set<Decl> = {}")
-        assertError("declare it there as a child syn", language + "syn Stmt.lowered: Stmt\nchild syn Set.lowered: Stmt = Set(\"a\", 1)\nsyn Block.lowered: Stmt = this")
+        assertError("declare it there as a child syn", language + "syn Stmt.lowered: Stmt\nchild syn Put.lowered: Stmt = Put(\"a\", 1)\nsyn Block.lowered: Stmt = this")
         assertError("is an attribute, not a child", language + "syn Program.d: Decl = Decl(\"x\")\ninh env: int = 0\ninh Program.env { d <- 1 }")
         assertError("can not delegate to a map of children", language + "child syn Program.m: Map<str, Decl> = {:}\ninh env: int = 0\ninh Program.env { m <- 1 }")
     }
@@ -114,11 +114,11 @@ class ChildrenTest {
         """))
         // the forward implements the attributes the node has no equation for
         assertError("Twice", language + "node Twice(body: Stmt): Stmt")
-        assertError("unexpected 'with' after 'Stmt'", language + "node Twice(body: Stmt): Stmt with Block([])")
+        assertError("unexpected 'using' after 'Stmt'", language + "node Twice(body: Stmt): Stmt using Block([])")
         assertError("is an interface", language + "node Other: Stmt by Block([])")
         assertError("forwards to one", language + "node Named\nnode Twice(body: Stmt): Stmt by Block([])\nfor Twice impl Named by Block([])")
         assertError("expected type 'Stmt'", language + "node Twice(body: Stmt): Stmt by Decl(\"x\")")
-        assertError("which comes from that tree", language + "node Twice(body: Stmt): Stmt by Set(this.code, 1)")
+        assertError("which comes from that tree", language + "node Twice(body: Stmt): Stmt by Put(this.code, 1)")
         assertError("which comes from that tree", language + "node Twice(body: Stmt): Stmt by this.forward")
         assertError("the name of the tree it forwards to", language + "node Twice(body: Stmt): Stmt by Block([])\nsyn Twice.forward: int = 1")
     }
