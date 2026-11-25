@@ -117,7 +117,7 @@ class ForgeDocumentationProvider : AbstractDocumentationProvider() {
             private val arrow = ForgeTokenTypes.of(ForgeLexer.ARROW)
             private val lbrace = ForgeTokenTypes.of(ForgeLexer.LBRACE)
 
-            private fun PsiElement.rule(): String? = (node.elementType as? ForgeRuleType)?.ruleName
+            private fun PsiElement.rule(): String? = (node?.elementType as? ForgeRuleType)?.ruleName
 
             private fun oneLine(text: String) = text.replace(Regex("\\s+"), " ").trim()
 
@@ -127,7 +127,7 @@ class ForgeDocumentationProvider : AbstractDocumentationProvider() {
                     when (decl.rule()) {
                         "ParseRuleDef" -> child.elementType == arrow
                         "Record", "Enum" -> false
-                        "InhImpl", "FlowDef" -> child.elementType == lbrace
+                        "InhImpl", "FlowDef", "ModDef", "TraitDef" -> child.elementType == lbrace
                         "ConstDef" -> false
                         else -> child.elementType == assign
                     }
@@ -146,7 +146,7 @@ class ForgeDocumentationProvider : AbstractDocumentationProvider() {
 
             /** The declaration [element] is in: one of the file or of a module (a module for its own name). */
             private fun topLevel(element: PsiElement): PsiElement? =
-                generateSequence(element) { it.parent }.firstOrNull {
+                generateSequence(element.parent) { it.parent }.takeWhile { it !is PsiFile }.firstOrNull {
                     it.parent?.rule() == "Root" || (it.parent?.rule() == "ModDef" && it.rule() != "ModDef") ||
                         (it.rule() == "ModDef" && it === element.parent)
                 }
