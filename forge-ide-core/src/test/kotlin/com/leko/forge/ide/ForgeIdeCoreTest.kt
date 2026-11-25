@@ -116,6 +116,29 @@ class ForgeIdeCoreTest {
     }
 
     @Test
+    fun usePathsResolveToModules() {
+        val text = "mod geometry {\n  record Point { x: int }\n  mod shapes { const unit = 1 }\n  mod inner {\n    use shapes\n  }\n}\n" +
+            "use geometry\nuse geometry::shapes\nuse geometry::Point\nfun f(): int = shapes::unit"
+        val semantics = ForgeSemantics.compute(text, null, ForgeHost.DISK)
+        fun target(of: String) = semantics.resolutions.getValue(text.indexOf(of)).let { Triple(it.name, it.line, it.column) }
+        assertEquals(Triple("geometry", 1, 4), target("geometry\nuse"))
+        assertEquals(Triple("shapes", 3, 6), target("geometry::shapes"))
+        assertEquals(Triple("Point", 2, 9), target("geometry::Point"))
+        assertEquals(ForgeNameRole.MODULE, semantics.resolutions.getValue(text.indexOf("geometry\nuse")).role)
+        // in a module: also the modules around it
+        assertEquals(Triple("shapes", 3, 6), target("shapes\n  }"))
+    }
+
+    @Test
+    fun traitParametersResolveToTheTrait() {
+        val text = "trait Named { fun name(): str }\nfun hello(x: Named): str = x.name()"
+        val semantics = ForgeSemantics.compute(text, null, ForgeHost.DISK)
+        val named = semantics.resolutions.getValue(text.lastIndexOf("Named"))
+        assertEquals(ForgeNameRole.TRAIT, named.role)
+        assertEquals(1 to 6, named.line to named.column)
+    }
+
+    @Test
     fun namesResolveToTheirDeclarations() {
         val text = "node A(n: int)\nsyn A.x: int = this.n + 1\nfun twice(k: int): int = k * 2"
         val semantics = ForgeSemantics.compute(text, null, ForgeHost.DISK)

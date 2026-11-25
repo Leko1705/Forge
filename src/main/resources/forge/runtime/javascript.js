@@ -396,7 +396,20 @@ class $Node {
     }
 
     $adopt() {
+        // a child that already has a parent is copied: a node is the child of one node
+        for (const f of this.$fields) {
+            const v = this[f];
+            const c = $claim(v);
+            if (c !== v) this[f] = c;
+        }
         for (const c of this.$children()) c.$parent = this;
+    }
+
+    /** A copy of the tree below this node (with fresh attributes), without a parent. */
+    $copy() {
+        const n = new this.constructor(...this.$fields.map(f => $copyChildren(this[f])));
+        n.$span = this.$span;
+        return n;
     }
 
     $children() {
@@ -427,6 +440,38 @@ $Node.prototype.$fields = [];
 $Node.prototype.$kinds = [];
 $Node.prototype.$name = "";
 $Node.prototype.$is_Vertex = true;
+
+/** A child for a new node: v itself, or a copy of the nodes in it that already have a parent. */
+function $claim(v) {
+    if (v instanceof $Node) return v.$parent !== null ? v.$copy() : v;
+    if (Array.isArray(v) && v.some(x => x instanceof $Node && x.$parent !== null)) return v.map($claim);
+    return v;
+}
+
+/** Copies of the nodes in v (a node, null, or an array of them), for the copy of the node it is a field of. */
+function $copyChildren(v) {
+    if (v instanceof $Node) return v.$copy();
+    if (Array.isArray(v)) return v.map($copyChildren);
+    return v;
+}
+
+/**
+ * The value of a child syn: the nodes in it (a node, null, an array of nodes or a map with nodes as values) become
+ * children of owner; a node that already has a parent is copied. With spans (the tree a node forwards to) the nodes
+ * without a span get the one of owner.
+ */
+function $adoptChildren(owner, v, spans) {
+    const one = x => {
+        if (!(x instanceof $Node)) return x;
+        const child = x.$parent !== null ? x.$copy() : x;
+        child.$parent = owner;
+        if (spans && owner.$span !== null) for (const n of $preorder(child)) if (n.$span === null) n.$span = owner.$span;
+        return child;
+    };
+    if (Array.isArray(v)) return v.map(one);
+    if (v instanceof $Map) return new $Map(new Map(Array.from(v.m, ([key, [k, x]]) => [key, [k, one(x)]])));
+    return one(v);
+}
 
 /** The nodes of the tree below node (including it), parents before children. */
 function $preorder(node) {

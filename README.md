@@ -272,6 +272,18 @@ A type as bound, `fun <T: Expr>`, makes the members of `Expr` (fields, attribute
 
 The standard library has the traits `Comparable` and `Printable` (`fun <T: Comparable> List<T>.sorted()`).
 
+A trait can be the type of a parameter, as a short way to write a type parameter used once:
+
+```
+fun show(x: Printable): str = "<${x.str()}>"           // is fun <T: Printable> show(x: T): str
+fun both(a: Printable, b: Printable): str = ...         // two type parameters: both(1, "a") works
+fun names(xs: List<Named>): str = ...                   // a list of one type that is Named
+```
+
+Each such parameter has a type parameter of its own; parameters that must have the same type, and results of that
+type, need the written form (`fun <T: Comparable> largest(a: T, b: T): T`). A trait is not a type otherwise: not of a
+result, a field or a local.
+
 ### Modules
 
 `mod name { ... }` groups declarations; outside of it they are named `name::Decl`. Modules can be nested
@@ -328,6 +340,7 @@ one, like a list or an optional value, is an error. The expressions may contain 
 | Inherited           | `inh env: Env = init` and `inh Block.env { stmts[i] <- ... }`   | computed by the parent; `this` is the parent                  |
 | Collection          | `coll Program.diags: List<D> = []` and `contrib Expr -> target.diags = diags ++ ...` | folded from contributions of the whole tree |
 | Circular            | `circular([]) Vertex.liveIn: List<str> = ...`                   | may depend on itself; computed as a fixpoint                  |
+| Child               | `child syn Program.builtins: List<Decl> = [...]`                | a tree that becomes a child of the node (a nonterminal attribute) |
 
 Values are cached per node. An attribute that depends on itself (through any number of attributes and
 functions) is an error, unless the cycle goes through a circular attribute.
@@ -345,6 +358,63 @@ A circular attribute can be declared on several node types (the most specific on
 circular([]) Vertex.liveOut: List<str> = cfg.succ(this).fold(none) { acc, s -> union(acc, s.liveIn) } where none: List<str> = []
 circular([]) Vertex.liveIn: List<str> = union(this.uses, minus(this.liveOut, this.defs))
 ```
+
+#### Child attributes
+
+`child syn` declares a synthesized attribute whose value is a tree that is not in the source but becomes a child of
+the node: its parent is the node, so the inherited attributes reach it, and its nodes have attributes like any
+other (a *nonterminal attribute*, or higher-order attribute). Typical uses are declarations that are built in,
+desugared code and types as trees.
+
+```
+child syn Program.builtins: List<Decl> = [TypeDecl("int"), TypeDecl("str")]
+child syn Program.byName: Map<str, Decl> = {"int": TypeDecl("int")}
+
+inh env: List<Decl> = []
+inh Program.env {
+    decls[i]    <- this.builtins ++ this.decls      // the program sees the builtins
+    builtins[i] <- []                                // equations for the new children, as for fields
+    byName[k]   <- []                                // a map: by the key
+}
+```
+
+- A child syn is a node, an optional node, a list of nodes, or a map whose values are nodes (the keys are not
+  children). Its value is computed once and cached, as every attribute.
+- `child` is written where the attribute is declared; its equations (`syn Assign.lowered: Stmt = ...` for
+  `child syn Stmt.lowered: Stmt`) are child syns too. `child` is only a keyword before `syn`.
+- `inh` equations name a child syn like a field: `builtins[i] <- ...` for a list, `byName[k] <- ...` for a map (`k`
+  is the key), `main <- ...` for a single node.
+- The children of a child syn are not part of what collection attributes go through: a `coll` sees the tree that
+  was parsed (or built), not the trees attributes compute from it.
+
+**A node has one parent.** A node that already has a parent and becomes a child again, as a field of a new node or
+in the value of a child syn, is copied: the copy (the whole tree below it, with its `spanOf`) is the child, the
+original stays where it is. So `child syn Assign.lowered: Stmt = Assign(this.name, this.value)` does not take `value`
+away from the `Assign`; its copy gets the inherited attributes of the new tree.
+
+#### Forwarding
+
+`node N(...): I by tree` (or `for N impl I by tree`) makes a node mean another tree: every attribute of `I` (and of
+the interfaces of `I`) that `N` has no equation for is the one of the tree. The tree is a child syn of `N`, named
+`forward`, so it gets the inherited attributes of `N`. `N` stays in the tree as it was written, so its own
+equations can report errors in its own terms:
+
+```
+node CompoundAssign(name: str, op: str, value: Expr): Stmt by Assign(this.name, Bin(this.op, Var(this.name), this.value))
+
+// x += e: checked as written, everything else (type, code, flows, ...) comes from the Assign
+syn CompoundAssign.errors: List<Diag> = if this.value.type == Type.INT then [] else [Diag("'+=' needs a number", spanOf(this))]
+
+inh CompoundAssign.env { forward <- this.env }     // the tree's inherited attributes can be given, as for any child
+```
+
+- An attribute comes from the node's own equation, else from the tree, else from a default of an interface: the
+  tree comes before defaults. A node that forwards needs no equations for the abstract attributes of `I`.
+- For each graph, a node that forwards and has no `flow` of its own has the flow of the tree: control enters the
+  tree, and its `next` and its other ports (if the node's are connected) lead where the node's do.
+- The nodes of the tree that have no span get the one of `N`, so errors found in the tree point at what was written.
+- A node forwards to one tree. The tree can not use the attributes it provides (`by f(this.code)` with `code` from
+  the tree), nor `forward` itself. `by` is only a keyword here.
 
 ### Graphs
 

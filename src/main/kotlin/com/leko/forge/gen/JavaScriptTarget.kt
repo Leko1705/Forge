@@ -206,9 +206,9 @@ private class JavaScriptGeneration(private val module: LLIRModule, private val m
                 names.scoped {
                     names.alias("this", "self")
                     for (d in eq.delegates) {
-                        val field = "self[${string(d.field)}]"
+                        val field = expr(d.child)
                         val key = d.key
-                        if (key == null || node.fields[d.field] !is ListType) {
+                        if (key == null || d.child.type !is ListType) {
                             line("    if (child === $field) return ${expr(d.value)};")
                         } else {
                             val index = names.fresh("index")
@@ -692,6 +692,7 @@ private class JavaScriptGeneration(private val module: LLIRModule, private val m
             "range" -> "\$range(${a[0]}, ${a[1]})"
             "List.indexOf" -> "\$indexOf($r, ${a[0]})"
             "List.reversed" -> "$r.slice().reverse()"
+            "node.adopt" -> "\$adoptChildren($r, ${a[0]}, ${a[1]})"
             "List.toSet" -> "\$setOf($r)"
             "List.join" -> "$r.join(${a[0]})"
             "Map.keys" -> "$r.keys()"

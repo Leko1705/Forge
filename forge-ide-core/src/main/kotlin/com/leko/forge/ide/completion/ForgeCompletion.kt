@@ -354,7 +354,7 @@ class ForgeCompletion(private val text: String, private val offset: Int, private
         const val DUMMY_PREFIX = "IntellijIdeaRulezzz"
 
         val TOP_LEVEL_KEYWORDS = listOf(
-            "node", "record", "enum", "fun", "val", "ext", "op", "const", "syn", "inh", "circular", "coll", "contrib",
+            "node", "record", "enum", "fun", "val", "ext", "op", "const", "child", "syn", "inh", "circular", "coll", "contrib",
             "for", "parser", "rule", "port", "graph", "flow", "import", "mod", "use", "trait",
         )
         val EXPRESSION_KEYWORDS = listOf("this", "if", "then", "else", "match", "true", "false", "null", "in", "as", "is", "where")

@@ -531,14 +531,50 @@ inline std::vector<V> children(const Node& n) {
     return r;
 }
 
+inline V copy_node(const V& v);
+
+/** Copies of the nodes in v (a node, null, or a list of them), for the copy of the node it is a field of. */
+inline V copy_children(const V& v) {
+    if (v.tag == V::NODE) return copy_node(v);
+    if (v.tag == V::LIST) { List r; for (auto& x : v.as<List>()) r.push_back(copy_children(x)); return L(std::move(r)); }
+    return v;
+}
+
+/** A child for a new node: v itself, or a copy of the nodes in it that already have a parent. */
+inline V claim(const V& v) {
+    if (v.tag == V::NODE) return v.as<Node>().parent.is_null() ? v : copy_node(v);
+    if (v.tag == V::LIST) {
+        bool any = false;
+        for (auto& x : v.as<List>()) if (x.tag == V::NODE && !x.as<Node>().parent.is_null()) any = true;
+        if (!any) return v;
+        List r;
+        for (auto& x : v.as<List>()) r.push_back(claim(x));
+        return L(std::move(r));
+    }
+    return v;
+}
+
+/** A node; it becomes the parent of its children (a child that already has a parent is copied). */
 inline V new_node(int kind, List fields) {
     auto n = std::make_shared<Node>();
     n->kind = kind;
     n->id = next_id();
     n->fields = std::move(fields);
+    // the vertices of flows ([kind] < 0) are not part of the tree
+    if (kind >= 0) for (auto& f : n->fields) f = claim(f);
     V v = make(V::NODE, n);
     for (auto& c : children(*n)) c.as<Node>().parent = v;
     return v;
+}
+
+/** A copy of the tree below a node (with fresh attributes), without a parent. */
+inline V copy_node(const V& v) {
+    const Node& n = node_of(v);
+    List fields;
+    for (auto& f : n.fields) fields.push_back(copy_children(f));
+    V c = new_node(n.kind, std::move(fields));
+    c.as<Node>().span = n.span;
+    return c;
 }
 
 inline V root(V v) { while (!node_of(v).parent.is_null()) v = node_of(v).parent; return v; }
@@ -554,6 +590,29 @@ inline std::vector<V> preorder(const V& n) {
         for (auto it = c.rbegin(); it != c.rend(); ++it) work.push_back(*it);
     }
     return result;
+}
+
+/**
+ * The value of a child syn: the nodes in it (a node, null, a list of nodes or a map with nodes as values) become
+ * children of owner; a node that already has a parent is copied. With spans (the tree a node forwards to) the nodes
+ * without a span get the one of owner.
+ */
+inline V adopt_children(const V& owner, const V& v, const V& spans) {
+    auto one = [&](const V& x) -> V {
+        if (x.tag != V::NODE) return x;
+        V child = x.as<Node>().parent.is_null() ? x : copy_node(x);
+        child.as<Node>().parent = owner;
+        const V& span = node_of(owner).span;
+        if (truth(spans) && !span.is_null()) for (auto& n : preorder(child)) if (n.as<Node>().span.is_null()) n.as<Node>().span = span;
+        return child;
+    };
+    if (v.tag == V::LIST) { List r; for (auto& x : v.as<List>()) r.push_back(one(x)); return L(std::move(r)); }
+    if (v.tag == V::MAP) {
+        auto d = std::make_shared<MapData>();
+        for (auto& e : v.as<MapData>().entries) d->entries.push_back({e.first, one(e.second)});
+        return make(V::MAP, d);
+    }
+    return one(v);
 }
 
 inline int index_of_child(const V& list, const V& child) {

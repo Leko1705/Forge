@@ -157,12 +157,17 @@ class InhEquation(val attrName: String, val delegates: List<InhDelegate>)
 /**
  * `field <- value`            key == null
  * `field[keyExpr] <- value`   key != null; `binder` is the index variable the key introduces (if any)
+ *
+ * [child] reads the children the equation is for, with `this` the node: a field ([AccessNodeField]) or a child
+ * syn ([AccessNodeAttr]); a list of children if [key] is given. (A map of children is lowered to the list of
+ * its values, with the key bound from the index.)
  */
 class InhDelegate(
     val field: String,
     val key: Value?,
     val binder: LocalRef?,
     val value: Value,
+    val child: Value,
 )
 
 // ============================================================
@@ -397,6 +402,10 @@ data class PutAllMapItems(val map: Value, val elements: Value) : Value { overrid
  *   `Map.remove`, `Set.toList`, `Set.remove`, and the functions `char` and `fail` (stops with an error)
  * - operators: `str.get` (`s[i]`), `str.slice` and `List.slice` (`x[a:b]`; an omitted bound is [NullValue]),
  *   `str.contains` (`t in s`), `range` (`[a:b]`), `Set.of` (a set literal), `Set.contains`, `Set.union` (`++`)
+ * - `node.adopt` (receiver: a node, args: a value and a bool): the value of a child syn becomes a child of the
+ *   node. The nodes in it (it is a node, `null`, a list of nodes or a map with nodes as values) that already have
+ *   a parent are copied (deep), the others get the node as their parent; the value with the copies is the result.
+ *   With `true` (the tree a node forwards to) the nodes of the trees without a span get the one of the node.
  *
  * Indexes and slice bounds below 0 count from the end; slice bounds are clamped to the list.
  */

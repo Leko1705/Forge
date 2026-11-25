@@ -129,10 +129,9 @@ private class OcamlGeneration(private val module: LLIRModule) {
                     names.alias("this", "self")
                     var rest = "inh_$name self"
                     for (d in eq.delegates.reversed()) {
-                        val index = node.fields.keys.indexOf(d.field)
-                        val field = "(Rt.field self $index)"
+                        val field = "(${expr(d.child)})"
                         val key = d.key
-                        rest = if (key == null || node.fields[d.field] !is ListType) {
+                        rest = if (key == null || d.child.type !is ListType) {
                             "(if Rt.same child $field then ${expr(d.value)} else $rest)"
                         } else {
                             names.scoped {
@@ -553,6 +552,7 @@ private class OcamlGeneration(private val module: LLIRModule) {
             "range" -> rt("range")
             "List.indexOf" -> rt("list_index_of")
             "List.reversed" -> rt("reversed")
+            "node.adopt" -> rt("adopt_children")
             "List.toSet" -> rt("to_set")
             "List.join" -> rt("join")
             "Map.keys" -> rt("map_keys")

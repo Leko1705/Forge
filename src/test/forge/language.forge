@@ -95,6 +95,13 @@ fun <T: Expr> sum(xs: List<T>): int = xs.fold(0) { acc, x -> acc + x.total }
 // a lambda in an attribute sees `this`
 syn Add.scaled: (int) -> int = { k -> k * this.total }
 
+// a trait as the type of a parameter: a type parameter of its own with the trait as bound
+fun showBoth(a: Printable, b: Printable): str = "${a.str()}/${b.str()}"
+fun allNames(xs: List<Named>): str = xs.map { it.name() }.join("+")
+fun weightOf(x: Sized?): int = if x == null then 0 else x!!.weight
+fun traitParameters(): str = showBoth(1, "a") + " " + showBoth(Money(250), true) + " " + allNames([Dog("ax"), Dog("bo")]) +
+    " ${weightOf(Dog("abc"))}"
+
 fun traits(): str = both([Dog("rex"), Dog("bo")]) + " " + "${largest(3, 8)} ${largest("pear", "apple")} ${largest(Money(150), Money(99))} " +
     shown([Money(205), Money(1)]) + " " + "${sum([Num(1), Num(2)])} ${sum([Add(Num(1), Num(2))])} ${Add(Num(2), Num(3)).scaled(4)}"
 
@@ -149,6 +156,7 @@ fun nested(): str = short("x", later(2)) + " " + "${"a${"b${1}"}"}" + " ${[1, 2]
 fun report(): List<str> = [
     modules(),
     traits(),
+    traitParameters(),
     operators(),
     values(),
     tuples(),

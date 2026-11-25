@@ -112,6 +112,8 @@ object KotlinTarget : Target {
             sb.appendLine("${INDENT}val __root: __Node get() { var n: __Node = this; while (true) { n = n.__parent ?: return n } }")
             sb.appendLine()
             sb.appendLine("${INDENT}protected fun __adopt() { for (c in __children) c.__parent = this }")
+            sb.appendLine("${INDENT}/** A copy of the tree below this node (with fresh attributes), without a parent. */")
+            sb.appendLine("${INDENT}abstract fun __copy(): __Node")
             for (inh in module.inherited.values) {
                 val type = typeRepr(inh.type)
                 sb.appendLine()
@@ -143,11 +145,23 @@ object KotlinTarget : Target {
 
         private fun generateClass(node: Node) {
             sb.appendLine("// node ${node.name}")
+            // a child that already has a parent is copied: a node is the child of one node
+            fun holdsChildren(type: Type) = isNode(type) || type is OptionalType && isNode(type.elem) ||
+                type is ListType && (isNode(type.elem) || type.elem is OptionalType && isNode((type.elem as OptionalType).elem))
             sb.append("class ${id(node.name)}(")
-            sb.append(node.fields.entries.joinToString(", ") { (name, type) -> "val ${id(name)}: ${typeRepr(type)}" })
+            sb.append(node.fields.entries.joinToString(", ") { (name, type) -> (if (holdsChildren(type)) "" else "val ") + "${id(name)}: ${typeRepr(type)}" })
             sb.append(") : __Node()")
             node.parents.filter { it !== vertex }.forEach { sb.append(", ${id(it.name)}") }
             sb.appendLine(" {")
+            for ((name, type) in node.fields) {
+                if (holdsChildren(type)) sb.appendLine("${INDENT}@Suppress(\"UNCHECKED_CAST\") val ${id(name)}: ${typeRepr(type)} = __claim(${id(name)}) as ${typeRepr(type)}")
+            }
+            sb.append("${INDENT}@Suppress(\"UNCHECKED_CAST\") override fun __copy(): __Node = ${id(node.name)}(")
+            sb.append(node.fields.entries.joinToString(", ") { (name, type) ->
+                val f = "this.${id(name)}"
+                if (holdsChildren(type)) "__copyChildren($f) as ${typeRepr(type)}" else f
+            })
+            sb.appendLine(").also { it.__span = this.__span }")
 
             sb.appendLine("${INDENT}override val __children: kotlin.collections.List<__Node> get() {")
             sb.appendLine("${INDENT}${INDENT}val __c = kotlin.collections.ArrayList<__Node>()")
@@ -216,8 +230,8 @@ object KotlinTarget : Target {
             sb.appendLine("$INDENT// inh ${node.name}.${eq.attrName}")
             sb.appendLine("${INDENT}override fun __inh_${eq.attrName}(__child: __Node): $type {")
             for (delegate in eq.delegates) {
-                val field = "this.${id(delegate.field)}"
-                val fieldType = node.fields[delegate.field]
+                val field = valueText(delegate.child)
+                val fieldType = delegate.child.type
                 val key = delegate.key
                 if (key == null || fieldType !is ListType) {
                     sb.append("$INDENT${INDENT}if (__child === $field) return ")
@@ -757,6 +771,15 @@ object KotlinTarget : Target {
             sb.append(").").append(member)
         }
 
+        /** The code of [v], as text. */
+        private fun valueText(v: Value): String {
+            val start = sb.length
+            value(v)
+            val text = sb.substring(start)
+            sb.setLength(start)
+            return text
+        }
+
         private fun value(value: Value) {
             when (value) {
                 // -2147483648 would be a Long literal
@@ -1026,6 +1049,11 @@ object KotlinTarget : Target {
                 "Map.remove", "Set.remove" -> infix("-", r!!, b.args[0])
                 "Set.toList" -> method("toList")
                 "Set.union" -> infix("+", r!!, b.args[0])
+                "node.adopt" -> {
+                    sb.append("(__adoptChildren(")
+                    args(listOfNotNull(r) + b.args)
+                    sb.append(") as ${typeRepr(b.type)})")
+                }
                 "Set.of" -> {
                     val elem = (b.type as? SetType)?.elem
                     sb.append("kotlin.collections.setOf")

@@ -144,7 +144,7 @@ fun LLIRModule.rewriteValues(f: (Value) -> Value) {
             coll.contributions.replaceAll { Contribution(it.id, it.source, it.coll, it.target.r(), it.alias, it.value.r()) }
         }
         for ((name, eq) in node.inhEquations.toMap()) {
-            node.inhEquations[name] = InhEquation(eq.attrName, eq.delegates.map { InhDelegate(it.field, it.key?.r(), it.binder, it.value.r()) })
+            node.inhEquations[name] = InhEquation(eq.attrName, eq.delegates.map { InhDelegate(it.field, it.key?.r(), it.binder, it.value.r(), it.child.r()) })
         }
     }
     for (graph in graphs) graph.flows.replaceAll { FlowRule(it.node, it.binders, it.body.map { s -> s.rewrite(f) }) }

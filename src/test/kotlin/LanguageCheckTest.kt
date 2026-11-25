@@ -178,4 +178,16 @@ class LanguageCheckTest {
         assertOk("fun f(): int = TODO(\"later\")")
         assertError("can not be put into a string", "fun f(x: int?): str = \"${'$'}{x}\"")
     }
+
+    @Test
+    fun traitsAsParameterTypes() {
+        val named = "trait Named { fun name(): str }\nrecord Dog { label: str }\nfun Dog.name(): str = this.label\n"
+        assertOk(named + "fun hello(x: Named): str = \"hi \" + x.name()\nfun f(): str = hello(Dog(\"rex\"))")
+        // each parameter is a type of its own
+        assertOk("fun both(a: Printable, b: Printable): str = a.str() + b.str()\nfun f(): str = both(1, \"a\")")
+        assertOk(named + "fun all(xs: List<Named>): str = xs.map { it.name() }.join(\",\")\nfun f(): str = all([Dog(\"a\")])")
+        // messages name the trait
+        assertError("but got Named", named + "fun f(x: Named): int = x")
+        assertError("is not a 'Named'", named + "fun hello(x: Named): str = x.name()\nfun f(): str = hello(1)")
+    }
 }

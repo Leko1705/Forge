@@ -39,7 +39,11 @@ import java.util.logging.Level
 data class ForgeResolution(val name: String, val source: String?, val line: Int, val column: Int, val role: ForgeNameRole?)
 
 /** An analyzed program: the tree of the analyzed file ([main], with its [tokens]) and of the whole program ([root]). */
-class ForgeAnalysis(val context: Context, val main: ForgeParser.RootContext, val root: ForgeParser.RootContext, val tokens: List<Token>)
+class ForgeAnalysis(
+    val context: Context, val main: ForgeParser.RootContext, val root: ForgeParser.RootContext, val tokens: List<Token>,
+    /** What the paths of `use` declarations name (see [moduleLinks]). */
+    internal val moduleLinks: Map<Token, ForgeResolution> = emptyMap(),
+)
 
 /**
  * A member of a trait that a method or property implements: [member] is where the member is declared; the type the
@@ -124,7 +128,7 @@ class ForgeSemantics(
         val EMPTY = ForgeSemantics(emptyMap())
 
         private fun semanticsOf(analysis: ForgeAnalysis): ForgeSemantics {
-            val collector = Collector(analysis.context).apply { visit(analysis.main) }
+            val collector = Collector(analysis.context, analysis.moduleLinks).apply { visit(analysis.main) }
             return ForgeSemantics(
                 collector.resolutions, Hierarchy(analysis.context, analysis.root).compute(), collector.declarationTypes,
                 traitImplementations(analysis), traitImplementers(analysis),
@@ -238,12 +242,14 @@ class ForgeSemantics(
                 try {
                     val root = (file ?: File("<editor>")).parseForgeImports(main, host::read)
                     val context = Context()
+                    // before the modules become part of the root
+                    val links = moduleLinks(root)
                     com.leko.forge.enter.Modules.instance(context).resolve(root)
                     Enter.instance(context).enter(root)
                     MemberEnter.instance(context).enter(root)
                     Attr.instance(context).attr(root)
                     Dependency.instance(context).check(root)
-                    block(ForgeAnalysis(context, main, root, tokens))
+                    block(ForgeAnalysis(context, main, root, tokens, links))
                 } catch (e: Throwable) {
                     if (host.cancels(e)) throw e
                     // the analysis needs a complete tree; while the file is edited, it may not be
@@ -275,7 +281,7 @@ class ForgeSemantics(
             }
             for (def in root.synDef()) {
                 val owner = node(def.node?.text) ?: continue
-                add(Decl(Kind.ATTRIBUTE, def.attrName, owner, def.attrName.text, def.syn == null, "syn ${def.node.text}.${def.attrName.text}"))
+                add(Decl(Kind.ATTRIBUTE, def.attrName, owner, def.attrName.text, def.syn == null, (if (def.modifier != null) "${def.modifier.text} " else "") + "syn ${def.node.text}.${def.attrName.text}"))
             }
             for (def in root.circularDef()) {
                 val owner = node(def.node?.text) ?: continue
@@ -330,7 +336,7 @@ class ForgeSemantics(
     }
 
     /** Walks the tree of the analyzed file while the attributes of the analysis are there. */
-    private class Collector(context: Context) {
+    private class Collector(context: Context, private val moduleLinks: Map<Token, ForgeResolution> = emptyMap()) {
         private val symTab = SymTab.instance(context)
         private val typeMap = TypeMap.instance(context)
         val resolutions = mutableMapOf<Int, ForgeResolution>()
@@ -341,6 +347,14 @@ class ForgeSemantics(
                 val context = tree.parent as? ParserRuleContext ?: return
                 val token = tree.symbol
                 if (token.type != ForgeParser.IDENT || token.startIndex < 0) return
+                moduleLinks[token]?.let { resolutions[token.startIndex] = it; return }
+                // a parameter whose type is a trait (`x: Printable`): the trait
+                if (context is ForgeParser.NamedTypeContext) com.leko.forge.enter.traitOfParameter(token.text)?.let { trait ->
+                    val sym = type(trait) ?: return
+                    val span = sym.span ?: return
+                    resolutions[token.startIndex] = ForgeResolution(com.leko.forge.types.displayName(trait), span.source, span.startLine, span.startCol, ForgeNameRole.TRAIT)
+                    return
+                }
                 // a type parameter: the compiler has no symbol for it, its declaration is in the `<...>` of the function
                 if (context is ForgeParser.NamedTypeContext) {
                     typeParameterDeclaration(context, token)?.let { declaration ->
@@ -403,7 +417,10 @@ class ForgeSemantics(
                 }
                 is ForgeParser.InhDelegateContext -> {
                     val impl = context.parent as? ForgeParser.InhImplContext
-                    (impl?.node?.text?.let(::type) as? ConcreteNodeSymbol)?.fields?.firstOrNull { it.name == token.text }
+                    val node = impl?.node?.text?.let(::type) as? ConcreteNodeSymbol
+                    // a field, or a child syn (also the tree a node forwards to)
+                    node?.fields?.firstOrNull { it.name == token.text }
+                        ?: node?.let { n -> (listOf(n) + typeMap.allParentsOf(n)).firstNotNullOfOrNull { owner -> typeMap.nodeAttributes[owner]?.firstOrNull { it.name == token.text } } }
                 }
                 is ForgeParser.ParseRuleDefContext ->
                     symTab.parsers.values.firstOrNull { it.name == token.text }.takeIf { token === context.parserName }

@@ -255,6 +255,13 @@ data class SynSymbol(
     override val span: SourceSpan,
     /** `false` for a declaration without equation (`syn Expr.type: Type`), which subtypes must implement. */
     val hasBody: Boolean = owner is ConcreteNodeSymbol,
+    /**
+     * `child syn`: the value is a tree (a node, an optional node, a list or a map of nodes) that becomes a child of
+     * the node; also the equations of an attribute declared so, and the [FORWARD] of a node with `by`.
+     */
+    var isChild: Boolean = false,
+    /** The interface whose attributes the node forwards, for its [FORWARD] attribute. */
+    val forwards: InterfaceNodeSymbol? = null,
 ) : NodeBoundAttributeSymbol {
     val isDefinition: Boolean get() = !hasBody
     val isImplementation: Boolean get() = hasBody
@@ -365,6 +372,9 @@ data class FlowSymbol(
     override val type: Type get() = node.type
     override val kind: Kind get() = Kind.VAL
 }
+
+/** The attribute of a node with `by` that is the tree it forwards to: `node N(...): I by tree`. */
+const val FORWARD = "forward"
 
 /** Position of built-in declarations. */
 val builtinSpan: SourceSpan = SourceSpan(0, 0, 0, 0)

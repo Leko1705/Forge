@@ -506,3 +506,13 @@ fun moduleError(span: SourceSpan?, message: String): Diagnostic =
 
 fun notInterpolatable(span: SourceSpan?, type: Type): Diagnostic =
     Diagnostic(Severity.ERROR, span, "E021", "'$type' can not be put into a string: it has no 'str()'")
+
+// ---- child attributes and forwarding --------------------------------------------------------------------
+
+/** `child syn`: a wrong modifier, a type that holds no children, or an equation of an attribute that is not one. */
+fun invalidChildAttribute(span: SourceSpan?, message: String): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E022", message)
+
+/** `node N(...): I by tree`: on an interface, more than once, or a tree that does not fit. */
+fun invalidForwarding(span: SourceSpan?, message: String): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E023", message)

@@ -188,6 +188,9 @@ class LLIR private constructor(private val context: Context) {
         ctx.coll().forEach { transform(it) }
         ctx.contrib().forEachIndexed { i, it -> transform(it, i) }
         ctx.flowDef().forEach { transform(it) }
+        ctx.nodeDef().forEach { def -> def.forwarding()?.let { transformForward(it) } }
+        ctx.nodeInterfaceImpl().forEach { impl -> impl.forwarding()?.let { transformForward(it) } }
+        completeForwards()
 
         val userFunctions = ctx.function().mapNotNull { transform(it) }
 
@@ -198,6 +201,8 @@ class LLIR private constructor(private val context: Context) {
         for (f in ctx.function()) if (f.isMain()) f.symbol?.let { main.functions += function(it) }
         for (d in ctx.synDef()) if (d.isMain()) main.attributes += d.attrName.text
         for (d in ctx.circularDef()) if (d.isMain()) main.attributes += d.attrName.text
+        for (d in ctx.nodeDef()) if (d.isMain() && d.forwarding() != null) main.attributes += FORWARD
+        for (d in ctx.nodeInterfaceImpl()) if (d.isMain() && d.forwarding() != null) main.attributes += FORWARD
         for (d in ctx.coll()) if (d.isMain()) main.attributes += d.collName.text
         for (d in ctx.contrib()) if (d.isMain()) main.attributes += d.collName.text
         for (d in ctx.inhDef()) if (d.isMain()) main.attributes += d.attrName.text
@@ -270,8 +275,62 @@ class LLIR private constructor(private val context: Context) {
     private fun transform(ctx: ForgeParser.SynDefContext) {
         val sym = ctx.symbol ?: return
         val attr = SynAttribute(node(sym.owner), sym.name, sym.type)
-        attr.body = ctx.syn?.transform()
+        attr.body = ctx.syn?.transform()?.let { if (sym.isChild) adopt(it, sym.type, sym.owner.type, forward = false) else it }
         attr.owner.synthetics[sym.name] = attr
+    }
+
+    /** The value of a child syn: its trees become children of `this`. */
+    private fun adopt(value: Value, type: Type, owner: Type, forward: Boolean): Value =
+        Builtin("node.adopt", This(owner), listOf(value, BoolValue(forward)), type)
+
+    /**
+     * `node N(...): I by tree`: the [FORWARD] attribute of N (a child syn), and for every attribute of I and its
+     * interfaces that N has no equation of its own for, the equation `this.forward.attr`. They come before the
+     * defaults of the interfaces. A flow of N is the flow of the tree, for each graph N has no flow of its own in.
+     */
+    private fun transformForward(ctx: ForgeParser.ForwardingContext) {
+        val sym = ctx.symbol ?: return
+        val node = node(sym.owner)
+        val ifaceNode = node(sym.forwards!!)
+        val fwdType = sym.type
+        val forward = SynAttribute(node, FORWARD, fwdType)
+        forward.body = adopt(ctx.forward.transform(), fwdType, sym.owner.type, forward = true)
+        node.synthetics[FORWARD] = forward
+        forwards += node to ifaceNode
+    }
+
+    /** The nodes with `by` and the interface they forward; see [transformForward]. */
+    private val forwards = mutableListOf<Pair<Node, Node>>()
+
+    private fun completeForwards() {
+        for ((node, iface) in forwards) {
+            val self = This(ComplexType(node.name))
+            val tree = AccessNodeAttr(self, FORWARD, ComplexType(iface.name))
+            val ifaces = listOf(iface) + iface.ancestors()
+            for (owner in ifaces) {
+                val declared = owner.synthetics.values.map { it.name to it.type } + owner.circulars.values.map { it.name to it.type }
+                for ((name, type) in declared) {
+                    if (name in node.synthetics || name in node.circulars) continue
+                    val attr = SynAttribute(node, name, type)
+                    attr.body = AccessNodeAttr(tree, name, type)
+                    node.synthetics[name] = attr
+                }
+            }
+            for (graph in graphs.values) {
+                if (graph.flows.any { it.node === node }) continue
+                val body = mutableListOf<FlowStmt>(FlowEntry(tree))
+                for (portSym in symTab.ports.values) {
+                    val p = port(portSym)
+                    when {
+                        p.isNext -> body += FlowConnect(tree, PortValue(p), null)
+                        // inherited ports are found through the enclosing flows anyway
+                        p.inherited -> {}
+                        else -> body += FlowIf(BoundCheck(PortValue(p)), listOf(FlowConnect(PortRefValue(p, tree), PortValue(p), null)), emptyList())
+                    }
+                }
+                graph.flows += FlowRule(node, emptyList(), body)
+            }
+        }
     }
 
     private fun transform(ctx: ForgeParser.CircularDefContext) {
@@ -285,13 +344,29 @@ class LLIR private constructor(private val context: Context) {
     private fun transform(ctx: ForgeParser.InhImplContext) {
         val sym = ctx.symbol ?: return
         val node = node(ctx.node.text)
-        val delegates = ctx.inhDelegate().map { delegate ->
-            InhDelegate(
-                delegate.child.text,
-                delegate.key?.transform(),
-                delegate.binder?.let { LocalRef(it.name, it.type) },
-                delegate.value.transform(),
-            )
+        val nodeSym = resolve.resolve(ctx.node.text) as NodeSymbol
+        val self = This(nodeSym.type)
+        val delegates = ctx.inhDelegate().mapNotNull { delegate ->
+            val name = delegate.child.text
+            val childSym = resolve.resolve(nodeSym.type, name, Kind.VAL, Kind.VAL) ?: return@mapNotNull null
+            val child = if (childSym is AttributeSymbol) AccessNodeAttr(self, name, childSym.type) else AccessNodeField(node, self, name, childSym.type)
+            val key = delegate.key?.transform()
+            val binder = delegate.binder?.let { LocalRef(it.name, it.type) }
+            val value = delegate.value.transform()
+            val map = childSym.type as? MapType
+            if (map != null && key != null) {
+                // the values of the map are the children; the key of the child is the one at its index
+                val values = Builtin("Map.values", child, emptyList(), ListType(map.value))
+                val keys = Builtin("Map.keys", child, emptyList(), ListType(map.key))
+                val index = LocalRef("__key_index", IntType)
+                if (binder != null) {
+                    InhDelegate(name, index, index, Let(binder.name, AccessListContainer(keys, index, map.key), value), values)
+                } else {
+                    InhDelegate(name, Builtin("List.indexOf", keys, listOf(key), IntType), null, value, values)
+                }
+            } else {
+                InhDelegate(name, key, binder, value, child)
+            }
         }
         val existing = node.inhEquations[sym.name]
         node.inhEquations[sym.name] = InhEquation(sym.name, (existing?.delegates ?: emptyList()) + delegates)

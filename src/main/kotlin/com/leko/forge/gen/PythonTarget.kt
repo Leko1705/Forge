@@ -183,9 +183,9 @@ private class PythonGeneration(private val module: LLIRModule, private val modul
                 names.scoped {
                     names.alias("this", "self")
                     for (d in eq.delegates) {
-                        val field = "self.${id(d.field)}"
+                        val field = expr(d.child)
                         val key = d.key
-                        if (key == null || node.fields[d.field] !is ListType) {
+                        if (key == null || d.child.type !is ListType) {
                             line("    if child is $field:")
                             line("        return ${expr(d.value)}")
                         } else {
@@ -638,6 +638,7 @@ private class PythonGeneration(private val module: LLIRModule, private val modul
             "range" -> "list(range(${a[0]}, ${a[1]}))"
             "List.indexOf" -> "_index_of($r, ${a[0]})"
             "List.reversed" -> "$r[::-1]"
+            "node.adopt" -> "_adopt_children($r, ${a[0]}, ${a[1]})"
             "List.toSet" -> "_set(*$r)"
             "List.join" -> "${a[0]}.join($r)"
             "Map.keys" -> "list($r.keys())"

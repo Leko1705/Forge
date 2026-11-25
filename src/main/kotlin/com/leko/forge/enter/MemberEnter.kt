@@ -53,6 +53,7 @@ class MemberEnter private constructor(context: Context) {
         checkDeclaredTypes(root)
         enterInheritance(root)
         enterSyntheticAttributes(root)
+        enterForwards(root)
         enterCircularAttributes(root)
         enterInheritedAttributes(root)
         enterCollectionAttributes(root)
@@ -168,9 +169,76 @@ class MemberEnter private constructor(context: Context) {
                 log.diag(attributeAlreadyDefined(synDef.attrName.span, nodeName, attrName))
                 continue
             }
-            val sym = SynSymbol(nodeSym, attrName, type, synDef.attrName.span, hasBody = synDef.syn != null)
+            val modifier = synDef.modifier
+            if (modifier != null && modifier.text != "child") {
+                log.diag(invalidChildAttribute(modifier.span, "unexpected '${modifier.text}' before 'syn'"))
+            }
+            val isChild = modifier?.text == "child"
+            if (isChild && type != ErrorType && !isChildType(type)) {
+                log.diag(invalidChildAttribute(synDef.attrType.span,
+                    "a child syn must be a node, an optional node, or a list or map of nodes, not '$type'"))
+            }
+            val sym = SynSymbol(nodeSym, attrName, type, synDef.attrName.span, hasBody = synDef.syn != null, isChild = isChild)
             synAttrsPerNode += sym
             synDef.setSym(sym)
+        }
+        // the equations of a child syn are child syns too; an equation can not make an attribute one
+        for (synDef in root.synDef()) {
+            val sym = synDef.symbol ?: continue
+            val declarations = typeMap.allParentsOf(sym.owner).mapNotNull { parent ->
+                typeMap.nodeAttributes[parent].orEmpty().filterIsInstance<SynSymbol>().find { it.name == sym.name }
+            }
+            if (declarations.isEmpty()) continue
+            if (declarations.any { it.isChild }) sym.isChild = true
+            else if (sym.isChild) {
+                val declaration = declarations.first()
+                log.diag(invalidChildAttribute(synDef.modifier.span,
+                    "'${sym.name}' is declared by ${declaration.owner.name} without 'child'; declare it there as a child syn"))
+            }
+        }
+    }
+
+    /** What a child syn can be: what holds nodes that can be children. */
+    private fun isChildType(type: Type): Boolean {
+        fun isNode(t: Type) = t is ComplexType && resolve.resolve(t) is NodeSymbol
+        return when (type) {
+            is OptionalType -> isNode(type.elem)
+            is ListType -> isNode(type.elem)
+            is MapType -> isNode(type.value)
+            else -> isNode(type)
+        }
+    }
+
+    /**
+     * `node N(...): I by tree` and `for N impl I by tree`: the [FORWARD] attribute of the node, a child syn of type
+     * `I`. A node forwards to one tree.
+     */
+    private fun enterForwards(root: ForgeParser.RootContext) {
+        val forwards = root.nodeDef().mapNotNull { def -> def.forwarding()?.let { Triple(def.name, def.parent, it) } } +
+            root.nodeInterfaceImpl().mapNotNull { impl -> impl.forwarding()?.let { Triple(impl.extended, impl.iface, it) } }
+        for ((nodeName, ifaceName, forwarding) in forwards) {
+            if (forwarding.by.text != "by") {
+                log.diag(invalidForwarding(forwarding.by.span, "unexpected '${forwarding.by.text}' after '${ifaceName.text}'; did you mean 'by'?"))
+                continue
+            }
+            val node = findNode(nodeName.text)
+            val iface = symTab.interfaceNodes.values.find { it.name == ifaceName.text }
+            if (node == null || iface == null) continue
+            if (node !is ConcreteNodeSymbol) {
+                log.diag(invalidForwarding(forwarding.by.span, "'${node.name}' is an interface; only nodes with fields can forward"))
+                continue
+            }
+            val attrs = typeMap.nodeAttributes.getOrPut(node) { mutableListOf() } as MutableList
+            val existing = attrs.find { it.name == FORWARD }
+            if (existing != null) {
+                log.diag(invalidForwarding(forwarding.by.span,
+                    if (existing is SynSymbol && existing.forwards != null) "'${node.name}' already forwards to a tree; a node forwards to one"
+                    else "'${node.name}' has an attribute '$FORWARD', the name of the tree it forwards to"))
+                continue
+            }
+            val sym = SynSymbol(node, FORWARD, iface.type, forwarding.by.span, hasBody = true, isChild = true, forwards = iface)
+            attrs += sym
+            forwarding.setSym(sym)
         }
     }
 

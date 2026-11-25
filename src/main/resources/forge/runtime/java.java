@@ -222,6 +222,9 @@
 
         void __adopt() { for (__Node c : __children()) c.__parent = this; }
 
+        /** A copy of the tree below this node (with fresh attributes), without a parent. */
+        abstract __Node __copy();
+
         public __Node __root() {
             __Node n = this;
             while (n.__parent != null) n = n.__parent;
@@ -232,6 +235,59 @@
             if (value instanceof __Node) into.add((__Node) value);
             else if (value instanceof java.util.List) for (Object x : (java.util.List<?>) value) if (x instanceof __Node) into.add((__Node) x);
         }
+    }
+
+    /** A child for a new node: value itself, or a copy of the nodes in it that already have a parent. */
+    static Object __claim(Object value) {
+        if (value instanceof __Node) return ((__Node) value).__parent != null ? ((__Node) value).__copy() : value;
+        if (value instanceof java.util.List) {
+            java.util.List<?> list = (java.util.List<?>) value;
+            boolean any = false;
+            for (Object x : list) if (x instanceof __Node && ((__Node) x).__parent != null) any = true;
+            if (!any) return value;
+            java.util.ArrayList<Object> r = new java.util.ArrayList<>();
+            for (Object x : list) r.add(__claim(x));
+            return r;
+        }
+        return value;
+    }
+
+    /** Copies of the nodes in value (a node, null, or a list of them), for the copy of the node it is a field of. */
+    static Object __copyChildren(Object value) {
+        if (value instanceof __Node) return ((__Node) value).__copy();
+        if (value instanceof java.util.List) {
+            java.util.ArrayList<Object> r = new java.util.ArrayList<>();
+            for (Object x : (java.util.List<?>) value) r.add(__copyChildren(x));
+            return r;
+        }
+        return value;
+    }
+
+    private static Object __adoptOne(__Node owner, Object v, boolean spans) {
+        if (!(v instanceof __Node)) return v;
+        __Node child = ((__Node) v).__parent != null ? ((__Node) v).__copy() : (__Node) v;
+        child.__parent = owner;
+        if (spans && owner.__span != null) for (__Node n : __preorder(child)) if (n.__span == null) n.__span = owner.__span;
+        return child;
+    }
+
+    /**
+     * The value of a child syn: the nodes in it (a node, null, a list of nodes or a map with nodes as values) become
+     * children of owner; a node that already has a parent is copied. With spans (the tree a node forwards to) the
+     * nodes without a span get the one of owner.
+     */
+    static Object __adoptChildren(__Node owner, Object value, boolean spans) {
+        if (value instanceof java.util.List) {
+            java.util.ArrayList<Object> r = new java.util.ArrayList<>();
+            for (Object x : (java.util.List<?>) value) r.add(__adoptOne(owner, x, spans));
+            return r;
+        }
+        if (value instanceof java.util.Map) {
+            java.util.LinkedHashMap<Object, Object> r = new java.util.LinkedHashMap<>();
+            for (java.util.Map.Entry<?, ?> e : ((java.util.Map<?, ?>) value).entrySet()) r.put(e.getKey(), __adoptOne(owner, e.getValue(), spans));
+            return r;
+        }
+        return __adoptOne(owner, value, spans);
     }
 
     /** The nodes of the tree below node (including it), parents before children. */
