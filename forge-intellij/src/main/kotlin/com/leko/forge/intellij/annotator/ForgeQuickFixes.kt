@@ -28,6 +28,7 @@ import com.leko.forge.intellij.psi.ForgeNameElement
  * - `can not find 'Stmt'` for a type, `function 'Leaf' not found` for a constructor: creates the node;
  * - `Synthetic attribute 'Expr.type' is not implemented for Num`: `Implement 'Expr.type' for Num...` chooses (as
  *   "Implement members" of Kotlin and Java) which of the attributes `Num` does not implement get an equation;
+ * - a `match` of an enum without a case for each item: `Add remaining cases` (computed by the analysis);
  * - `function 'f' not found`, `method 'R.f' not found`, `attribute 'R.x' not found`: creates the function, the
  *   extension function, the `val` (of a node: the `syn` attribute), with `TODO("not yet implemented")` as value.
  */
@@ -99,8 +100,8 @@ object ForgeQuickFixes {
 
         override fun invoke(project: Project, editor: Editor?, file: PsiFile) {
             val document = document(project, file)
-            if (fix.offset > document.textLength) return
-            document.insertString(fix.offset, fix.text)
+            if (fix.offset + fix.replace > document.textLength) return
+            document.replaceString(fix.offset, fix.offset + fix.replace, fix.text)
             commit(project, file)
             // the caret on the TODO, to write the body
             val todo = document.charsSequence.indexOf("TODO(", fix.offset)

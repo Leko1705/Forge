@@ -38,6 +38,14 @@ class ForgeCompilerAnnotator : ExternalAnnotator<ForgeSource, List<ForgeProblem>
                     .textAttributes(com.leko.forge.intellij.highlight.ForgeColors.TODO_CALL).create()
                 continue
             }
+            if (problem.severity == ForgeSeverity.ASSIST) {
+                // no problem: only its fixes, where it is
+                val range = problem.range?.takeIf { it.end <= length } ?: continue
+                var builder = holder.newSilentAnnotation(HighlightSeverity.INFORMATION).range(range.textRange)
+                for (fix in ForgeQuickFixes.fixesFor(file, problem)) builder = builder.withFix(fix)
+                builder.create()
+                continue
+            }
             var builder = holder.newAnnotation(problem.severity.highlight, problem.message)
             val range = problem.range
             builder = if (range == null || range.end > length) builder.fileLevel() else builder.range(range.textRange)
@@ -53,7 +61,7 @@ val ForgeSeverity.highlight: HighlightSeverity
         ForgeSeverity.ERROR -> HighlightSeverity.ERROR
         ForgeSeverity.WARNING -> HighlightSeverity.WARNING
         ForgeSeverity.INFO -> HighlightSeverity.WEAK_WARNING
-        ForgeSeverity.TODO -> HighlightSeverity.INFORMATION
+        ForgeSeverity.TODO, ForgeSeverity.ASSIST -> HighlightSeverity.INFORMATION
     }
 
 val ForgeTextRange.textRange: TextRange get() = TextRange(start, end)

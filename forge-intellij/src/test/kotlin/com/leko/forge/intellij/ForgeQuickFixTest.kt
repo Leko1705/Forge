@@ -97,4 +97,61 @@ class ForgeQuickFixTest : BasePlatformTestCase() {
             "mod m {\n    node Expr\n    node Num(v: int): Expr\n    syn Expr.type: str\nsyn m::Num.type: str = TODO(\"not yet implemented\")\n}",
         )
     }
+
+    private val type = "enum Type { INT, STR, ERROR(msg: str) }\n"
+    private val todo = "TODO(\"not yet implemented\")"
+
+    fun testAddRemainingCasesOnTheirLines() {
+        fix(
+            type + "fun f(t: Type): str = <caret>match t {\n    Type.INT -> \"int\"\n}",
+            "Add remaining cases",
+            type + "fun f(t: Type): str = match t {\n    Type.INT -> \"int\"\n    Type.STR -> $todo\n    Type.ERROR(msg) -> $todo\n}",
+        )
+    }
+
+    fun testAddRemainingCasesOnOneLine() {
+        fix(
+            type + "fun f(t: Type): str = <caret>match t { Type.STR -> \"str\" }",
+            "Add remaining cases",
+            type + "fun f(t: Type): str = match t { Type.STR -> \"str\"  Type.INT -> $todo  Type.ERROR(msg) -> $todo }",
+        )
+    }
+
+    fun testAddAllCasesToAnEmptyMatch() {
+        fix(
+            type + "fun f(t: Type): str =\n    <caret>match t { }",
+            "Add remaining cases",
+            type + "fun f(t: Type): str =\n    match t {\n        Type.INT -> $todo\n        Type.STR -> $todo\n        Type.ERROR(msg) -> $todo\n    }",
+        )
+    }
+
+    /** A case with a guard or a pattern in a field does not match all of its item; the cases go before `_`. */
+    fun testAddRemainingCasesBeforeTheDefault() {
+        fix(
+            type + "fun f(t: Type): str = <caret>match t { Type.INT if true -> \"i\"  Type.ERROR(\"x\") -> \"x\"  _ -> \"?\" }",
+            "Add remaining cases",
+            type + "fun f(t: Type): str = match t { Type.INT if true -> \"i\"  Type.ERROR(\"x\") -> \"x\"  Type.INT -> $todo  " +
+                "Type.STR -> $todo  Type.ERROR(msg) -> $todo  _ -> \"?\" }",
+        )
+        fix(
+            type + "fun f(t: Type): str = <caret>match t {\n    _ -> \"?\"\n}",
+            "Add remaining cases",
+            type + "fun f(t: Type): str = match t {\n    Type.INT -> $todo\n    Type.STR -> $todo\n    Type.ERROR(msg) -> $todo\n    _ -> \"?\"\n}",
+        )
+    }
+
+    fun testAddRemainingCasesOfAnEnumInAModule() {
+        fix(
+            "mod shapes { enum Shape { CIRCLE(r: int), RECT(w: int, h: int) } }\nfun f(s: shapes::Shape): int = <caret>match s { }",
+            "Add remaining cases",
+            "mod shapes { enum Shape { CIRCLE(r: int), RECT(w: int, h: int) } }\nfun f(s: shapes::Shape): int = match s {\n" +
+                "    shapes::Shape.CIRCLE(r) -> $todo\n    shapes::Shape.RECT(w, h) -> $todo\n}",
+        )
+    }
+
+    fun testNoCasesToAddIfAllAreThere() {
+        myFixture.configureByText("a.forge", type + "fun f(t: Type): str = <caret>match t { Type.INT -> \"i\"  Type.STR -> \"s\"  Type.ERROR(m) -> m }")
+        myFixture.doHighlighting()
+        assertTrue(myFixture.filterAvailableIntentions("Add remaining cases").isEmpty())
+    }
 }

@@ -16,10 +16,10 @@ import org.antlr.v4.runtime.Token
 import org.antlr.v4.runtime.tree.ParseTree
 
 /**
- * A change of the text that fixes a problem: [text] inserted at [offset], e.g. a declaration that is missing.
- * [name] is the offset of the name whose problem it fixes.
+ * A change of the text that fixes a problem: [text] inserted at [offset] in place of the [replace] characters there,
+ * e.g. a declaration that is missing. [name] is the offset of the name whose problem it fixes.
  */
-data class ForgeFix(val title: String, val offset: Int, val text: String, val name: Int)
+data class ForgeFix(val title: String, val offset: Int, val text: String, val name: Int, val replace: Int = 0)
 
 /**
  * Declarations that a file uses but nobody declares, with what they would be: a function for a call of an unknown

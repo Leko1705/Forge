@@ -26,9 +26,11 @@ import java.util.logging.Level
 
 /**
  * How bad a [ForgeProblem] is; [INFO] for the compiler's notes. [TODO] is no problem but a call of `TODO`, which
- * editors color like a TODO comment (yellow, as Kotlin's `TODO()`), not as a warning.
+ * editors color like a TODO comment (yellow, as Kotlin's `TODO()`), not as a warning. [ASSIST] is no problem either,
+ * but changes editors offer where it is ([ForgeProblem.fixes]) without showing anything, e.g. the cases a `match`
+ * of an enum does not have.
  */
-enum class ForgeSeverity { ERROR, WARNING, INFO, TODO }
+enum class ForgeSeverity { ERROR, WARNING, INFO, TODO, ASSIST }
 
 /** The characters from [start] to [end] (exclusive) of a text. */
 data class ForgeTextRange(val start: Int, val end: Int) {
@@ -101,6 +103,7 @@ object ForgeDiagnostics {
 
         var fixes: List<ForgeFix> = emptyList()
         var todos: List<ForgeProblem> = emptyList()
+        var assists: List<ForgeProblem> = emptyList()
         var unimplemented: List<ForgeUnimplemented> = emptyList()
         val diagnostics = try {
             synchronized(ForgeSemantics.lock) {
@@ -116,6 +119,7 @@ object ForgeDiagnostics {
                     // while the attributes of the analysis are there
                     fixes = ForgeMissingDeclarations(context, source.text).fixes(main)
                     todos = todos(main)
+                    assists = ForgeMatchCases(context, source.text).assists(main)
                     unimplemented = Dependency.instance(context).unimplemented.map { (node, syn) ->
                         ForgeUnimplemented(node.name, syn.owner.name, syn.name, syn.type.toString())
                     }
@@ -133,6 +137,7 @@ object ForgeDiagnostics {
         }
 
         problems += todos
+        problems += assists
         val mainPath = source.file?.canonicalPath
         for (d in diagnostics) {
             val severity = when (d.severity) {
