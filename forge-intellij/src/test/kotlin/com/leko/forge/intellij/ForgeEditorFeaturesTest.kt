@@ -117,6 +117,38 @@ class ForgeEditorFeaturesTest : BasePlatformTestCase() {
         assertEquals(listOf(0), targets.map { myFixture.editor.document.getLineNumber(it!!.textOffset) })
     }
 
+    /** Fields of nodes and records that are members of a trait: on the line of each field, so the same line or not. */
+    fun testFieldsThatImplementTraitMembersHaveGutterIcons() {
+        val text = """
+            trait Definition {
+                val modifiers: List<str>
+                val name: str
+            }
+            node Stmt
+            node Function(modifiers: List<str>, name: str, body: Stmt): Stmt
+            node Namespace(
+                modifiers: List<str>,
+                name: str,
+                body: List<Stmt>
+            ): Stmt
+            record Item { name: str }
+        """.trimIndent()
+        myFixture.configureByText("t.forge", text)
+        val gutters = myFixture.findAllGutters().filterIsInstance<LineMarkerInfo.LineMarkerGutterIconRenderer<*>>()
+            .filter { it.icon === ForgeIcons.TRAIT_IMPLEMENTATION }
+        fun line(g: LineMarkerInfo.LineMarkerGutterIconRenderer<*>) = myFixture.editor.document.getLineNumber(g.lineMarkerInfo.startOffset)
+        val implementations = gutters.filter { "Implements" in it.tooltipText.toString() }
+        // one on the line of Function (for both fields), one on the line of each field of Namespace; none for Item,
+        // which has no modifiers
+        assertEquals(listOf(5, 7, 8), implementations.map(::line).sorted())
+        val function = implementations.single { line(it) == 5 }.tooltipText.toString()
+        assertTrue(function, "Definition.modifiers</b>: Function is Definition" in function && "Definition.name</b>: Function is Definition" in function)
+        val name = implementations.single { line(it) == 8 }
+        assertTrue(name.tooltipText.toString(), "Implements <b>Definition.name</b>: Namespace is Definition" in name.tooltipText.toString())
+        val targets = (name.lineMarkerInfo as com.intellij.codeInsight.daemon.RelatedItemLineMarkerInfo<*>).createGotoRelatedItems().map { it.element }
+        assertEquals(listOf(2), targets.map { myFixture.editor.document.getLineNumber(it!!.textOffset) })
+    }
+
     fun testFolding() {
         myFixture.configureByText("a.forge", program)
         EditorTestUtil.buildInitialFoldingsInBackground(myFixture.editor)

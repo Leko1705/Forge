@@ -1,5 +1,6 @@
 package com.leko.forge.ide.semantics
 
+import ForgeLexer
 import ForgeParser
 import com.leko.forge.analysis.Dependency
 import com.leko.forge.attr.Attr
@@ -85,7 +86,10 @@ class ForgeSemantics(
     val hierarchy: Map<Int, ForgeHierarchy> = emptyMap(),
     /** The types of the used variables, parameters and constants of the file, by the line and column of their declaration. */
     val declarationTypes: Map<Pair<Int, Int>, String> = emptyMap(),
-    /** The members of traits that the methods and properties of the file implement, by the offset of their names. */
+    /**
+     * The members of traits that the methods and properties, the fields of nodes and records and the attributes of
+     * nodes of the file implement, by the offset of their names.
+     */
     val traitImplementations: Map<Int, List<ForgeTraitImplementation>> = emptyMap(),
     /** The implementations of the members of the traits of the file (by the offset of their names), in the whole program. */
     val traitImplementers: Map<Int, List<ForgeTraitImplementer>> = emptyMap(),
@@ -135,6 +139,22 @@ class ForgeSemantics(
             )
         }
 
+        /** The types that may have a member of this name: receivers of methods, owners of attributes and fields. */
+        private fun candidates(analysis: ForgeAnalysis): (String) -> List<com.leko.forge.types.Type> {
+            val symTab = SymTab.instance(analysis.context)
+            val typeMap = TypeMap.instance(analysis.context)
+            return { name ->
+                buildList {
+                    analysis.root.function().forEach { f -> val sym = f.symbol; if (sym?.name == name) sym.receiver?.type?.let { add(it) } }
+                    typeMap.nodeAttributes.forEach { (owner, attributes) -> if (attributes.any { it.name == name }) add(owner.type) }
+                    symTab.table.values.forEach { t ->
+                        val fields = when (t) { is ConcreteNodeSymbol -> t.fields; is RecordSymbol -> if (t.span != null) t.fields else emptyList(); else -> emptyList() }
+                        if (fields.any { it.name == name }) add(t.type)
+                    }
+                }.distinct()
+            }
+        }
+
         /**
          * For each member of a trait of the analyzed file, its implementations in the whole program: of every type
          * that has all the members of the trait, the declaration the compiler takes for the member.
@@ -142,17 +162,7 @@ class ForgeSemantics(
         private fun traitImplementers(analysis: ForgeAnalysis): Map<Int, List<ForgeTraitImplementer>> {
             val traits = com.leko.forge.attr.Traits.instance(analysis.context)
             val symTab = SymTab.instance(analysis.context)
-            val typeMap = TypeMap.instance(analysis.context)
-            val resolve = com.leko.forge.attr.Resolve.instance(analysis.context)
-            // the types that may have a member: receivers of methods, owners of attributes and fields of that name
-            fun candidates(name: String): List<com.leko.forge.types.Type> = buildList {
-                analysis.root.function().forEach { f -> val sym = f.symbol; if (sym?.name == name) sym.receiver?.type?.let { add(it) } }
-                typeMap.nodeAttributes.forEach { (owner, attributes) -> if (attributes.any { it.name == name }) add(owner.type) }
-                symTab.table.values.forEach { t ->
-                    val fields = when (t) { is ConcreteNodeSymbol -> t.fields; is RecordSymbol -> if (t.span != null) t.fields else emptyList(); else -> emptyList() }
-                    if (fields.any { it.name == name }) add(t.type)
-                }
-            }.distinct()
+            val candidates = candidates(analysis)
             fun label(type: com.leko.forge.types.Type, sym: Symbol): String = when (sym) {
                 is FunctionSymbol -> (if (sym.isOperator) "op " else "") + (if (sym.isProperty) "val " else "fun ") + "$type.${sym.name}"
                 is AttributeSymbol -> "attribute $type.${sym.name}"
@@ -213,6 +223,28 @@ class ForgeSemantics(
                 }
                 if (implemented.isNotEmpty()) result[function.name.startIndex] = implemented
             }
+            // fields of nodes and records and attributes of nodes of the file that are the member of a type
+            val names = analysis.tokens.filter { it.type == ForgeLexer.IDENT }.associateBy { it.line to it.charPositionInLine }
+            val candidates = candidates(analysis)
+            val fields = mutableMapOf<Int, List<ForgeTraitImplementation>>()
+            for (trait in symTab.traits.values) {
+                for (member in trait.members) {
+                    if (!member.isProperty) continue
+                    for (type in candidates(member.name)) {
+                        val sym = traits.implementations(type, trait)?.get(member) ?: continue
+                        if (sym is FunctionSymbol) continue
+                        val span = sym.span ?: continue
+                        if (span.source != null || span.startLine <= 0) continue
+                        val name = names[span.startLine to span.startCol]?.takeIf { it.text == sym.name } ?: continue
+                        val implementation = ForgeTraitImplementation(
+                            com.leko.forge.types.displayName(trait.name), type.toString(),
+                            ForgeResolution(member.name, member.span.source, member.span.startLine, member.span.startCol, ForgeNameRole.PROPERTY),
+                        )
+                        fields[name.startIndex] = (fields[name.startIndex].orEmpty() + implementation).distinct()
+                    }
+                }
+            }
+            for ((offset, list) in fields) result[offset] = result[offset].orEmpty() + list
             return result
         }
 

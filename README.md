@@ -621,9 +621,11 @@ the compiler itself, so the editor sees what `forge -f` sees:
   declared and where they are used, so `this.type` (an attribute) and `this.left` (a child) look different.
 - **Trait implementations** have a gutter icon, arrows both ways as between a C++ declaration and its definition: on
   each method or `val` that implements a member of a trait for a type that has all the members of the trait (so the
-  type satisfies `fun <T: Trait>`). The tooltip says which (`Implements Named.name: Dog is Named`); a click goes to
-  the member of the trait. The members of a trait have the icon too, with their implementations in the whole program
-  (methods, `val`s, and for a `val` also attributes and fields; also those of the standard library).
+  type satisfies `fun <T: Trait>`), and on each field of a node or a record and each attribute that is such a `val`
+  member: on the line of the field, so a node written on one line has one icon for all of them. The tooltip says
+  which (`Implements Named.name: Dog is Named`); a click goes to the member of the trait. The members of a trait
+  have the icon too, with their implementations in the whole program (methods, `val`s, and for a `val` also
+  attributes and fields; also those of the standard library).
 - **Gutter icons** for implementations and overrides, as in Java and Kotlin: interface nodes and the nodes that
   implement them, a `syn` definition and the equations of the nodes below it, a `circular` attribute and its
   overrides, `inh attr` and its `inh Node.attr { ... }` equations, an abstract rule and its alternatives. Find
