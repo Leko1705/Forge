@@ -1,7 +1,14 @@
 package com.leko.forge.intellij.annotator
 
+import com.intellij.codeInsight.generation.ClassMember
+import com.intellij.codeInsight.generation.MemberChooserObject
+import com.intellij.codeInsight.generation.MemberChooserObjectBase
 import com.intellij.codeInsight.intention.IntentionAction
 import com.intellij.codeInsight.intention.preview.IntentionPreviewInfo
+import com.intellij.icons.AllIcons
+import com.intellij.ide.util.MemberChooser
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiDocumentManager
@@ -9,6 +16,7 @@ import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.util.PsiTreeUtil
 import com.leko.forge.ide.diagnostics.ForgeProblem
+import com.leko.forge.ide.diagnostics.ForgeUnimplemented
 import com.leko.forge.ide.parser.ForgeNameRole
 import com.leko.forge.intellij.parser.ForgeRuleType
 import com.leko.forge.intellij.psi.ForgeDeclaredName
@@ -18,14 +26,14 @@ import com.leko.forge.intellij.psi.ForgeNameElement
  * Quick fixes (Alt+Enter) for errors of the compiler:
  * - `can not find 'left'` where `this.left` is meant: a child of the node or an attribute;
  * - `can not find 'Stmt'` for a type, `function 'Leaf' not found` for a constructor: creates the node;
- * - `Synthetic attribute 'Expr.type' is not implemented for Num`: adds the equation `syn Num.type`;
+ * - `Synthetic attribute 'Expr.type' is not implemented for Num`: `Implement 'Expr.type' for Num...` chooses (as
+ *   "Implement members" of Kotlin and Java) which of the attributes `Num` does not implement get an equation;
  * - `function 'f' not found`, `method 'R.f' not found`, `attribute 'R.x' not found`: creates the function, the
  *   extension function, the `val` (of a node: the `syn` attribute), with `TODO("not yet implemented")` as value.
  */
 object ForgeQuickFixes {
 
     private val notFound = Regex("(?:can not find|function) '([A-Za-z_][A-Za-z_0-9]*)'(?: not found)?")
-    private val notImplemented = Regex("Synthetic attribute '([A-Za-z_][A-Za-z_0-9]*)\\.([A-Za-z_][A-Za-z_0-9]*)' is not implemented for ([A-Za-z_][A-Za-z_0-9]*)")
 
     private fun PsiElement.rule(): String? = (node.elementType as? ForgeRuleType)?.ruleName
 
@@ -37,12 +45,9 @@ object ForgeQuickFixes {
         problem.fixes.map { InsertFix(it) } + compilerFixes(file, problem)
 
     private fun compilerFixes(file: PsiFile, problem: ForgeProblem): List<IntentionAction> {
+        if (problem.unimplemented.isNotEmpty()) return listOf(ImplementAttributesFix(problem.unimplemented))
         val text = problem.text ?: return emptyList()
         val range = problem.range?.textRange ?: return emptyList()
-        notImplemented.find(text)?.let { match ->
-            val (_, attribute, node) = match.destructured
-            return listOf(ImplementSynFix(node, attribute))
-        }
         val name = notFound.find(text)?.groupValues?.get(1) ?: return emptyList()
         // the name in the range of the error: the compiler reports some on a whole type, e.g. `List<Stmt>`
         val element = PsiTreeUtil.findChildrenOfType(file, ForgeNameElement::class.java)
@@ -131,20 +136,74 @@ object ForgeQuickFixes {
         }
     }
 
-    /** `syn Num.type: Type = TODO("not yet implemented")`, after the other equations of the attribute. */
-    private class ImplementSynFix(private val node: String, private val attribute: String) : Fix() {
-        override fun getText(): String = "Implement 'syn $node.$attribute'"
+    /**
+     * `Implement 'Expr.type' for Num...`: a dialog, as "Implement members" of Kotlin and Java, with the attributes
+     * `Num` does not implement, grouped by their interfaces and all selected. Each one chosen gets an equation
+     * `syn Num.type: Type = TODO("not yet implemented")` after the other equations of the attribute (at the end of
+     * the file if there are none); the caret goes to the first TODO.
+     */
+    private class ImplementAttributesFix(private val missing: List<ForgeUnimplemented>) : Fix() {
+        private val first = missing.first()
+
+        override fun getText(): String = "Implement '${first.owner}.${first.attribute}' for ${first.node}..."
+
+        // the dialog is shown before the change, which is a command of its own
+        override fun startInWriteAction(): Boolean = false
 
         override fun invoke(project: Project, editor: Editor?, file: PsiFile) {
-            val declarations = PsiTreeUtil.findChildrenOfType(file, ForgeDeclaredName::class.java)
-                .filter { it.role == ForgeNameRole.ATTRIBUTE && it.name == attribute && it.parent?.rule() == "SynDef" }
-            val definition = declarations.firstOrNull { decl -> decl.parent.text.let { !it.contains("=") } } ?: declarations.firstOrNull() ?: return
-            val type = definition.parent.text.substringAfter(":", "").substringBefore("=").trim().ifEmpty { "int" }
-            val document = document(project, file)
-            val anchor = declarations.maxOf { it.parent.textRange.endOffset }
-            val lineEnd = document.getLineEndOffset(document.getLineNumber(anchor))
-            document.insertString(lineEnd, "\nsyn $node.$attribute: $type = TODO(\"not yet implemented\")")
-            commit(project, file)
+            val members = missing.map(::AttributeMember)
+            val chosen = if (ApplicationManager.getApplication().isUnitTestMode) {
+                members
+            } else {
+                val chooser = MemberChooser(members.toTypedArray(), false, true, project)
+                chooser.title = "Implement Attributes of ${first.node}"
+                chooser.setCopyJavadocVisible(false)
+                chooser.selectElements(members.toTypedArray())
+                if (!chooser.showAndGet()) return
+                chooser.selectedElements.orEmpty()
+            }
+            if (chosen.isEmpty()) return
+            WriteCommandAction.writeCommandAction(project, file).withName("Implement Attributes").run<RuntimeException> {
+                implement(project, editor, file, chosen.map { it.attribute })
+            }
         }
+
+        private fun implement(project: Project, editor: Editor?, file: PsiFile, attributes: List<ForgeUnimplemented>) {
+            val document = document(project, file)
+            PsiDocumentManager.getInstance(project).commitDocument(document)
+            val equations = PsiTreeUtil.findChildrenOfType(file, ForgeDeclaredName::class.java)
+                .filter { it.role == ForgeNameRole.ATTRIBUTE && it.parent?.rule() == "SynDef" }
+                .groupBy({ it.name }, { it.parent.textRange.endOffset })
+            fun equation(a: ForgeUnimplemented) = "syn ${a.node}.${a.attribute}: ${a.type} = TODO(\"not yet implemented\")"
+            // after the last equation of the attribute: the end of its line; null for the end of the file
+            val byAnchor = attributes.groupBy { a ->
+                equations[a.attribute]?.max()?.let { document.getLineEndOffset(document.getLineNumber(it)) }
+            }
+            // from the end, so that the offsets before stay where they are
+            for ((anchor, here) in byAnchor.entries.sortedByDescending { it.key ?: Int.MAX_VALUE }) {
+                if (anchor != null) {
+                    document.insertString(anchor, here.joinToString("") { "\n" + equation(it) })
+                } else {
+                    val separator = if (document.textLength == 0 || document.charsSequence.endsWith("\n")) "" else "\n"
+                    document.insertString(document.textLength, separator + here.joinToString("") { equation(it) + "\n" })
+                }
+            }
+            commit(project, file)
+            val firstEquation = document.charsSequence.indexOf(equation(attributes.first()))
+            if (firstEquation >= 0) editor?.caretModel?.moveToOffset(document.charsSequence.indexOf("TODO(", firstEquation))
+        }
+    }
+
+    /** An attribute in the dialog of [ImplementAttributesFix], under its interface. */
+    private class AttributeMember(val attribute: ForgeUnimplemented) :
+        MemberChooserObjectBase("${attribute.attribute}: ${attribute.type}", AllIcons.Nodes.Property), ClassMember {
+        override fun getParentNodeDelegate(): MemberChooserObject = InterfaceGroup(attribute.owner)
+        override fun equals(other: Any?): Boolean = other is AttributeMember && other.attribute == attribute
+        override fun hashCode(): Int = attribute.hashCode()
+    }
+
+    private class InterfaceGroup(val name: String) : MemberChooserObjectBase(name, AllIcons.Nodes.Interface) {
+        override fun equals(other: Any?): Boolean = other is InterfaceGroup && other.name == name
+        override fun hashCode(): Int = name.hashCode()
     }
 }

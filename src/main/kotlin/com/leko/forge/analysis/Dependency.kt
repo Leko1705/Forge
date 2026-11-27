@@ -30,6 +30,11 @@ class Dependency private constructor(context: Context) {
 
     private val chk = Check.instance(context)
 
+    /**
+     * The syn attributes of interfaces that concrete nodes do not implement, in the order they are reported; for
+     * the editors, which offer to implement them.
+     */
+    val unimplemented = mutableListOf<Pair<ConcreteNodeSymbol, SynSymbol>>()
 
     fun check(root: ForgeParser.RootContext) {
         checkAllInterfaceSynsAreImplemented()
@@ -52,6 +57,7 @@ class Dependency private constructor(context: Context) {
                     val found = implementations.find { decl.name == it.name }
                     if (found == null && parent in forwarded) continue
                     if (found == null) {
+                        unimplemented += concreteNode to decl
                         log.diag(
                             missingSynAttributeImplementationFor(
                                 decl.span,

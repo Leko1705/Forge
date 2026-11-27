@@ -639,9 +639,10 @@ the compiler itself, so the editor sees what `forge -f` sees:
 - **Parameter info** (`Ctrl+P`, and on its own after `(`) in calls of functions, methods, constructors of nodes and
   records and enum constants, with the argument of the caret; also while the call is typed.
 - **Quick fixes** (`Alt+Enter`) for errors of the compiler: `left` -> `this.left` for a child or an attribute, create
-  a missing node, implement a `syn` attribute a node is missing; create a function, an extension function or a
-  `val` (of a node: a `syn` attribute) that is used but not declared, with the types of the arguments and what is
-  expected where it is used. Their value is `TODO("not yet implemented")` until it is written.
+  a missing node, `Implement 'Expr.type' for Num...` (a dialog, as "Implement members" in Kotlin and Java, to choose
+  which of the `syn` attributes of its interfaces the node gets equations for); create a function, an extension
+  function or a `val` (of a node: a `syn` attribute) that is used but not declared, with the types of the arguments
+  and what is expected where it is used. Their value is `TODO("not yet implemented")` until it is written.
 - **Structure view** (`Alt+7`) of the declarations, with the fields, children and enum constants of a type, the
   declarations of modules and the members of traits, and
   **Go to Symbol / Go to Class** (`Ctrl+Alt+Shift+N`, `Ctrl+N`) over the declarations of all .forge files.

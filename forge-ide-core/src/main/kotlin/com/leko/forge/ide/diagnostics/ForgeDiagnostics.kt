@@ -2,6 +2,8 @@ package com.leko.forge.ide.diagnostics
 
 import ForgeParser
 import com.leko.forge.analysis.Dependency
+import com.leko.forge.analysis.missingSynAttributeImplementationFor
+import com.leko.forge.types.displayName
 import com.leko.forge.attr.Attr
 import com.leko.forge.attr.clearTreeAttributes
 import com.leko.forge.attr.symbol
@@ -47,7 +49,15 @@ data class ForgeProblem(
     val text: String? = null,
     /** Changes that fix it, e.g. creating a function that is missing. */
     val fixes: List<ForgeFix> = emptyList(),
+    /**
+     * For a node that does not implement a syn attribute of its interfaces: all the attributes it does not implement,
+     * the one of this problem first; editors offer to implement them.
+     */
+    val unimplemented: List<ForgeUnimplemented> = emptyList(),
 )
+
+/** A syn attribute `owner.attribute: type` of an interface that [node] does not implement. */
+data class ForgeUnimplemented(val node: String, val owner: String, val attribute: String, val type: String)
 
 /** The text of a file to analyze, with the file on disk its imports are relative to. */
 data class ForgeSource(val text: String, val file: File?)
@@ -91,6 +101,7 @@ object ForgeDiagnostics {
 
         var fixes: List<ForgeFix> = emptyList()
         var todos: List<ForgeProblem> = emptyList()
+        var unimplemented: List<ForgeUnimplemented> = emptyList()
         val diagnostics = try {
             synchronized(ForgeSemantics.lock) {
                 try {
@@ -105,6 +116,9 @@ object ForgeDiagnostics {
                     // while the attributes of the analysis are there
                     fixes = ForgeMissingDeclarations(context, source.text).fixes(main)
                     todos = todos(main)
+                    unimplemented = Dependency.instance(context).unimplemented.map { (node, syn) ->
+                        ForgeUnimplemented(node.name, syn.owner.name, syn.name, syn.type.toString())
+                    }
                     Log.instance(context).diagnostics.toList()
                 } finally {
                     clearTreeAttributes()
@@ -129,15 +143,21 @@ object ForgeDiagnostics {
             val message = "${d.message} [${d.code}]"
             val span = d.span
             val spanPath = span?.source?.let { runCatching { File(it).canonicalPath }.getOrNull() }
+            // the attributes to implement, if this is the error of one a node does not implement
+            val missing = unimplemented.find { d.message == missingSynAttributeImplementationFor(null, it.node, "${it.owner}.${it.attribute}").message }
+                ?.let { first -> listOf(first) + unimplemented.filter { it.node == first.node && it != first } }
+                .orEmpty()
+                // as they are written
+                .map { it.copy(node = displayName(it.node), owner = displayName(it.owner)) }
             problems += when {
-                span == null || span.startLine <= 0 -> ForgeProblem(severity, message, null)
+                span == null || span.startLine <= 0 -> ForgeProblem(severity, message, null, unimplemented = missing)
                 // in this file: the main tree has the path of the file, or no source name without a file
                 span.source == null || spanPath == mainPath -> {
                     val range = positions.range(span)
-                    ForgeProblem(severity, message, range, d.message, fixes.filter { it.name >= range.start && it.name < range.end }.distinctBy { it.title })
+                    ForgeProblem(severity, message, range, d.message, fixes.filter { it.name >= range.start && it.name < range.end }.distinctBy { it.title }, missing)
                 }
                 // in an imported file: on its import, or on the file if it is imported indirectly
-                else -> ForgeProblem(severity, "${File(span.source!!).name}:${span.startLine}:${span.startCol}: $message", imports[spanPath])
+                else -> ForgeProblem(severity, "${File(span.source!!).name}:${span.startLine}:${span.startCol}: $message", imports[spanPath], unimplemented = missing)
             }
         }
         return problems

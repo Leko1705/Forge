@@ -71,8 +71,30 @@ class ForgeQuickFixTest : BasePlatformTestCase() {
     fun testImplementSyn() {
         fix(
             "node Expr\nnode Num(value: int): Expr\nnode Add(l: Expr, r: Expr): Expr\nsyn Expr.<caret>type: str\nsyn Add.type: str = \"add\"",
-            "Implement 'syn Num.type'",
+            "Implement 'Expr.type' for Num...",
             "node Expr\nnode Num(value: int): Expr\nnode Add(l: Expr, r: Expr): Expr\nsyn Expr.type: str\nsyn Add.type: str = \"add\"\nsyn Num.type: str = TODO(\"not yet implemented\")",
+        )
+    }
+
+    /** All the attributes the node does not implement, of all its interfaces (the dialog selects all of them). */
+    fun testImplementAllMissingAttributes() {
+        val nodes = "node Expr\nnode Typed\nnode Num(value: int): Expr\nnode Add(l: Expr, r: Expr): Expr\nfor Num impl Typed\n"
+        fix(
+            nodes + "syn Expr.<caret>type: str\nsyn Add.type: str = \"add\"\nsyn Expr.size: int\nsyn Add.size: int = 2\n" +
+                "syn Typed.names: List<str>",
+            "Implement 'Expr.type' for Num...",
+            nodes + "syn Expr.type: str\nsyn Add.type: str = \"add\"\nsyn Num.type: str = TODO(\"not yet implemented\")\n" +
+                "syn Expr.size: int\nsyn Add.size: int = 2\nsyn Num.size: int = TODO(\"not yet implemented\")\n" +
+                "syn Typed.names: List<str>\nsyn Num.names: List<str> = TODO(\"not yet implemented\")",
+        )
+    }
+
+    /** A node of a module: named as it is written, also in the module. */
+    fun testImplementSynOfANodeInAModule() {
+        fix(
+            "mod m {\n    node Expr\n    node Num(v: int): Expr\n    syn Expr.<caret>type: str\n}",
+            "Implement 'm::Expr.type' for m::Num...",
+            "mod m {\n    node Expr\n    node Num(v: int): Expr\n    syn Expr.type: str\nsyn m::Num.type: str = TODO(\"not yet implemented\")\n}",
         )
     }
 }
