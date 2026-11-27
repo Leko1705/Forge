@@ -9,3 +9,6 @@ include("forge-ide-core")
 include("forge-intellij")
 // the language server (LSP) for .forge files, for VS Code and other editors
 include("forge-lsp")
+// the TScript example: a language defined in Forge (examples/tscript)
+include("tscript")
+project(":tscript").projectDir = file("examples/tscript")

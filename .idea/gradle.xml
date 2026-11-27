@@ -8,6 +8,7 @@
         <option name="modules">
           <set>
             <option value="$PROJECT_DIR$" />
+            <option value="$PROJECT_DIR$/examples/tscript" />
             <option value="$PROJECT_DIR$/forge-ide-core" />
             <option value="$PROJECT_DIR$/forge-intellij" />
             <option value="$PROJECT_DIR$/forge-lsp" />
