@@ -37,6 +37,20 @@ class CheckTest {
     """
 
     @Test
+    fun namesInAListMustDiffer() {
+        assertError("field 'rhs' already defined for node Sub", "node Expr\nnode Sub(rhs: Expr, rhs: Expr): Expr")
+        assertError("field 'a' already defined for record R", "record R { a: int, a: str }")
+        assertError("field 'a' already defined for X", "enum E { X(a: int, a: int) }")
+        assertError("item 'A' already defined for enum E", "enum E { A, A }")
+        assertError("parameter 'x' already defined for f", "fun f(x: int, x: int): int = x")
+        assertError("parameter 'y' already defined for P.g", "record P { a: int }\nfun P.g(y: int, y: int): int = y")
+        assertError("parameter 'a' already defined for the lambda", "fun k(): (int, int) -> int = { a, a -> a }")
+        assertError("field 'a' already defined for node m::X", "mod m { node X(a: int, a: int) }")
+        // `_` is no name
+        assertEquals(emptyList(), errors("fun k(): (int, int) -> int = { _, _ -> 1 }"))
+    }
+
+    @Test
     fun theTypesOfFieldsMustExist() {
         assertError("can not find 'Stmt'", "node Program(stmts: List<Stmt>)")
         assertError("can not find 'Missing'", "record R { a: Missing? }")

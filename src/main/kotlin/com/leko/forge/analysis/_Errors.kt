@@ -163,6 +163,15 @@ fun attributeAlreadyDefined(span: SourceSpan?, owner: String, attrName: String):
         "attribute '$attrName' already defined for $owner"
     )
 
+/** A name that a list declares twice: `field 'rhs' already defined for node Sub`, `parameter 'x' already defined for f`. */
+fun nameAlreadyDefined(span: SourceSpan?, kind: String, name: String, owner: String): Diagnostic =
+    Diagnostic(
+        Severity.ERROR,
+        span,
+        "E007",
+        "$kind '$name' already defined for $owner"
+    )
+
 fun attributeNotFound(span: SourceSpan?, owner: String, attrName: String): Diagnostic =
     Diagnostic(
         Severity.ERROR,

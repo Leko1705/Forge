@@ -15,6 +15,9 @@ import com.leko.forge.types.TypeVar
 import com.leko.forge.types.Type
 import com.leko.forge.parse.isStd
 import com.leko.forge.util.Log
+import com.leko.forge.types.displayName
+import org.antlr.v4.runtime.Token
+import org.antlr.v4.runtime.tree.ParseTree
 
 
 class Enter private constructor(context: Context) {
@@ -32,6 +35,7 @@ class Enter private constructor(context: Context) {
     fun enter(root: ForgeParser.RootContext) {
         // `fun show(x: Printable)` is `fun <T: Printable> show(x: T)`
         desugarTraitParameters(root)
+        checkDuplicateNames(root)
         Builtins.enter(symTab, typeMap)
         for (node in root.nodeDef()) {
             if (node.LPAREN() == null) {
@@ -231,6 +235,33 @@ class Enter private constructor(context: Context) {
             symTab[sym.type] = sym
             graph.setSym(sym)
         }
+    }
+
+    /**
+     * The fields of a node, a record or an enum item, the items of an enum and the parameters of a function, a
+     * method, a member of a trait or a lambda each need a name of their own: the second of two is an error.
+     */
+    private fun checkDuplicateNames(tree: ParseTree) {
+        fun check(names: List<Token?>, kind: String, owner: () -> String) {
+            val seen = mutableSetOf<String>()
+            for (name in names) {
+                if (name == null || name.startIndex < 0) continue
+                if (!seen.add(name.text)) log.diag(nameAlreadyDefined(name.span, kind, name.text, owner()))
+            }
+        }
+        when (tree) {
+            is ForgeParser.NodeDefContext -> check(tree.parameter().map { it.name }, "field") { "node ${displayName(tree.name.text)}" }
+            is ForgeParser.RecordContext -> check(tree.recordField().map { it.name }, "field") { "record ${displayName(tree.name.text)}" }
+            is ForgeParser.EnumContext -> check(tree.enumItem().map { it.name }, "item") { "enum ${displayName(tree.name.text)}" }
+            is ForgeParser.EnumItemContext -> check(tree.parameter().map { it.name }, "field") { tree.name.text }
+            is ForgeParser.FunctionContext -> check(tree.parameter().map { it.name }, "parameter") {
+                (tree.receiver?.text?.let { "$it." } ?: "") + tree.name.text
+            }
+            is ForgeParser.TraitMemberContext -> check(tree.parameter().map { it.name }, "parameter") { tree.name.text }
+            is ForgeParser.LambdaContext -> check(tree.lambdaParam().map { it.name }, "parameter") { "the lambda" }
+            is ForgeParser.TrailingLambdaContext -> check(tree.lambdaParam().map { it.name }, "parameter") { "the lambda" }
+        }
+        for (i in 0 until tree.childCount) checkDuplicateNames(tree.getChild(i))
     }
 }
 
