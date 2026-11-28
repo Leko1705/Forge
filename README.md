@@ -641,8 +641,8 @@ the compiler itself, so the editor sees what `forge -f` sees:
 - **Parameter info** (`Ctrl+P`, and on its own after `(`) in calls of functions, methods, constructors of nodes and
   records and enum constants, with the argument of the caret; also while the call is typed.
 - **Quick fixes** (`Alt+Enter`) for errors of the compiler: `left` -> `this.left` for a child or an attribute, create
-  a missing node, `Implement 'Expr.type' for Num...` (a dialog, as "Implement members" in Kotlin and Java, to choose
-  which of the `syn` attributes of its interfaces the node gets equations for), `Add remaining cases` on a `match`
+  a missing node, `Implement 'syn Expr.type'...` (a dialog, as "Implement members" in Kotlin and Java, to choose
+  which of the nodes that do not implement the attribute get equations for it), `Add remaining cases` on a `match`
   of an enum (a case for each item it misses, with its fields bound); create a function, an extension function or a
   `val` (of a node: a `syn` attribute) that is used but not declared, with the types of the arguments and what is
   expected where it is used. Their value is `TODO("not yet implemented")` until it is written.

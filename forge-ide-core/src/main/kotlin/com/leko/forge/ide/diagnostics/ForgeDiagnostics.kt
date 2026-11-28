@@ -52,8 +52,8 @@ data class ForgeProblem(
     /** Changes that fix it, e.g. creating a function that is missing. */
     val fixes: List<ForgeFix> = emptyList(),
     /**
-     * For a node that does not implement a syn attribute of its interfaces: all the attributes it does not implement,
-     * the one of this problem first; editors offer to implement them.
+     * For a syn attribute of an interface that nodes do not implement: the nodes, in the first of their problems (the
+     * others have none, as they are at the same place); editors offer to implement it for them.
      */
     val unimplemented: List<ForgeUnimplemented> = emptyList(),
 )
@@ -139,6 +139,8 @@ object ForgeDiagnostics {
         problems += todos
         problems += assists
         val mainPath = source.file?.canonicalPath
+        // the attributes whose nodes are given to a problem already
+        val offered = mutableSetOf<Pair<String, String>>()
         for (d in diagnostics) {
             val severity = when (d.severity) {
                 Severity.ERROR -> ForgeSeverity.ERROR
@@ -148,9 +150,10 @@ object ForgeDiagnostics {
             val message = "${d.message} [${d.code}]"
             val span = d.span
             val spanPath = span?.source?.let { runCatching { File(it).canonicalPath }.getOrNull() }
-            // the attributes to implement, if this is the error of one a node does not implement
+            // the nodes to implement the attribute for, if this is the first error of one that nodes do not implement
             val missing = unimplemented.find { d.message == missingSynAttributeImplementationFor(null, it.node, "${it.owner}.${it.attribute}").message }
-                ?.let { first -> listOf(first) + unimplemented.filter { it.node == first.node && it != first } }
+                ?.takeIf { offered.add(it.owner to it.attribute) }
+                ?.let { first -> unimplemented.filter { it.owner == first.owner && it.attribute == first.attribute } }
                 .orEmpty()
                 // as they are written
                 .map { it.copy(node = displayName(it.node), owner = displayName(it.owner)) }

@@ -11,6 +11,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
@@ -26,8 +27,8 @@ import com.leko.forge.intellij.psi.ForgeNameElement
  * Quick fixes (Alt+Enter) for errors of the compiler:
  * - `can not find 'left'` where `this.left` is meant: a child of the node or an attribute;
  * - `can not find 'Stmt'` for a type, `function 'Leaf' not found` for a constructor: creates the node;
- * - `Synthetic attribute 'Expr.type' is not implemented for Num`: `Implement 'Expr.type' for Num...` chooses (as
- *   "Implement members" of Kotlin and Java) which of the attributes `Num` does not implement get an equation;
+ * - `Synthetic attribute 'Expr.type' is not implemented for Num`: `Implement 'syn Expr.type'...` chooses (as
+ *   "Implement members" of Kotlin and Java) which of the nodes that do not implement it get an equation;
  * - a `match` of an enum without a case for each item: `Add remaining cases` (computed by the analysis);
  * - `function 'f' not found`, `method 'R.f' not found`, `attribute 'R.x' not found`: creates the function, the
  *   extension function, the `val` (of a node: the `syn` attribute), with `TODO("not yet implemented")` as value.
@@ -138,33 +139,36 @@ object ForgeQuickFixes {
     }
 
     /**
-     * `Implement 'Expr.type' for Num...`: a dialog, as "Implement members" of Kotlin and Java, with the attributes
-     * `Num` does not implement, grouped by their interfaces and all selected. Each one chosen gets an equation
+     * `Implement 'syn Expr.type'...`: a dialog, as "Implement members" of Kotlin and Java, with the nodes that do not
+     * implement the attribute, all selected. Each one chosen gets an equation
      * `syn Num.type: Type = TODO("not yet implemented")` after the other equations of the attribute (at the end of
      * the file if there are none); the caret goes to the first TODO.
      */
     private class ImplementAttributesFix(private val missing: List<ForgeUnimplemented>) : Fix() {
         private val first = missing.first()
 
-        override fun getText(): String = "Implement '${first.owner}.${first.attribute}' for ${first.node}..."
+        override fun getText(): String = "Implement 'syn ${first.owner}.${first.attribute}'..."
 
         // the dialog is shown before the change, which is a command of its own
         override fun startInWriteAction(): Boolean = false
 
         override fun invoke(project: Project, editor: Editor?, file: PsiFile) {
-            val members = missing.map(::AttributeMember)
+            val members = missing.map(::NodeMember)
+            val chooser = MemberChooser(members.toTypedArray(), false, true, project)
+            chooser.title = "Implement syn ${first.owner}.${first.attribute}"
+            chooser.setCopyJavadocVisible(false)
+            chooser.selectElements(members.toTypedArray())
+            // tests take what the dialog selects at first; they can not show it
             val chosen = if (ApplicationManager.getApplication().isUnitTestMode) {
-                members
+                // as if OK was pressed: the dialog has its selection only then
+                chooser.close(DialogWrapper.OK_EXIT_CODE)
+                chooser.selectedElements.orEmpty()
             } else {
-                val chooser = MemberChooser(members.toTypedArray(), false, true, project)
-                chooser.title = "Implement Attributes of ${first.node}"
-                chooser.setCopyJavadocVisible(false)
-                chooser.selectElements(members.toTypedArray())
                 if (!chooser.showAndGet()) return
                 chooser.selectedElements.orEmpty()
             }
             if (chosen.isEmpty()) return
-            WriteCommandAction.writeCommandAction(project, file).withName("Implement Attributes").run<RuntimeException> {
+            WriteCommandAction.writeCommandAction(project, file).withName("Implement Attribute").run<RuntimeException> {
                 implement(project, editor, file, chosen.map { it.attribute })
             }
         }
@@ -195,11 +199,14 @@ object ForgeQuickFixes {
         }
     }
 
-    /** An attribute in the dialog of [ImplementAttributesFix], under its interface. */
-    private class AttributeMember(val attribute: ForgeUnimplemented) :
-        MemberChooserObjectBase("${attribute.attribute}: ${attribute.type}", AllIcons.Nodes.Property), ClassMember {
+    /**
+     * A node in the dialog of [ImplementAttributesFix]: `Num` for `syn Num.type`, under the interface of the attribute
+     * (the dialog needs a parent for each member).
+     */
+    private class NodeMember(val attribute: ForgeUnimplemented) :
+        MemberChooserObjectBase(attribute.node, AllIcons.Nodes.Class), ClassMember {
         override fun getParentNodeDelegate(): MemberChooserObject = InterfaceGroup(attribute.owner)
-        override fun equals(other: Any?): Boolean = other is AttributeMember && other.attribute == attribute
+        override fun equals(other: Any?): Boolean = other is NodeMember && other.attribute == attribute
         override fun hashCode(): Int = attribute.hashCode()
     }
 
