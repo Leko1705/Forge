@@ -131,7 +131,10 @@ comes first.
 logarithm of its size); the other functions on lists are made of them. A program can write its own the same way:
 functions may call themselves, only attributes and constants must not depend on themselves.
 
-Part of the language rather than of std.forge: the operators and the graph declarations (`Graph`, `Edge`, `Vertex`, `graphOf`, `Span`, `spanOf`).
+Part of the language rather than of std.forge: the operators and the types the runtimes define, `Graph`, `Edge`,
+`Vertex` and `Span`. Their functions are declared in std.forge like the others (`ext fun graphOf(...)`,
+`ext fun spanOf(...)`, `ext fun Graph.succ(...)`, ...), so every function has a declaration in Forge, which editors go
+to and show the documentation of.
 
 `Nothing` can also be written: a function or attribute of type `Nothing` never returns, so its value must be of type
 `Nothing` too (a `fail`, or a call of another such function), and a call of it fits wherever a value is expected:

@@ -87,6 +87,19 @@ class ForgeNavigationTest : BasePlatformTestCase() {
         assertEquals("upper", (target as ForgeNameElement).name)
     }
 
+    /** The functions of the builtin types are declared in the standard library too: `spanOf`, `graphOf`, `g.succ`. */
+    fun testNavigationToTheFunctionsOfBuiltinTypes() {
+        val jar = STD_SOURCE.let { ForgeSemantics::class.java.getResource("/forge/$it")!!.path.substringAfter("file:").substringBefore("!") }
+        VfsRootAccess.allowRootAccess(testRootDisposable, jar)
+        val text = "node A(n: int)\nfun s(a: A): Span? = spanOf(a)\nfun g(a: A): Graph = graphOf(a, [])\nfun n(a: A): int = g(a).succ(a).size"
+        for ((marker, name) in listOf("= spanOf" to "spanOf", "= graphOf" to "graphOf", ").succ" to "succ")) {
+            val target = target(marker, text)
+            assertNotNull(marker, target)
+            assertEquals(marker, STD_SOURCE, target!!.containingFile.name)
+            assertEquals(marker, name, (target as ForgeNameElement).name)
+        }
+    }
+
     fun testFindUsages() {
         val offset = program.indexOf("syn Expr.") + "syn Expr.".length
         myFixture.configureByText("a.forge", program.substring(0, offset) + "<caret>" + program.substring(offset))

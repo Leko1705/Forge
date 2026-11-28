@@ -4,8 +4,8 @@
 // code, generated into a compiler only if it uses them. All are methods or properties (except `char` and `fail`),
 // and a program that declares one with the same receiver and name uses its own.
 //
-// Part of the language rather than of this file: the operators (`++`, `in`, `xs[i]`, `xs[a:b]`, ...) and the
-// graph declarations (`Graph`, `Edge`, `Vertex`, `graphOf`, `Span`, `spanOf`).
+// Part of the language rather than of this file: the operators (`++`, `in`, `xs[i]`, `xs[a:b]`, ...) and the types
+// the runtimes define (`Graph`, `Edge`, `Vertex`, `Span`). Their functions are declared here, at the end.
 
 // ---- builtins ------------------------------------------------------------------------------------------
 
@@ -525,3 +525,55 @@ fun <K, V> Map<K, V>.entries(): List<(K, V)> = this.keys().map { (it, this[it]) 
  */
 fun <K, V, R> Map<K, V>.mapValues(f: (V) -> R): Map<K, R> = this.keys().fold(empty) { acc, k -> acc ++ {k: f(this[k])} }
     where empty: Map<K, R> = {:}
+
+// ---- graphs and spans ------------------------------------------------------------------------------------
+// `Vertex`, `Edge`, `Graph` and `Span` are types of the runtimes; their functions are these. Vertices are compared
+// by identity.
+
+/**
+ * A graph of [edges], entered at [entry]: its vertices are those of the edges and [entry], e.g. a call graph,
+ * `graphOf(f, [Edge(f, g, "calls")])`.
+ */
+ext fun graphOf(entry: Vertex, edges: List<Edge>): Graph
+
+/**
+ * Where a parser read the node [n]: its `source`, `line`, `column`, `offset`, `length` and `text`; `null` for a
+ * node that was not parsed. Nodes built from it, e.g. by a `child syn`, have the span of the node they were built for.
+ */
+ext fun spanOf(n: Vertex): Span?
+
+/** The vertices an edge from [v] leads to, in the order of the edges; none for a vertex not in the graph. */
+ext fun Graph.succ(v: Vertex): List<Vertex>
+
+/** The vertices with an edge to [v], in the order of the edges. */
+ext fun Graph.pred(v: Vertex): List<Vertex>
+
+/** The edges from [v]. */
+ext fun Graph.outEdges(v: Vertex): List<Edge>
+
+/** The edges to [v]. */
+ext fun Graph.inEdges(v: Vertex): List<Edge>
+
+/** Whether [v] is one of the graph. */
+ext fun Graph.contains(v: Vertex): bool
+
+/** The position of [v] in `vertices`; -1 if it is not one of the graph. */
+ext fun Graph.indexOf(v: Vertex): int
+
+/**
+ * The vertex the port named [name] that is unbound at the root of a flow graph leads to, e.g. the end of a function for
+ * `g.exit("next")`; `null` if no such port.
+ */
+ext fun Graph.exit(name: str): Vertex?
+
+/** The vertices reachable from `entry`, in depth-first preorder. */
+ext fun Graph.reachable(): List<Vertex>
+
+/** The vertices reachable from `entry` in postorder: each after those it leads to. */
+ext fun Graph.postorder(): List<Vertex>
+
+/** The vertices reachable from `entry` in reverse postorder, the order of data flow analyses going forward. */
+ext fun Graph.reversePostorder(): List<Vertex>
+
+/** The graph in the dot language of Graphviz. */
+ext fun Graph.toDot(): str

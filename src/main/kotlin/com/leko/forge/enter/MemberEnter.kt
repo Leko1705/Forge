@@ -441,7 +441,7 @@ class MemberEnter private constructor(context: Context) {
                     isOperator = func.op != null,
                     typeParams = typeParams,
                     isProperty = property,
-                    builtin = if (func.EXT() != null && func.isStd()) builtinKey(receiver, func.name.text) else null,
+                    builtin = if (func.EXT() != null && func.isStd() && !isRuntimeFunction(receiver.toString(), func.name.text)) builtinKey(receiver, func.name.text) else null,
                     bounds = func.typeParams().bounds(),
                 )
                 if (func.op != null) checkOperator(func, sym)

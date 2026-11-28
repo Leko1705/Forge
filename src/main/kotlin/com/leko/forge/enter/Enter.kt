@@ -121,7 +121,7 @@ class Enter private constructor(context: Context) {
                 func.ty.toType().withTypeParams(typeParams),
                 func.name.span,
                 typeParams = typeParams,
-                builtin = if (func.EXT() != null && func.isStd()) func.name.text else null,
+                builtin = if (func.EXT() != null && func.isStd() && !isRuntimeFunction(null, func.name.text)) func.name.text else null,
                 bounds = func.typeParams().bounds(),
             )
             // hidden by one of the program: only the standard library itself uses it

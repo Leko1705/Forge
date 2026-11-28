@@ -6,6 +6,7 @@ import com.leko.forge.model.EDGE
 import com.leko.forge.model.GRAPH
 import com.leko.forge.model.SPAN
 import com.leko.forge.model.VERTEX
+import com.leko.forge.model.RUNTIME_FUNCTIONS
 import com.leko.forge.types.*
 
 /**
@@ -102,7 +103,7 @@ internal class TargetSupport(val module: LLIRModule) {
     /** Builtin functions and methods, provided by every runtime. */
     fun isBuiltinCall(call: Call): Boolean {
         val owner = call.target.receiver
-        return (owner == null && call.target.body == null && call.target.name in setOf("graphOf", "spanOf")) ||
+        return (owner == null && call.target.body == null && call.target.name in RUNTIME_FUNCTIONS) ||
             (owner is ComplexType && owner.name == GRAPH) || owner is FlowGraphType
     }
 

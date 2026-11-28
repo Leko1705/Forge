@@ -384,6 +384,17 @@ const val GRAPH = "Graph"
 const val EDGE = "Edge"
 const val SPAN = "Span"
 
+/**
+ * The `ext fun`s of the standard library that the runtimes define as functions of their own, which the targets call
+ * by name (`spanOf(node)`, `g.succ(v)`), unlike the other builtins, whose code each target writes where they are used
+ * (`str.upper`): the functions without receiver named here, and the methods of [GRAPH].
+ */
+val RUNTIME_FUNCTIONS = setOf("graphOf", "spanOf")
+
+/** Whether the `ext fun` [name] of the standard library, of [receiver] (`null` for none), is one of [RUNTIME_FUNCTIONS]. */
+fun isRuntimeFunction(receiver: String?, name: String): Boolean =
+    if (receiver == null) name in RUNTIME_FUNCTIONS else receiver == GRAPH
+
 /** The names of the functions `op fun` can define. */
 val OPERATORS = setOf(
     "plus", "minus", "times", "div", "rem", "concat", "shl", "shr", "ushr", "compareTo", "contains", "get", "slice",
