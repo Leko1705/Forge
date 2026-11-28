@@ -1,5 +1,7 @@
 package com.leko.forge.intellij
 
+import com.intellij.codeInsight.lookup.Lookup
+import com.intellij.codeInsight.template.impl.TemplateManagerImpl
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 
 class ForgeCompletionTest : BasePlatformTestCase() {
@@ -112,5 +114,40 @@ class ForgeCompletionTest : BasePlatformTestCase() {
     fun testNothingInCommentsAndStrings() {
         assertEquals(emptyList<String>(), complete("// this.<caret>"))
         assertEquals(emptyList<String>(), complete("const s = \"this.<caret>\""))
+    }
+
+    /** Completes [code] (after the program) and chooses [name]. */
+    private fun choose(code: String, name: String) {
+        TemplateManagerImpl.setTemplateTesting(testRootDisposable)
+        myFixture.configureByText("a.forge", "$program\n$code")
+        val elements = myFixture.completeBasic()
+        if (elements != null) {
+            myFixture.lookup.currentItem = elements.first { it.lookupString == name }
+            myFixture.finishLookup(Lookup.NORMAL_SELECT_CHAR)
+        }
+    }
+
+    private fun nextField() = TemplateManagerImpl.getTemplateState(myFixture.editor)!!.nextTab()
+
+    fun testALambdaFollowsAFunctionOfOne() {
+        choose("fun f(xs: List<int>): List<int> = xs.ma<caret>", "map")
+        myFixture.checkResult("$program\nfun f(xs: List<int>): List<int> = xs.map { <caret> }")
+    }
+
+    fun testALambdaWithParametersFollowsTheArguments() {
+        choose("fun f(xs: List<int>): int = xs.fol<caret>", "fold")
+        // first the arguments, then the parameters of the lambda, then its body
+        myFixture.checkResult("$program\nfun f(xs: List<int>): int = xs.fold(<caret>) { acc, i ->  }")
+        myFixture.type("0")
+        nextField()
+        nextField()
+        nextField()
+        myFixture.checkResult("$program\nfun f(xs: List<int>): int = xs.fold(0) { acc, i -> <caret> }")
+        assertNull(TemplateManagerImpl.getTemplateState(myFixture.editor))
+    }
+
+    fun testNoLambdaWhereTheCallIsWritten() {
+        choose("fun f(xs: List<int>): List<int> = xs.ma<caret> { it }", "map")
+        myFixture.checkResult("$program\nfun f(xs: List<int>): List<int> = xs.map<caret> { it }")
     }
 }

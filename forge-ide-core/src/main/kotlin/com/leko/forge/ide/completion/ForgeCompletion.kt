@@ -33,7 +33,8 @@ enum class ForgeCandidateKind {
 
 /**
  * A completion: [name] to insert, [type] and [tail] (parameters) to show; [call] if it is called, so that
- * parentheses follow it ([hasParameters]: the caret goes between them).
+ * parentheses follow it ([hasParameters]: the caret goes between them). [lambda] for a function whose last parameter
+ * is a function: it is called with a lambda after it, `xs.map { }`, `xs.fold(init) { acc, x -> }`.
  */
 data class ForgeCandidate(
     val name: String,
@@ -42,7 +43,14 @@ data class ForgeCandidate(
     val tail: String? = null,
     val call: Boolean = false,
     val hasParameters: Boolean = false,
+    val lambda: ForgeTrailingLambda? = null,
 )
+
+/**
+ * The lambda after a call: [arguments] are the names of the parameters before it (in parentheses, none without
+ * them), [parameters] the names of the lambda's own parameters; empty if it has one, `it`, or none.
+ */
+data class ForgeTrailingLambda(val arguments: List<String>, val parameters: List<String>)
 
 /**
  * The completions at [offset] of [text], the text of the file with a dummy identifier at the caret
@@ -338,7 +346,35 @@ class ForgeCompletion(private val text: String, private val offset: Int, private
 
     private fun function(symbol: FunctionSymbol, kind: ForgeCandidateKind) = ForgeCandidate(
         if (symbol.receiver == null) qualified(symbol.name) else symbol.name, kind, symbol.returnType.display(), params(symbol.params), call = true, hasParameters = symbol.params.isNotEmpty(),
+        lambda = (symbol.params.lastOrNull()?.type as? FunctionType)?.let { f ->
+            ForgeTrailingLambda(symbol.params.dropLast(1).map { it.name }, if (f.parameters.size < 2) emptyList() else lambdaParameters(f))
+        },
     )
+
+    /**
+     * Names for the parameters of a lambda of type [f], as the standard library writes them: `acc` for the one of the
+     * result's type that comes first (`{ acc, x -> }` for `fold`), `x`, `y`, ... for type parameters, the initial of
+     * a builtin type, the type's name for nodes, records and enums.
+     */
+    private fun lambdaParameters(f: FunctionType): List<String> {
+        val used = mutableSetOf<String>()
+        var variables = 0
+        return f.parameters.mapIndexed { i, type ->
+            val name = when {
+                i == 0 && type == f.returnType -> "acc"
+                type is com.leko.forge.types.TypeVar -> listOf("x", "y", "z").getOrElse(variables++) { "x" }
+                type == com.leko.forge.types.IntType -> "i"
+                type == com.leko.forge.types.LongType -> "l"
+                type == com.leko.forge.types.FloatType -> "f"
+                type == com.leko.forge.types.StrType -> "s"
+                type == com.leko.forge.types.BoolType -> "b"
+                type is com.leko.forge.types.ListType -> "xs"
+                type is com.leko.forge.types.ComplexType -> qualified(type.name).substringAfterLast("::").replaceFirstChar { it.lowercase() }
+                else -> "x"
+            }
+            generateSequence(name) { null }.plus(generateSequence(2) { it + 1 }.map { "$name$it" }).first { used.add(it) }
+        }
+    }
 
     private fun params(params: List<VarSymbol>) = params.joinToString(", ", "(", ")") { "${it.name}: ${it.type.display()}" }
 

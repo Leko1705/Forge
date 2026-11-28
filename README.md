@@ -637,7 +637,9 @@ the compiler itself, so the editor sees what `forge -f` sees:
   the receiver's type (fields, attributes, `val`s, methods of the program and the standard library, enum constants,
   rules); in expressions the locals in scope, constants, functions, nodes and records (with parentheses), and
   keywords; types in type positions; the nodes, attributes, parsers and rules a declaration names (`syn Num.`
-  offers the attributes `Num` implements); `@u2`, `@infixLeft`, ...; top level keywords at the start of a line.
+  offers the attributes `Num` implements); `@u2`, `@infixLeft`, ...; top level keywords at the start of a line. A
+  function whose last parameter is a function comes with its lambda, as in Kotlin: `xs.map { | }`, and
+  `xs.fold(|) { acc, x -> }` with fields (`Tab`) for the arguments, the lambda's parameters and its body.
 - **Parameter info** (`Ctrl+P`, and on its own after `(`) in calls of functions, methods, constructors of nodes and
   records and enum constants, with the argument of the caret; also while the call is typed.
 - **Quick fixes** (`Alt+Enter`) for errors of the compiler: `left` -> `this.left` for a child or an attribute, create
