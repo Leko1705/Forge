@@ -60,6 +60,24 @@ class CheckTest {
     }
 
     @Test
+    fun aValueIsNotNullWhereAConditionShowsIt() {
+        assertEquals(emptyList(), errors(
+            "record R { a: int, next: R? }\n" +
+            "fun f(x: int?): int = if x != null then x + 1 else 0\n" +
+            "fun g(x: int?): int = if x == null then 0 else x * 2\n" +
+            "fun h(r: R?): int = if r != null && r.next != null then r.next.a else -1\n" +
+            "fun k(x: int?): bool = x == null || x > 3\n" +
+            "fun l(x: int?, y: int?): int = if !(x == null || y == null) then x + y else 0\n" +
+            "fun m(x: int?): List<int> = if x != null then [1].map { it + x } else []\n" +
+            "node Fn(body: Expr)\nnode Expr\nnode Return(expr: Expr): Expr\ninh function: Fn? = null\ncoll Fn.returned: int? = null\n" +
+            "contrib Return -> this.function!!.returned = if returned != null then returned + 1 else 0"))
+        // where the condition does not show it
+        assertError("can not apply '+' on int? and int", "fun f(x: int?): int = if x == null then x + 1 else 0")
+        assertError("can not apply '+' on int? and int", "fun f(x: int?, y: int?): int = if x != null || y != null then x + 1 else 0")
+        assertError("can not apply '+' on int and int?", "fun f(x: int?): int = (if x != null then 1 else 0) + x")
+    }
+
+    @Test
     fun anElvisOnAValueThatIsNeverNullIsAWarning() {
         assertEquals(listOf("unnecessary '?:': the left side is a 'int', which is never null"), warnings("fun f(x: int): int = x ?: 0"))
         assertEquals(emptyList(), warnings("fun f(x: int?): int = x ?: 0\nfun <T> g(x: T, d: T): T = x ?: d\nfun h(): int = null ?: 1"))

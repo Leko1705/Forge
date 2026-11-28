@@ -43,6 +43,11 @@ class Attr private constructor(context: Context) {
          * comprehension: what is expected of the whole helps with `with acc = []`). It is no reason for type arguments.
          */
         val inherited: Boolean = false,
+        /**
+         * The values known not to be null here (smart casts): after `x != null` in `if x != null then ...`, `&&`,
+         * and their opposites in `else` and `||`. See [nullKey] for what a value is.
+         */
+        val nonNull: Set<Any> = emptySet(),
     )
 
 
@@ -130,7 +135,63 @@ class Attr private constructor(context: Context) {
                 log.diag(canNotUseAsValue(ctx.IDENT().span, sym.name, "it is a trait"))
                 return ctx.setType(ErrorType)
             }
-            return ctx.setType(sym.type)
+            return ctx.setType(smartCast(ctx, sym.type))
+        }
+
+        // ---- smart casts: a value of an optional type that a condition showed not to be null ----------------------
+
+        /** [type] without its `?` if [ctx] is a value known not to be null here; the code then takes it as `x!!`. */
+        private fun smartCast(ctx: ForgeParser.ExpressionContext, type: Type): Type {
+            if (type !is OptionalType || env.value.nonNull.isEmpty()) return type
+            val key = nullKey(ctx) ?: return type
+            if (key !in env.value.nonNull) return type
+            ctx.attach("smartCast", type.elem)
+            return type.elem
+        }
+
+        /**
+         * What a value is for smart casts: a variable or parameter (its symbol), `this`, or a field, attribute or
+         * property of such a value (`this.function`, `x.next.value`). Values in Forge never change, so a condition
+         * on one holds wherever it holds, also in lambdas.
+         */
+        private fun nullKey(ctx: ForgeParser.ExpressionContext): Any? = when (ctx) {
+            is ForgeParser.IdentifierContext -> (TreeAttributes.attributes[ctx]?.get("symbol") as? Symbol)?.takeIf { it is VarSymbol }
+            is ForgeParser.ThisExprContext -> "this"
+            is ForgeParser.EnclosedContext -> nullKey(ctx.expression())
+            is ForgeParser.FieldAccessContext -> if (ctx.safe != null) null else {
+                val member = TreeAttributes.attributes[ctx]?.get("symbol") as? Symbol
+                nullKey(ctx.receiver)?.let { receiver -> member?.let { listOf(receiver, it) } }
+            }
+            else -> null
+        }
+
+        /** The values that are not null where [cond] is [holds]: `x != null` true, `x == null` false, ... */
+        private fun nonNullWhere(cond: ForgeParser.ExpressionContext, holds: Boolean): Set<Any> = when (cond) {
+            is ForgeParser.EnclosedContext -> nonNullWhere(cond.expression(), holds)
+            is ForgeParser.InversionContext -> nonNullWhere(cond.expression(), !holds)
+            is ForgeParser.EqualityContext -> {
+                val other = when {
+                    cond.right is ForgeParser.NullValueContext -> cond.left
+                    cond.left is ForgeParser.NullValueContext -> cond.right
+                    else -> null
+                }
+                // `x != null` holds or `x == null` does not
+                val notNull = (cond.NOTEQUALS() != null) == holds
+                if (other != null && notNull) setOfNotNull(nullKey(other)) else emptySet()
+            }
+            // both hold, or (for ||) both do not
+            is ForgeParser.LogicalAndContext -> if (holds) nonNullWhere(cond.left, true) + nonNullWhere(cond.right, true) else emptySet()
+            is ForgeParser.LogicalOrContext -> if (!holds) nonNullWhere(cond.left, false) + nonNullWhere(cond.right, false) else emptySet()
+            else -> emptySet()
+        }
+
+        private inline fun <T> withNonNull(values: Set<Any>, block: () -> T): T {
+            if (values.isEmpty()) return block()
+            val env = this.env
+            this.env = env.copy(value = env.value.copy(nonNull = env.value.nonNull + values))
+            val res = block()
+            this.env = env
+            return res
         }
 
         /**
@@ -971,7 +1032,8 @@ class Attr private constructor(context: Context) {
 
         override fun visitLogicalAnd(ctx: ForgeParser.LogicalAndContext): Type {
             val lhsTy = ctx.left.attribType()
-            val rhsTy = withExpected(lhsTy) { ctx.right.attribType() }
+            // `x != null && x.ok`
+            val rhsTy = withNonNull(nonNullWhere(ctx.left, true)) { withExpected(lhsTy) { ctx.right.attribType() } }
             chk.checkBoolOrInt(lhsTy)
             if (lhsTy is ErrorType) return ctx.setType(chk.checkBoolOrInt(rhsTy))
             chk.checkAssignable(lhsTy, rhsTy)
@@ -980,7 +1042,8 @@ class Attr private constructor(context: Context) {
 
         override fun visitLogicalOr(ctx: ForgeParser.LogicalOrContext): Type {
             val lhsTy = ctx.left.attribType()
-            val rhsTy = withExpected(lhsTy) { ctx.right.attribType() }
+            // `x == null || x.ok`
+            val rhsTy = withNonNull(nonNullWhere(ctx.left, false)) { withExpected(lhsTy) { ctx.right.attribType() } }
             chk.checkBoolOrInt(lhsTy)
             if (lhsTy is ErrorType) return ctx.setType(chk.checkBoolOrInt(rhsTy))
             chk.checkAssignable(lhsTy, rhsTy)
@@ -1043,8 +1106,10 @@ class Attr private constructor(context: Context) {
             return ctx.setType(OptionalType(type))
         }
 
-        override fun visitFieldAccess(ctx: ForgeParser.FieldAccessContext): Type =
-            safeResult(ctx, ctx.safe, ctx.receiver, attribFieldAccess(ctx))
+        override fun visitFieldAccess(ctx: ForgeParser.FieldAccessContext): Type {
+            val type = safeResult(ctx, ctx.safe, ctx.receiver, attribFieldAccess(ctx))
+            return if (ctx.safe == null) ctx.setType(smartCast(ctx, type)) else type
+        }
 
         private fun attribFieldAccess(ctx: ForgeParser.FieldAccessContext): Type {
             val recv = ctx.receiver
@@ -1326,8 +1391,8 @@ class Attr private constructor(context: Context) {
         override fun visitIfElse(ctx: ForgeParser.IfElseContext): Type {
             val cond = ctx.cond.attribType()
             chk.checkAssignable(BoolType, cond)
-            val then = ctx.then.attribType()
-            val alt = ctx.alt.attribType()
+            val then = withNonNull(nonNullWhere(ctx.cond, true)) { ctx.then.attribType() }
+            val alt = withNonNull(nonNullWhere(ctx.cond, false)) { ctx.alt.attribType() }
             return ctx.setType(chk.checkShareCommonSuperType(then, alt, env.value.expected))
         }
 

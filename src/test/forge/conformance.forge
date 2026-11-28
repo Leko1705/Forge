@@ -144,6 +144,10 @@ record Chain { value: int, next: Chain?, label: str?, on: (int) -> int }
 fun Chain.twice(): int = this.value * 2
 val Chain.half: int = this.value / 2
 // a?.b: null if a is
+// smart casts: after `x != null`, x is an int
+fun smartCasts(x: int?, c: Chain?): str = (if x != null then (x + 1).text() else "none") + " " + (if x == null then "none" else (x * 2).text())
+    + " " + (if c != null && c.next != null then c.next.value.text() else "-") + " " + b(x == null || x > 3)
+    + " " + (if c == null then 0 else [1, 2].map { it + c.value }.sum()).text()
 fun safeCalls(c: Chain?): str = opt(c?.value) + " " + opt(c?.next?.value) + " " + opt(c?.twice()) + " " + opt(c?.half)
     + " " + (c?.label?.upper() ?: "-") + " " + opt(c?.on(1))
 fun scale(x: int, f: float): float = x * f
@@ -599,6 +603,8 @@ fun report(): List<str> = attributes(prog()) ++ [
     "merge " + ({"a": 1} ++ {"b": 2} ++ {"a": 3})["a"].text() + " " + ({"a": 1} ++ {"b": 2}).size.text(),
     "lists " + ints([1, 2] ++ [3]) + " " + b(2 in [1, 2]) + " " + b(5 in [1, 2]) + " " + b(4 !in [1]) + " " + [5, 6, 7][1].text(),
     "elvis " + elvis(null) + " " + elvis("x") + " " + opt(null) + " " + opt(4),
+    "smart " + smartCasts(null, null) + "; " + smartCasts(5, Chain(1, Chain(2, null, null, { x -> x }), null, { x -> x }))
+        + "; " + smartCasts(2, Chain(1, null, null, { x -> x })),
     "safe " + safeCalls(null) + "; " + safeCalls(Chain(4, Chain(6, null, null, { x -> x }), "a", { x -> x + 10 }))
         + "; " + safeCalls(Chain(8, null, null, { x -> x * 3 })),
     "floats " + strs(floats()),

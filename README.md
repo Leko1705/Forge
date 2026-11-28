@@ -58,7 +58,9 @@ functions `(int) -> str`, nodes, enums and records (also generic ones: `Pair<int
 `[Push(1), Label("end")]` is a `List<Insn>` if both are `Insn`s.
 Expressions: arithmetic, shifts `<<`, `>>` (keeps the sign) and `>>>`, `++` (lists, sets, maps), `x in xs`, `a ?: b`,
 `x!!`, safe calls `x?.name` and `x?.f(y)` (`null` if `x` is, else of the member's type made optional; as in Kotlin,
-`x?.a.b` needs `?.` before `b` too), `v as T`, `v is T`, `if .. then .. else`, `match` (enum variants, lists `[a, b]`,
+`x?.a.b` needs `?.` before `b` too), smart casts (where a condition shows that a value is not null, it is of its
+type without `?`: `if x != null then x + 1 else 0`, `x == null || x > 3`, `r != null && r.next != null`, also for
+fields `this.f`; no `!!` needed), `v as T`, `v is T`, `if .. then .. else`, `match` (enum variants, lists `[a, b]`,
 `head :: tail`, values, guards `p if cond`), local bindings `e where x = 1`, lambdas `{ x -> x + 1 }`, tuples `(a, b)` and `t.0`, strings with
 expressions `"n = ${n}"`. There are no loops: lists (and sets) are gone through with `map` and `fold` of the
 [standard library](#the-standard-library), `xs.map { it * 2 }`, `xs.fold(0) { acc, x -> acc + x }`, and functions may

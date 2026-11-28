@@ -820,7 +820,15 @@ class LLIR private constructor(private val context: Context) {
             return NotNull(ctx.value.transform(), ctx.type)
         }
 
-        override fun visitIdentifier(ctx: ForgeParser.IdentifierContext): Value {
+        /** A value that a condition showed not to be null is taken as `x!!`, of the type without `?`. */
+        private fun smartCast(ctx: ParserRuleContext, value: Value): Value {
+            val type = TreeAttributes.attributes[ctx]?.get("smartCast") as? Type ?: return value
+            return NotNull(value, type)
+        }
+
+        override fun visitIdentifier(ctx: ForgeParser.IdentifierContext): Value = smartCast(ctx, identifier(ctx))
+
+        private fun identifier(ctx: ForgeParser.IdentifierContext): Value {
             ctx.port?.let { return PortValue(port(it)) }
             return when (val sym = ctx.symbol) {
                 // a function as a value: { a, b -> f(a, b) }
@@ -837,7 +845,9 @@ class LLIR private constructor(private val context: Context) {
             }
         }
 
-        override fun visitFieldAccess(ctx: ForgeParser.FieldAccessContext): Value {
+        override fun visitFieldAccess(ctx: ForgeParser.FieldAccessContext): Value = smartCast(ctx, fieldAccess(ctx))
+
+        private fun fieldAccess(ctx: ForgeParser.FieldAccessContext): Value {
             val sym = ctx.symbol
             if (sym is EnumItemSymbol) return CreateEnum(enumItem(sym), emptyList(), ctx.type)
             return safe(ctx.safe != null, ctx.receiver, ctx.type) { receiver ->
