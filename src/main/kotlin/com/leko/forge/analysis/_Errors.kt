@@ -332,6 +332,12 @@ fun noMatchCaseSpecified(span: SourceSpan?): Diagnostic =
         "no match case specified"
     )
 
+fun unreachableMatchCase(span: SourceSpan?): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E024", "unreachable case: the cases before it match all of its values")
+
+fun matchNotExhaustive(span: SourceSpan?, missing: String): Diagnostic =
+    Diagnostic(Severity.ERROR, span, "E024", "'match' does not cover all values: '$missing' is not matched; add the case or '_ -> ...'")
+
 fun cyclicDependencyDetected(span: SourceSpan?, name: String): Diagnostic =
     Diagnostic(
         Severity.ERROR,

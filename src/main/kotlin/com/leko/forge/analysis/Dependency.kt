@@ -30,6 +30,8 @@ class Dependency private constructor(context: Context) {
 
     private val chk = Check.instance(context)
 
+    private val matchCoverage = MatchCoverage.instance(context)
+
     /**
      * The syn attributes of interfaces that concrete nodes do not implement, in the order they are reported; for
      * the editors, which offer to implement them.
@@ -40,6 +42,7 @@ class Dependency private constructor(context: Context) {
         checkAllInterfaceSynsAreImplemented()
         checkForwards(root)
         checkCyclicDependencies(root)
+        matchCoverage.check(root)
     }
 
     private fun checkAllInterfaceSynsAreImplemented() {

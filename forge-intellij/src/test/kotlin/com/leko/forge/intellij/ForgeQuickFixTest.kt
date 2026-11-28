@@ -147,19 +147,21 @@ class ForgeQuickFixTest : BasePlatformTestCase() {
         )
     }
 
-    /** A case with a guard or a pattern in a field does not match all of its item; the cases go before `_`. */
-    fun testAddRemainingCasesBeforeTheDefault() {
+    /** A case with a guard or a pattern in a field does not match all of its item. */
+    fun testAddRemainingCasesAfterPartialOnes() {
         fix(
-            type + "fun f(t: Type): str = <caret>match t { Type.INT if true -> \"i\"  Type.ERROR(\"x\") -> \"x\"  _ -> \"?\" }",
+            type + "fun f(t: Type): str = <caret>match t { Type.INT if true -> \"i\"  Type.ERROR(\"x\") -> \"x\" }",
             "Add remaining cases",
             type + "fun f(t: Type): str = match t { Type.INT if true -> \"i\"  Type.ERROR(\"x\") -> \"x\"  Type.INT -> $todo  " +
-                "Type.STR -> $todo  Type.ERROR(msg) -> $todo  _ -> \"?\" }",
+                "Type.STR -> $todo  Type.ERROR(msg) -> $todo }",
         )
-        fix(
-            type + "fun f(t: Type): str = <caret>match t {\n    _ -> \"?\"\n}",
-            "Add remaining cases",
-            type + "fun f(t: Type): str = match t {\n    Type.INT -> $todo\n    Type.STR -> $todo\n    Type.ERROR(msg) -> $todo\n    _ -> \"?\"\n}",
-        )
+    }
+
+    /** `_ ->` matches the rest already: with all items it could not be reached. */
+    fun testNoCasesToAddWithADefault() {
+        myFixture.configureByText("a.forge", type + "fun f(t: Type): str = <caret>match t { Type.INT -> \"i\"  _ -> \"?\" }")
+        myFixture.doHighlighting()
+        assertTrue(myFixture.filterAvailableIntentions("Add remaining cases").isEmpty())
     }
 
     fun testAddRemainingCasesOfAnEnumInAModule() {

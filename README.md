@@ -64,6 +64,12 @@ expressions `"n = ${n}"`. There are no loops: lists (and sets) are gone through 
 [standard library](#the-standard-library), `xs.map { it * 2 }`, `xs.fold(0) { acc, x -> acc + x }`, and functions may
 be recursive.
 
+The cases of a `match` are checked as in Rust and OCaml: each must be reachable (the cases before it do not already
+match all of its values), and together, with `_ ->`, they must match every value; the error names one that is missing,
+`'match' does not cover all values: '(Type.Integer, Type.Integer)' is not matched`. Enum items, tuples, lists
+(`[]`, `h :: t`), `true`/`false` and `null` are taken apart; numbers and strings need `_`. A case with a guard (`if`)
+covers nothing.
+
 Comments: `//` and `/* */`. Each of these is described [below](#local-bindings-where).
 
 | Literal or access     | Meaning                                                                                 |

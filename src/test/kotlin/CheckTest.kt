@@ -65,6 +65,39 @@ class CheckTest {
         assertEquals(emptyList(), warnings("fun f(x: int?): int = x ?: 0\nfun <T> g(x: T, d: T): T = x ?: d\nfun h(): int = null ?: 1"))
     }
 
+    private val types = "enum Type { Any, Integer, Array(of: Type), Pair(a: Type, b: Type) }\n"
+
+    @Test
+    fun matchesCoverEveryValue() {
+        assertEquals(emptyList(), errors(types +
+            // overlapping cases are fine: the first that matches wins
+            "fun f(t: Type, k: Type): Type? = match (t, k) { (Type.Any, _) -> Type.Any  (_, Type.Any) -> Type.Any  (Type.Array(r), Type.Integer) -> r  _ -> null }\n" +
+            "fun g(t: Type): int = match t { Type.Any -> 0  Type.Integer -> 1  Type.Array(Type.Any) -> 2  Type.Array(_) -> 3  Type.Pair(_, _) -> 4 }\n" +
+            "fun h(xs: List<int>): int = match xs { [] -> 0  [x] -> x  h :: _ -> h }\n" +
+            "fun b(v: bool, w: bool): int = match (v, w) { (true, true) -> 1  (false, _) -> 2  (_, false) -> 3 }\n" +
+            "fun o(t: Type?): int = match t { null -> 0  Type.Any -> 1  _ -> 2 }"))
+        assertError("'Type.Integer' is not matched", types + "fun f(t: Type): int = match t { Type.Any -> 0  Type.Array(_) -> 1  Type.Pair(_, _) -> 2 }")
+        assertError("'Type.Array(Type.Integer)' is not matched", types +
+            "fun f(t: Type): int = match t { Type.Any -> 0  Type.Integer -> 0  Type.Array(Type.Any) -> 1  Type.Array(Type.Array(_)) -> 2  Type.Array(Type.Pair(_, _)) -> 2  Type.Pair(_, _) -> 3 }")
+        assertError("'(Type.Integer, Type.Integer)' is not matched", types + "fun f(t: Type, k: Type): int = match (t, k) { (Type.Any, _) -> 1  (_, Type.Any) -> 2  (Type.Array(_), _) -> 3  (Type.Pair(_, _), _) -> 4 }")
+        assertError("'_ :: _ :: _' is not matched", "fun f(xs: List<int>): int = match xs { [] -> 0  [a] -> a }")
+        assertError("'null' is not matched", types + "fun f(t: Type?): int = match t { Type.Any -> 1  Type.Integer -> 2  Type.Array(_) -> 3  Type.Pair(_, _) -> 4 }")
+        assertError("'_' is not matched", "fun f(n: int): str = match n { 0 -> \"zero\"  1 -> \"one\" }")
+        // a case with a guard covers nothing
+        assertError("'true' is not matched", "fun f(v: bool): int = match v { true if v -> 1  false -> 2 }")
+    }
+
+    @Test
+    fun everyCaseOfAMatchCanBeReached() {
+        assertError("unreachable case", types + "fun f(t: Type): int = match t { Type.Any -> 1  Type.Any -> 2  _ -> 3 }")
+        assertError("unreachable case", types + "fun f(t: Type, k: Type): int = match (t, k) { (Type.Any, _) -> 1  (Type.Any, Type.Integer) -> 2  _ -> 3 }")
+        assertError("unreachable case", "fun f(n: int): int = match n { 0 -> 1  0 -> 2  _ -> 3 }")
+        // `_ ->` after cases that match everything
+        assertError("unreachable case", "fun f(v: bool): int = match v { true -> 1  false -> 2  _ -> 3 }")
+        // also a case with a guard
+        assertError("unreachable case", types + "fun f(t: Type): int = match t { Type.Any -> 1  Type.Any if true -> 2  _ -> 3 }")
+    }
+
     @Test
     fun namesInAListMustDiffer() {
         assertError("field 'rhs' already defined for node Sub", "node Expr\nnode Sub(rhs: Expr, rhs: Expr): Expr")

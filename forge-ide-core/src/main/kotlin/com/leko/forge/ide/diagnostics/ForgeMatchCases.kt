@@ -16,8 +16,8 @@ import org.antlr.v4.runtime.tree.ParseTree
  * `Add remaining cases` for a `match` of an enum that does not have a case for each of its items: a case
  * `Type.ERROR(msg) -> TODO("not yet implemented")` for each one missing, its fields bound to variables of their names.
  * An item counts as matched by a case without a guard whose fields are all bound or `_`; the cases are added after
- * the last one, before a `_ ->`. The fix is offered on `match ... {`. Computed while the attributes of the analysis
- * are there.
+ * the last one. Not for a match with `_ ->`, which matches the rest already (with all items, it could not be
+ * reached). The fix is offered on `match ... {`. Computed while the attributes of the analysis are there.
  */
 class ForgeMatchCases(context: Context, private val text: String) {
 
@@ -42,6 +42,7 @@ class ForgeMatchCases(context: Context, private val text: String) {
 
     private fun fix(match: ForgeParser.MatchContext): ForgeFix? {
         val enum = enumOf(match) ?: return null
+        if (match.UNDERSCORE() != null) return null
         val lbrace = match.LBRACE()?.symbol ?: return null
         val rbrace = match.RBRACE()?.symbol?.takeIf { it.startIndex >= 0 } ?: return null
         val cases = match.matchCase()
@@ -60,8 +61,7 @@ class ForgeMatchCases(context: Context, private val text: String) {
             val fields = if (item.parameters.isEmpty()) "" else item.parameters.joinToString(", ", "(", ")") { it.first }
             "$receiver.${item.name}$fields -> $body"
         }
-        val alt = match.UNDERSCORE()?.symbol
-        val first = cases.firstOrNull()?.start ?: alt
+        val first = cases.firstOrNull()?.start
         val title = "Add remaining cases"
         val name = match.MATCH().symbol.startIndex
         val head = lbrace.stopIndex + 1
@@ -74,16 +74,10 @@ class ForgeMatchCases(context: Context, private val text: String) {
         }
         val multiLine = line(first.startIndex) != line(lbrace.startIndex)
         val indent = if (multiLine) indentOf(first.startIndex) else ""
-        return if (cases.isNotEmpty()) {
-            // after the last case
-            val end = cases.last().stop.stopIndex + 1
-            val text = missingCases.joinToString("") { if (multiLine) "\n$indent$it" else "  $it" }
-            ForgeFix(title, end, text, name)
-        } else {
-            // only `_ -> ...`: before it
-            val text = missingCases.joinToString("") { if (multiLine) "$it\n$indent" else "$it  " }
-            ForgeFix(title, alt!!.startIndex, text, name)
-        }
+        // after the last case
+        val end = cases.last().stop.stopIndex + 1
+        val text = missingCases.joinToString("") { if (multiLine) "\n$indent$it" else "  $it" }
+        return ForgeFix(title, end, text, name)
     }
 
     private fun line(offset: Int): Int = text.substring(0, offset.coerceIn(0, text.length)).count { it == '\n' }

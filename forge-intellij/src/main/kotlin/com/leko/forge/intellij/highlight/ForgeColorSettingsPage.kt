@@ -131,7 +131,7 @@ class ForgeColorSettingsPage : ColorSettingsPage {
             inh Program.program { decls[i] <- this }
             contrib Add -> this.program!!.errors as e = e ++ [Diagnostic("bad", 1)]
 
-            fun Type.repr(): str = match this { Type.INT -> "int"  Type.ERROR(m) -> m  _ -> "?" }
+            fun Type.repr(): str = match this { Type.INT -> "int"  Type.ERROR(m) -> m }
             fun <T> List<T>.second(): T? = this[1]
             op fun Diagnostic.plus(other: Diagnostic): Diagnostic = other
             val Type.isError: bool = match this { Type.ERROR(_) -> true  _ -> false }
