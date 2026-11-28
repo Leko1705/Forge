@@ -57,11 +57,13 @@ Types: `int`, `long`, `float`, `bool`, `str`, `List<T>`, `Set<T>`, `Map<K, V>`, 
 functions `(int) -> str`, nodes, enums and records (also generic ones: `Pair<int, str>`), `Vertex`, `Graph`, `Edge`. A list of different nodes has their most specific common interface as element type, e.g.
 `[Push(1), Label("end")]` is a `List<Insn>` if both are `Insn`s.
 Expressions: arithmetic, shifts `<<`, `>>` (keeps the sign) and `>>>`, `++` (lists, sets, maps), `x in xs`, `a ?: b`,
-`x!!`, `v as T`, `v is T`, `if .. then .. else`, `match` (enum variants, lists `[a, b]`, `head :: tail`, values, guards
-`p if cond`), local bindings `e where x = 1`, lambdas `{ x -> x + 1 }`, tuples `(a, b)` and `t.0`, strings with
+`x!!`, safe calls `x?.name` and `x?.f(y)` (`null` if `x` is, else of the member's type made optional; as in Kotlin,
+`x?.a.b` needs `?.` before `b` too), `v as T`, `v is T`, `if .. then .. else`, `match` (enum variants, lists `[a, b]`,
+`head :: tail`, values, guards `p if cond`), local bindings `e where x = 1`, lambdas `{ x -> x + 1 }`, tuples `(a, b)` and `t.0`, strings with
 expressions `"n = ${n}"`. There are no loops: lists (and sets) are gone through with `map` and `fold` of the
 [standard library](#the-standard-library), `xs.map { it * 2 }`, `xs.fold(0) { acc, x -> acc + x }`, and functions may
 be recursive.
+
 Comments: `//` and `/* */`. Each of these is described [below](#local-bindings-where).
 
 | Literal or access     | Meaning                                                                                 |

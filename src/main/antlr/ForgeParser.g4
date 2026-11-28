@@ -207,10 +207,10 @@ expression
     | name=IDENT trailingLambda                                              # functionCall
     | IDENT                                                                  # identifier
 
-    // postfix
-    | receiver=expression DOT name=IDENT LPAREN (expression (COMMA expression)*)? RPAREN trailingLambda?  # methodCall
-    | receiver=expression DOT name=IDENT trailingLambda                      # methodCall
-    | receiver=expression DOT name=IDENT                                     # fieldAccess
+    // postfix; `a?.b` (safe=SAFE_DOT) is null if `a` is
+    | receiver=expression (DOT | safe=SAFE_DOT) name=IDENT LPAREN (expression (COMMA expression)*)? RPAREN trailingLambda?  # methodCall
+    | receiver=expression (DOT | safe=SAFE_DOT) name=IDENT trailingLambda    # methodCall
+    | receiver=expression (DOT | safe=SAFE_DOT) name=IDENT                   # fieldAccess
     // t.0; `t.0.1` is lexed with a float
     | receiver=expression DOT (index=INT | path=FLOAT)                        # tupleAccess
     // calls a function value: (f)(x), this.handler(x), make()(x)

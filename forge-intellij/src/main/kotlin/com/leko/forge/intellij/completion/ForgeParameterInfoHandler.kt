@@ -88,7 +88,7 @@ class ForgeParameterInfoHandler : ParameterInfoHandler<PsiElement, ForgeSignatur
             signature(declaration)?.let { return listOf(it) }
         }
         // otherwise everything that can be called with this name
-        val method = name.previousToken()?.node?.elementType == ForgeTokenTypes.of(ForgeLexer.DOT)
+        val method = name.previousToken()?.node?.elementType.let { it == ForgeTokenTypes.of(ForgeLexer.DOT) || it == ForgeTokenTypes.of(ForgeLexer.SAFE_DOT) }
         return candidates(open.containingFile, name.text)
             .filter { method == isMethod(it) || it.role != ForgeNameRole.FUNCTION_DECLARATION }
             .filter { !method || it.role == ForgeNameRole.FUNCTION_DECLARATION || it.role == ForgeNameRole.ENUM_CONSTANT }

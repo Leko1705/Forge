@@ -12,3 +12,6 @@ fun targetWrittenSuccessfully(span: SourceSpan?, targetName: String, outputFile:
         "W001",
         "wrote $targetName to $outputFile"
     )
+
+fun unnecessarySafeCall(span: SourceSpan?, type: String): Diagnostic =
+    Diagnostic(Severity.WARNING, span, "W003", "unnecessary safe call: the receiver is a '$type', which is never null")

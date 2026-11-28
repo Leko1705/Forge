@@ -125,7 +125,7 @@ class ForgeSyntaxHighlighter : SyntaxHighlighterBase() {
                 ForgeLexer.LBRACE, ForgeLexer.RBRACE -> ForgeColors.BRACES
                 ForgeLexer.LBRACKET, ForgeLexer.RBRACKET -> ForgeColors.BRACKETS
                 ForgeLexer.LPAREN, ForgeLexer.RPAREN -> ForgeColors.PARENTHESES
-                ForgeLexer.DOT -> ForgeColors.DOT
+                ForgeLexer.DOT, ForgeLexer.SAFE_DOT -> ForgeColors.DOT
                 ForgeLexer.COMMA -> ForgeColors.COMMA
                 ForgeLexer.SEMI -> ForgeColors.SEMICOLON
                 ForgeLexer.AT -> ForgeColors.ANNOTATION

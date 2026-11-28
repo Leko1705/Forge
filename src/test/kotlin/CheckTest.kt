@@ -37,6 +37,23 @@ class CheckTest {
     """
 
     @Test
+    fun safeCallsAreOfOptionalTypes() {
+        val chain = "record R { a: int, next: R?, s: str? }\nfun R.twice(): int = this.a * 2\n"
+        assertEquals(emptyList(), errors(chain + "fun f(r: R?): int? = r?.a\nfun g(r: R?): int? = r?.next?.twice()\n" +
+            "fun h(r: R?): str = r?.s?.upper() ?: \"-\"\nfun k(r: R?): R? = r?.next"))
+        // the result may be null
+        assertError("expected type 'int' but got int?", chain + "fun f(r: R?): int = r?.a")
+        // a safe call does not cover the rest of the chain, as in Kotlin
+        assertError("expected type 'R' but got R?", chain + "fun f(r: R?): int? = r?.next.a")
+        // on a value that is never null: a warning, and the type of the member
+        val context = Context()
+        Analyzer.instance(context).analyze((chain + "fun f(r: R): int = r?.a").parseForge())
+        val diagnostics = Log.instance(context).diagnostics
+        assertEquals(emptyList(), diagnostics.filter { it.severity == Severity.ERROR }.map { it.message })
+        assertTrue(diagnostics.any { it.severity == Severity.WARNING && "unnecessary safe call" in it.message }, diagnostics.toString())
+    }
+
+    @Test
     fun namesInAListMustDiffer() {
         assertError("field 'rhs' already defined for node Sub", "node Expr\nnode Sub(rhs: Expr, rhs: Expr): Expr")
         assertError("field 'a' already defined for record R", "record R { a: int, a: str }")

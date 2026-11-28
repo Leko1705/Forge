@@ -839,28 +839,44 @@ class LLIR private constructor(private val context: Context) {
 
         override fun visitFieldAccess(ctx: ForgeParser.FieldAccessContext): Value {
             val sym = ctx.symbol
-            if (sym is FunctionSymbol) return invoke(sym, ctx.receiver.transform(), emptyList(), witnessArgs(ctx))
             if (sym is EnumItemSymbol) return CreateEnum(enumItem(sym), emptyList(), ctx.type)
-            return access(sym!!, ctx.receiver, ctx.name.text, ctx.receiver.type)
+            return safe(ctx.safe != null, ctx.receiver, ctx.type) { receiver ->
+                if (sym is FunctionSymbol) invoke(sym, receiver, emptyList(), witnessArgs(ctx))
+                else access(sym!!, receiver, ctx.name.text, ctx.receiver.type)
+            }
         }
 
-        /** The member [sym] (a field, an attribute, a property) of the value of [receiver]. */
-        fun access(sym: Symbol, receiver: ForgeParser.ExpressionContext, name: String, recvTy: Type): Value {
+        /**
+         * [member] of the value of [receiver]; for `a?.b` ([isSafe]) with `a` that may be null, `null` if it is:
+         * `let t = a in if t == null then null else member(t!!)`, so the receiver is computed once.
+         */
+        private fun safe(isSafe: Boolean, receiver: ForgeParser.ExpressionContext, type: Type, member: (Value) -> Value): Value {
+            val recvTy = receiver.type
+            if (!isSafe || recvTy !is OptionalType) return member(receiver.transform())
+            val name = "__safe" + (safeCalls++)
+            val ref = LocalRef(name, recvTy)
+            return Let(name, receiver.transform(), IfElse(IsNull(ref), NullValue, member(NotNull(ref, recvTy.elem)), type), recvTy)
+        }
+
+        private var safeCalls = 0
+
+        /** The member [sym] (a field, an attribute, a property) of [receiver], a value of [recvTy]. */
+        fun access(sym: Symbol, receiver: Value, name: String, recvTy: Type): Value {
             return when (sym) {
                 is VarSymbol -> when (sym.varKind) {
                     VarSymbol.VarKind.NODE_FIELD -> {
                         val owner = resolve.resolve(recvTy.nonNull()) as NodeSymbol
-                        AccessNodeField(node(owner), receiver.transform(), name, sym.type)
+                        AccessNodeField(node(owner), receiver, name, sym.type)
                     }
                     VarSymbol.VarKind.PARENT_INH -> AccessParentInhAttr(sym.name, sym.type)
                     else -> {
                         val owner = resolve.resolve(recvTy.nonNull()) as RecordSymbol
-                        AccessRecordField(record(owner), receiver.transform(), name, sym.type)
+                        AccessRecordField(record(owner), receiver, name, sym.type)
                     }
                 }
-                is AttributeSymbol -> AccessNodeAttr(receiver.transform(), sym.name, sym.type)
+                is AttributeSymbol -> AccessNodeAttr(receiver, sym.name, sym.type)
                 // a property: `size` of the builtin types as it always was, others are methods without parameters
-                is FunctionSymbol -> invoke(sym, receiver.transform(), emptyList(), emptyList())
+                is FunctionSymbol -> invoke(sym, receiver, emptyList(), emptyList())
                 else -> throw AssertionError("field $name resolves to $sym")
             }
         }
@@ -907,15 +923,17 @@ class LLIR private constructor(private val context: Context) {
 
         override fun visitMethodCall(ctx: ForgeParser.MethodCallContext): Value {
             val args = ctx.expression().drop(1).map { it.transform() }
+            val sym = ctx.symbol
+            if (sym is EnumItemSymbol) return CreateEnum(enumItem(sym), args, ctx.type)
+            if (sym is ParserRuleSymbol) return Call(function(sym), null, args)
             // a field or property whose value is a function
-            (TreeAttributes.attributes[ctx]?.get("field") as? Symbol)?.let { field ->
-                return CallValue(access(field, ctx.receiver, ctx.name.text, ctx.receiver.type), args, ctx.type)
-            }
-            return when (val sym = ctx.symbol) {
-                is EnumItemSymbol -> CreateEnum(enumItem(sym), args, ctx.type)
-                is FunctionSymbol -> invoke(sym, ctx.receiver.transform(), args, witnessArgs(ctx))
-                is ParserRuleSymbol -> Call(function(sym), null, args)
-                else -> throw AssertionError("method ${ctx.text} resolves to $sym")
+            val field = TreeAttributes.attributes[ctx]?.get("field") as? Symbol
+            return safe(ctx.safe != null, ctx.receiver, ctx.type) { receiver ->
+                when {
+                    field != null -> CallValue(access(field, receiver, ctx.name.text, ctx.receiver.type), args, ctx.type)
+                    sym is FunctionSymbol -> invoke(sym, receiver, args, witnessArgs(ctx))
+                    else -> throw AssertionError("method ${ctx.text} resolves to $sym")
+                }
             }
         }
 

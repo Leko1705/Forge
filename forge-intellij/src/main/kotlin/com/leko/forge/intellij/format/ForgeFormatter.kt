@@ -49,6 +49,7 @@ class ForgeFormattingModelBuilder : FormattingModelBuilder {
             .after(t(ForgeLexer.COMMA)).spaces(1)
             .around(around).spaces(1)
             .around(t(ForgeLexer.DOT)).spaces(0)
+            .around(t(ForgeLexer.SAFE_DOT)).spaces(0)
     }
 }
 
@@ -167,7 +168,7 @@ private class DeclarationBlock(node: ASTNode, private val spacing: SpacingBuilde
 /** Tokens after which a declaration goes on. */
 private val CONTINUING: TokenSet = TokenSet.create(*listOf(
     ForgeLexer.ASSIGN, ForgeLexer.ARROW, ForgeLexer.RARROW, ForgeLexer.COLON, ForgeLexer.COMMA, ForgeLexer.IOR,
-    ForgeLexer.DOT, ForgeLexer.PLUS, ForgeLexer.MINUS, ForgeLexer.STAR, ForgeLexer.SLASH, ForgeLexer.PERCENT,
+    ForgeLexer.DOT, ForgeLexer.SAFE_DOT, ForgeLexer.PLUS, ForgeLexer.MINUS, ForgeLexer.STAR, ForgeLexer.SLASH, ForgeLexer.PERCENT,
     ForgeLexer.AND, ForgeLexer.OR, ForgeLexer.EQUALS, ForgeLexer.NOTEQUALS, ForgeLexer.ELVIS, ForgeLexer.CONCAT,
     ForgeLexer.LT, ForgeLexer.GT, ForgeLexer.LEQ, ForgeLexer.GEQ, ForgeLexer.THEN, ForgeLexer.ELSE, ForgeLexer.IF,
 ).map(ForgeTokenTypes::of).toTypedArray())

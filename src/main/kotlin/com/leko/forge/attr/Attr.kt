@@ -1021,9 +1021,30 @@ class Attr private constructor(context: Context) {
         override fun visitIdentifier(ctx: ForgeParser.IdentifierContext): Type =
             attribIdent(ctx, setOf(Kind.VAL))
 
-        override fun visitFieldAccess(ctx: ForgeParser.FieldAccessContext): Type {
+        /**
+         * The type a member is looked up in: for `a?.b` the type of `a` without its `?` (a warning if it has none),
+         * else [type].
+         */
+        private fun safeReceiver(safe: org.antlr.v4.runtime.Token?, type: Type): Type {
+            if (safe == null) return type
+            if (type is OptionalType) return type.elem
+            if (type != ErrorType && type != NullType) log.diag(unnecessarySafeCall(safe.span, type.toString()))
+            return type
+        }
+
+        /** The type of `a?.b`: that of `b`, also null if `a` may be. */
+        private fun safeResult(ctx: ParserRuleContext, safe: org.antlr.v4.runtime.Token?, receiver: ForgeParser.ExpressionContext, type: Type): Type {
+            if (safe == null || receiver.typeOrNull !is OptionalType) return type
+            if (type is OptionalType || type == NullType || type == ErrorType) return type
+            return ctx.setType(OptionalType(type))
+        }
+
+        override fun visitFieldAccess(ctx: ForgeParser.FieldAccessContext): Type =
+            safeResult(ctx, ctx.safe, ctx.receiver, attribFieldAccess(ctx))
+
+        private fun attribFieldAccess(ctx: ForgeParser.FieldAccessContext): Type {
             val recv = ctx.receiver
-            val recvTy = asReceiver { recv.attribOwner(setOf(Kind.VAL, Kind.TYP)) }
+            val recvTy = safeReceiver(ctx.safe, asReceiver { recv.attribOwner(setOf(Kind.VAL, Kind.TYP)) })
             if (recvTy == ErrorType) return ctx.setType(ErrorType)
 
             val fieldName = ctx.name.text
@@ -1220,9 +1241,12 @@ class Attr private constructor(context: Context) {
             return ctx.setType(NullType)
         }
 
-        override fun visitMethodCall(ctx: ForgeParser.MethodCallContext): Type {
+        override fun visitMethodCall(ctx: ForgeParser.MethodCallContext): Type =
+            safeResult(ctx, ctx.safe, ctx.receiver, attribMethodCall(ctx))
+
+        private fun attribMethodCall(ctx: ForgeParser.MethodCallContext): Type {
             val recv = ctx.receiver
-            val recvTy = asReceiver { recv.attribOwner(setOf(Kind.VAL, Kind.TYP)) }
+            val recvTy = safeReceiver(ctx.safe, asReceiver { recv.attribOwner(setOf(Kind.VAL, Kind.TYP)) })
             val args = ctx.expression().drop(1)
 
             if (recvTy == ErrorType) {

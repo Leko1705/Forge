@@ -63,6 +63,8 @@ RARROW: '<-';
 EQUALS: '==';
 NOTEQUALS: '!=';
 ELVIS: '?:';
+// a?.b: the member of a value that may be null
+SAFE_DOT: '?.';
 SPLIT: '::';
 
 ASSIGN : '=';

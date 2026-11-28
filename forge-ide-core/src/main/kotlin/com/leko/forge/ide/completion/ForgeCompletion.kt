@@ -151,7 +151,14 @@ class ForgeCompletion(private val text: String, private val offset: Int, private
             }
         }
 
-        // members: after `.` in an expression
+        // members: after `.` in an expression, and after `?.` those of the value that is not null
+        if (full && analysis != null && context != null && token != null && tokenType(-1) == ForgeLexer.SAFE_DOT) {
+            when (context) {
+                is ForgeParser.FieldAccessContext -> if (token === context.name) return members(analysis, context.receiver, safe = true)
+                is ForgeParser.MethodCallContext -> if (token === context.name) return members(analysis, context.receiver, safe = true)
+                else -> {}
+            }
+        }
         if (full && analysis != null && context != null && token != null && tokenType(-1) == ForgeLexer.DOT) {
             when (context) {
                 is ForgeParser.FieldAccessContext -> if (token === context.name) return members(analysis, context.receiver)
@@ -248,12 +255,12 @@ class ForgeCompletion(private val text: String, private val offset: Int, private
     }
 
     /** The members the compiler resolves for the type of [receiver]. */
-    private fun members(analysis: ForgeAnalysis, receiver: ForgeParser.ExpressionContext): List<ForgeCandidate> {
+    private fun members(analysis: ForgeAnalysis, receiver: ForgeParser.ExpressionContext, safe: Boolean = false): List<ForgeCandidate> {
         val resolve = Resolve.instance(analysis.context)
         val globals = Globals(analysis)
         val receiverSymbol = (receiver as? ForgeParser.IdentifierContext)?.symbol
         val (type, receiverKind) = if (receiverSymbol != null && receiverSymbol.kind == Kind.TYP) receiverSymbol.type to Kind.TYP
-            else (receiver.typeOrNull ?: return emptyList()) to Kind.VAL
+            else (receiver.typeOrNull ?: return emptyList()).let { if (safe && it is OptionalType) it.elem else it } to Kind.VAL
         if (type == ErrorType || type is OptionalType) return emptyList()
         // every name a member can have; the compiler decides which are members of this type
         val names = buildSet {

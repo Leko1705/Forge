@@ -242,6 +242,7 @@
       "patterns": [
         { "name": "keyword.operator.arrow.forge", "match": "->|<-" },
         { "name": "keyword.operator.elvis.forge", "match": "\\?:" },
+        { "name": "punctuation.accessor.optional.forge", "match": "\\?\\." },
         { "name": "keyword.operator.cons.forge", "match": "::" },
         { "name": "keyword.operator.comparison.forge", "match": "==|!=|<=|>=" },
         { "name": "keyword.operator.logical.forge", "match": "&&|\\|\\||!!|!" },

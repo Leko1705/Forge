@@ -75,6 +75,14 @@ class ForgeCompletionTest : BasePlatformTestCase() {
         myFixture.checkResult("$program\nfun f(s: str): str = s.upper()")
     }
 
+    /** After `?.` the members of the value when it is not null. */
+    fun testMembersAfterASafeCall() {
+        assertContains(complete("fun f(d: Diagnostic?): int? = d?.<caret>"), "msg", "line")
+        myFixture.configureByText("a.forge", "$program\nfun f(s: str?): str? = s?.upp<caret>")
+        myFixture.completeBasic()
+        myFixture.checkResult("$program\nfun f(s: str?): str? = s?.upper()")
+    }
+
     fun testEnumConstants() {
         assertContains(complete("syn Num.type: Type = Type.<caret>"), "INT", "ERROR")
         assertContains(complete("fun f(t: Type): bool = match t { Type.<caret> -> true  _ -> false }"), "INT", "ERROR")
