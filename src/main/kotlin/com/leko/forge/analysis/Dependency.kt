@@ -32,6 +32,8 @@ class Dependency private constructor(context: Context) {
 
     private val matchCoverage = MatchCoverage.instance(context)
 
+    private val nullability = Nullability.instance(context)
+
     /**
      * The syn attributes of interfaces that concrete nodes do not implement, in the order they are reported; for
      * the editors, which offer to implement them.
@@ -43,6 +45,7 @@ class Dependency private constructor(context: Context) {
         checkForwards(root)
         checkCyclicDependencies(root)
         matchCoverage.check(root)
+        nullability.check(root)
     }
 
     private fun checkAllInterfaceSynsAreImplemented() {

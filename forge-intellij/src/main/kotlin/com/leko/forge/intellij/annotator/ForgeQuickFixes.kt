@@ -29,7 +29,8 @@ import com.leko.forge.intellij.psi.ForgeNameElement
  * - `can not find 'Stmt'` for a type, `function 'Leaf' not found` for a constructor: creates the node;
  * - `Synthetic attribute 'Expr.type' is not implemented for Num`: `Implement 'syn Expr.type'...` chooses (as
  *   "Implement members" of Kotlin and Java) which of the nodes that do not implement it get an equation;
- * - `unnecessary safe call`: `a?.b` -> `a.b`; `unnecessary '?:'`: `a ?: b` -> `a`, as in Kotlin;
+ * - `unnecessary safe call`: `a?.b` -> `a.b`; `unnecessary '?:'`: `a ?: b` -> `a`; `unnecessary '!!'`: `a!!` -> `a`;
+ *   `unnecessary '?'` of a declared type: `T?` -> `T`, as in Kotlin;
  * - a `match` of an enum without a case for each item: `Add remaining cases` (computed by the analysis);
  * - `function 'f' not found`, `method 'R.f' not found`, `attribute 'R.x' not found`: creates the function, the
  *   extension function, the `val` (of a node: the `syn` attribute), with `TODO("not yet implemented")` as value.
@@ -53,6 +54,8 @@ object ForgeQuickFixes {
         val range = problem.range?.textRange ?: return emptyList()
         if (text.startsWith("unnecessary safe call")) return listOf(ReplaceSafeCallFix(range.startOffset))
         if (text.startsWith("unnecessary '?:'")) return listOf(RemoveElvisFix(range.startOffset))
+        if (text.startsWith("unnecessary '!!'")) return listOf(RemoveTokenFix(range.startOffset, "!!"))
+        if (text.startsWith("unnecessary '?'")) return listOf(RemoveTokenFix(range.startOffset, "?"))
         val name = notFound.find(text)?.groupValues?.get(1) ?: return emptyList()
         // the name in the range of the error: the compiler reports some on a whole type, e.g. `List<Stmt>`
         val element = PsiTreeUtil.findChildrenOfType(file, ForgeNameElement::class.java)
@@ -137,6 +140,18 @@ object ForgeQuickFixes {
             val document = document(project, file)
             if (document.charsSequence.subSequence(offset, (offset + 2).coerceAtMost(document.textLength)).toString() != "?.") return
             document.replaceString(offset, offset + 2, ".")
+            commit(project, file)
+        }
+    }
+
+    /** Removes [token] at [offset]: `a!!` -> `a`, `Function?` -> `Function`. */
+    private class RemoveTokenFix(private val offset: Int, private val token: String) : Fix() {
+        override fun getText(): String = "Remove '$token'"
+
+        override fun invoke(project: Project, editor: Editor?, file: PsiFile) {
+            val document = document(project, file)
+            if (document.charsSequence.subSequence(offset, (offset + token.length).coerceAtMost(document.textLength)).toString() != token) return
+            document.deleteString(offset, offset + token.length)
             commit(project, file)
         }
     }

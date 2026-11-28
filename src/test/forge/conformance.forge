@@ -69,7 +69,7 @@ syn Plus.type: Type = match [this.lhs.type, this.rhs.type] {
     _ -> Type.ERROR("can not add " + this.lhs.type.repr() + " and " + this.rhs.type.repr())
 }
 syn Call.type: Type = Type.INT
-syn Maybe.type: Type = if this.inner == null then Type.STR else this.inner!!.type
+syn Maybe.type: Type = if this.inner == null then Type.STR else this.inner.type
 
 syn Expr.size: int = 1
 syn Plus.size: int = 1 + this.lhs.size + this.rhs.size
@@ -124,7 +124,7 @@ fun nested(t: List<Type>): str = match t {
 fun ints(xs: List<int>): str = xs.fold("") { acc, x -> acc + (if acc == "" then "" else ",") + x.text() }
 fun strs(xs: List<str>): str = xs.fold("") { acc, x -> acc + (if acc == "" then "" else ",") + x }
 fun b(v: bool): str = if v then "true" else "false"
-fun opt(v: int?): str = if v == null then "null" else v!!.text()
+fun opt(v: int?): str = if v == null then "null" else v.text()
 fun countMap(xs: List<str>): Map<str, int> = xs.fold(empty) { acc, x -> acc ++ {x: (if x in acc then acc[x] + 1 else 1)} }
     where empty: Map<str, int> = {:}
 fun arith(): List<int> = [7 / 2, -7 / 2, 7 % 3, -7 % 3, 2147483647 + 1, 65536 * 65536, -(3 - 5), 6 & 3, 6 | 3]
@@ -238,7 +238,7 @@ syn Cond.uses: List<str> = this.vars
 syn Assign.uses: List<str> = this.value.vars
 syn Assign.defs: List<str> = [this.target]
 syn Print.uses: List<str> = this.value.vars
-syn Return.uses: List<str> = if this.value == null then [] else this.value!!.vars
+syn Return.uses: List<str> = if this.value == null then [] else this.value.vars
 
 circular([]) Vertex.liveOut: List<str> = cfg.succ(this).fold(none) { acc, s -> union(acc, s.liveIn) } where none: List<str> = []
 circular([]) Vertex.liveIn: List<str> = union(this.uses, minus(this.liveOut, this.defs))
@@ -379,7 +379,7 @@ fun childrenOf(p: MProg): List<str> = [
     "lowered scope " + p.stmts[0].lowered.code + " " + b(p.stmts[0].lowered != p.stmts[0]),
     "copied " + copied(p.stmts[0])
 ]
-fun seenOf(d: MDecl?): str = if d == null then "none" else d!!.seen
+fun seenOf(d: MDecl?): str = if d == null then "none" else d.seen
 // a node that already has a parent is copied when it becomes a child of another one
 fun copied(s: MStmt): str = (s.code + " " + other.code + " " + b(other.stmts[0] != s) + " " + s.size.text()) where other = MBlock([s])
 

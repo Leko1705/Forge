@@ -788,8 +788,13 @@ class Attr private constructor(context: Context) {
             return ctx.setType(type)
         }
 
+        /** Whether a value of [type] is never null, for the warnings about checks of it: not of a type that may be. */
+        private fun neverNull(type: Type): Boolean =
+            type !is OptionalType && type !is TypeVar && type != NullType && type != ErrorType && type != ArbitraryType && type != NothingType
+
         override fun visitNullCheck(ctx: ForgeParser.NullCheckContext): Type {
             val type = ctx.value.attribType()
+            if (neverNull(type)) log.diag(unnecessaryNotNull(ctx.NOTNULL().span, type.toString()))
             return ctx.setType(if (type is OptionalType) type.elem else type)
         }
 
@@ -1002,9 +1007,7 @@ class Attr private constructor(context: Context) {
             var expr = ctx.expr.attribType()
             val alt = ctx.alt.attribType()
             // a type parameter may stand for an optional type
-            if (expr !is OptionalType && expr !is TypeVar && expr != NullType && expr != ErrorType && expr != ArbitraryType && expr != NothingType) {
-                log.diag(unnecessaryElvis(ctx.ELVIS().span, expr.toString()))
-            }
+            if (neverNull(expr)) log.diag(unnecessaryElvis(ctx.ELVIS().span, expr.toString()))
             if (expr is OptionalType) expr = expr.elem
             val shared = chk.checkShareCommonSuperType(expr, alt, env.value.expected)
             return ctx.setType(shared)
@@ -1027,6 +1030,13 @@ class Attr private constructor(context: Context) {
             val expRhs = withExpected(expLhs) { ctx.right.attribType() }
             if (listOf(expLhs, expRhs).any { (if (it is OptionalType) it.elem else it) is FunctionType }) log.diag(functionsNotComparable(ctx.span))
             chk.checkShareCommonSuperType(expLhs, expRhs, null)
+            // `x == null` where x is never null
+            val other = when {
+                ctx.right is ForgeParser.NullValueContext -> expLhs
+                ctx.left is ForgeParser.NullValueContext -> expRhs
+                else -> null
+            }
+            if (other != null && neverNull(other)) log.diag(nullComparisonAlwaysSame(ctx.span, other.toString(), ctx.NOTEQUALS() != null))
             return ctx.setType(BoolType)
         }
 

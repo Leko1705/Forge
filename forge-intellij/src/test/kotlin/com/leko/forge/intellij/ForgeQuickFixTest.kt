@@ -60,6 +60,19 @@ class ForgeQuickFixTest : BasePlatformTestCase() {
         assertEquals(emptyList<Any>(), myFixture.doHighlighting().filter { it.severity == com.intellij.lang.annotation.HighlightSeverity.WARNING }.map { it.description })
     }
 
+    fun testRemoveUnnecessaryNotNullAndOptional() {
+        fix(
+            "fun f(x: int?): int = if x != null then x<caret>!! + 1 else 0",
+            "Remove '!!'",
+            "fun f(x: int?): int = if x != null then x + 1 else 0",
+        )
+        fix(
+            "fun f(x: int): int<caret>? = x + 1",
+            "Remove '?'",
+            "fun f(x: int): int = x + 1",
+        )
+    }
+
     fun testCreateNode() {
         fix("node Program(stmts: List<<caret>Stmt>)", "Create node 'Stmt'", "node Program(stmts: List<Stmt>)\nnode Stmt\n")
         fix("node A\nconst leaf = <caret>Leaf()", "Create node 'Leaf'", "node A\nconst leaf = Leaf()\nnode Leaf()\n")

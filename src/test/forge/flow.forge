@@ -93,7 +93,7 @@ syn Expr.uses: List<str> = this.vars
 syn Assign.uses: List<str> = this.value.vars
 syn Assign.defs: List<str> = [this.target]
 syn Print.uses: List<str> = this.value.vars
-syn Return.uses: List<str> = if this.value == null then [] else this.value!!.vars
+syn Return.uses: List<str> = if this.value == null then [] else this.value.vars
 
 circular([]) Vertex.liveOut: List<str> = cfg.succ(this).fold(none) { acc, s -> union(acc, s.liveIn) } where none: List<str> = []
 circular([]) Vertex.liveIn: List<str> = union(this.uses, minus(this.liveOut, this.defs))

@@ -78,6 +78,32 @@ class CheckTest {
     }
 
     @Test
+    fun checksOfValuesThatAreNeverNullAreWarnings() {
+        assertEquals(listOf("unnecessary '!!': the value is a 'int', which is never null"), warnings("fun f(x: int): int = x!!"))
+        // also after a smart cast
+        assertEquals(listOf("unnecessary '!!': the value is a 'int', which is never null"), warnings("fun f(x: int?): int = if x != null then x!! else 0"))
+        assertEquals(listOf("the condition is always false: the value is a 'int', which is never null"), warnings("fun f(x: int): bool = x == null"))
+        assertEquals(listOf("the condition is always true: the value is a 'int', which is never null"), warnings("fun f(x: int): bool = null != x"))
+        assertEquals(emptyList(), warnings("fun f(x: int?): int = x!!\nfun g(x: int?): bool = x == null\nfun <T> h(x: T): bool = x == null"))
+    }
+
+    @Test
+    fun anOptionalTypeWhoseValuesAreNeverNullIsAWarning() {
+        val nodes = "node Expr\nnode Function(body: Expr)\nnode Return(e: Expr): Expr\n"
+        assertEquals(listOf("unnecessary '?': no value of attribute 'function' is null, so it can be a 'Function'"), warnings(nodes +
+            "inh function: Function? = fail(\"outside\")\ninh Function.function { body <- this }"))
+        assertEquals(listOf("unnecessary '?': no value of function 'f' is null, so it can be a 'int'"), warnings("fun f(x: int): int? = x + 1"))
+        assertEquals(listOf("unnecessary '?': no value of constant 'c' is null, so it can be a 'int'"), warnings("const c: int? = 1"))
+        // all the equations of a syn attribute
+        assertEquals(2, warnings(nodes + "syn Expr.size: int? = 1\nsyn Return.size: int? = 2").size)
+        assertEquals(emptyList(), warnings(nodes +
+            "syn Expr.size: int? = 1\nsyn Return.size: int? = null\n" +
+            "inh depth: int? = null\ninh function: Function? = fail(\"outside\")\n" +
+            "coll Function.returned: int? = null\ncontrib Return -> this.function!!.returned = 1\n" +
+            "fun g(x: int?): int? = x\nfun <T> first(xs: List<T>): T? = xs[0]\nfun todo(): int? = TODO(\"later\")"))
+    }
+
+    @Test
     fun anElvisOnAValueThatIsNeverNullIsAWarning() {
         assertEquals(listOf("unnecessary '?:': the left side is a 'int', which is never null"), warnings("fun f(x: int): int = x ?: 0"))
         assertEquals(emptyList(), warnings("fun f(x: int?): int = x ?: 0\nfun <T> g(x: T, d: T): T = x ?: d\nfun h(): int = null ?: 1"))

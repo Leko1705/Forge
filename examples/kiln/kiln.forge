@@ -148,7 +148,7 @@ inh Function.returnType { body <- this.returns }
 inh loopEnd: str? = null
 inh While.loopEnd { body <- "${this.label}_end" }
 
-syn Labeled.label: str = if span == null then "L" else "L${span!!.offset}_${span!!.length}" where span = spanOf(this)
+syn Labeled.label: str = if span == null then "L" else "L${span.offset}_${span.length}" where span = spanOf(this)
 
 // ==== types =====================================================================================
 
@@ -156,7 +156,7 @@ syn Expr.type: Type
 syn Num.type: Type = Type.INT
 syn Text.type: Type = Type.STR
 syn Bool.type: Type = Type.BOOL
-syn Var.type: Type = if this.local == null then Type.ERROR else this.local!!.type
+syn Var.type: Type = if this.local == null then Type.ERROR else this.local.type
 syn Call.type: Type = if this.name in this.signatures then this.signatures[this.name].returns else Type.ERROR
 syn Unary.type: Type = match this.operand.type {
     Type.INT if this.op == "-" -> Type.INT
@@ -257,7 +257,7 @@ syn Function.fallsOff: bool = this.flowGraph.exit("next") != null && (this.flowG
 
 // the slots an expression reads
 syn Expr.reads: List<int> = []
-syn Var.reads: List<int> = if this.local == null then [] else [this.local!!.slot]
+syn Var.reads: List<int> = if this.local == null then [] else [this.local.slot]
 syn Call.reads: List<int> = this.args.flatMap { it.reads }.distinct()
 syn Unary.reads: List<int> = this.operand.reads
 syn Binary.reads: List<int> = this.left.reads.union(this.right.reads)
@@ -268,17 +268,17 @@ syn Expr.uses: List<int> = this.reads
 syn VarDecl.uses: List<int> = this.value.reads
 syn VarDecl.defs: List<int> = [this.slot]
 syn Assign.uses: List<int> = this.value.reads
-syn Assign.defs: List<int> = if this.local == null then [] else [this.local!!.slot]
+syn Assign.defs: List<int> = if this.local == null then [] else [this.local.slot]
 syn Print.uses: List<int> = this.value.reads
 syn ExprStmt.uses: List<int> = this.expr.reads
-syn Return.uses: List<int> = if this.value == null then [] else this.value!!.reads
+syn Return.uses: List<int> = if this.value == null then [] else this.value.reads
 
 circular([]) Vertex.liveOut: List<int> = cfg.succ(this).fold(none) { acc, s -> acc.union(s.liveIn) } where none: List<int> = []
 circular([]) Vertex.liveIn: List<int> = this.uses.union(this.liveOut - this.defs)
 
 syn Stmt.deadStore: bool = false
 syn VarDecl.deadStore: bool = this.reachable && !(this.slot in this.liveOut)
-syn Assign.deadStore: bool = this.reachable && this.local != null && !(this.local!!.slot in this.liveOut)
+syn Assign.deadStore: bool = this.reachable && this.local != null && !(this.local.slot in this.liveOut)
 
 // ==== diagnostics ===============================================================================
 
@@ -289,7 +289,7 @@ val Diagnostic.repr: str = "${kind} at ${this.line}:${this.column}: ${this.messa
     where kind = match this.severity { Severity.ERROR -> "error"  Severity.WARNING -> "warning" }
 
 fun report(at: Vertex, severity: Severity, message: str): Diagnostic =
-    if span == null then Diagnostic(severity, 0, 0, message) else Diagnostic(severity, span!!.line, span!!.column, message)
+    if span == null then Diagnostic(severity, 0, 0, message) else Diagnostic(severity, span.line, span.column, message)
     where span = spanOf(at)
 
 // an error is reported where it starts: operands with errors were reported themselves
@@ -315,12 +315,12 @@ syn Stmt.problem: str? = null
 syn VarDecl.problem: str? = if this.value.type == Type.VOID then "'${this.name}' can not be void" else null
 syn Assign.problem: str? =
     if this.local == null then "unknown variable '${this.name}'"
-    else if this.local!!.type == this.value.type || this.value.type == Type.ERROR then null
-    else "can not assign ${this.value.type.repr} to '${this.name}' of type ${this.local!!.type.repr}"
+    else if this.local.type == this.value.type || this.value.type == Type.ERROR then null
+    else "can not assign ${this.value.type.repr} to '${this.name}' of type ${this.local.type.repr}"
 syn If.problem: str? = condition(this.cond)
 syn While.problem: str? = condition(this.cond)
 syn Break.problem: str? = if this.loopEnd == null then "'break' outside of a loop" else null
-syn Return.problem: str? = match (this.returnType, if this.value == null then Type.VOID else this.value!!.type) {
+syn Return.problem: str? = match (this.returnType, if this.value == null then Type.VOID else this.value.type) {
     (_, Type.ERROR) -> null
     (expected, got) if expected == got -> null
     (expected, got) -> "can not return ${got.repr} from a function returning ${expected.repr}"
@@ -333,9 +333,9 @@ fun condition(cond: Expr): str? =
 
 coll Program.diagnostics: List<Diagnostic> = []
 contrib Expr -> this.prog!!.diagnostics = diagnostics ++
-    (if this.problem == null then [] else [report(this, Severity.ERROR, this.problem!!)])
+    (if this.problem == null then [] else [report(this, Severity.ERROR, this.problem)])
 contrib Stmt -> this.prog!!.diagnostics = diagnostics ++
-    (if this.problem == null then [] else [report(this, Severity.ERROR, this.problem!!)])
+    (if this.problem == null then [] else [report(this, Severity.ERROR, this.problem)])
 contrib Stmt -> this.prog!!.diagnostics as found = found ++
     (if this.startsDeadCode then [report(this, Severity.WARNING, "unreachable code")] else [])
 contrib VarDecl -> this.prog!!.diagnostics = diagnostics ++
@@ -385,7 +385,7 @@ syn Assign.code: List<JInsn> = this.value.code ++ [JStore(this.local!!.type.slot
 syn If.code: List<JInsn> =
     this.cond.jumpUnless(otherwise) ++ this.yes.code
     ++ [JJump(Cond.GOTO, end), JLabel(otherwise)]
-    ++ (if this.no == null then [] else this.no!!.code)
+    ++ (if this.no == null then [] else this.no.code)
     ++ [JLabel(end)]
     where otherwise = "${this.label}_else", end = "${this.label}_end"
 syn While.code: List<JInsn> =
@@ -394,7 +394,7 @@ syn While.code: List<JInsn> =
 syn Break.code: List<JInsn> = [JJump(Cond.GOTO, this.loopEnd!!)]
 syn Return.code: List<JInsn> =
     if this.value == null then [JOp(Op.RETURN)]
-    else this.value!!.code ++ [JOp(if this.value!!.type == Type.STR then Op.ARETURN else Op.IRETURN)]
+    else this.value.code ++ [JOp(if this.value.type == Type.STR then Op.ARETURN else Op.IRETURN)]
 syn Print.code: List<JInsn> =
     [JGetStatic("java/lang/System", "out", "Ljava/io/PrintStream;")] ++ this.value.code
     ++ [JInvoke(Invoke.VIRTUAL, "java/io/PrintStream", "println", "(${this.value.type.descriptor})V")]
