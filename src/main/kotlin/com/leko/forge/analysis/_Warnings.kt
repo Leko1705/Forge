@@ -15,3 +15,6 @@ fun targetWrittenSuccessfully(span: SourceSpan?, targetName: String, outputFile:
 
 fun unnecessarySafeCall(span: SourceSpan?, type: String): Diagnostic =
     Diagnostic(Severity.WARNING, span, "W003", "unnecessary safe call: the receiver is a '$type', which is never null")
+
+fun unnecessaryElvis(span: SourceSpan?, type: String): Diagnostic =
+    Diagnostic(Severity.WARNING, span, "W004", "unnecessary '?:': the left side is a '$type', which is never null")

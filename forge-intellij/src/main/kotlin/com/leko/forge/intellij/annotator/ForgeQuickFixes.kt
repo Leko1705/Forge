@@ -29,6 +29,7 @@ import com.leko.forge.intellij.psi.ForgeNameElement
  * - `can not find 'Stmt'` for a type, `function 'Leaf' not found` for a constructor: creates the node;
  * - `Synthetic attribute 'Expr.type' is not implemented for Num`: `Implement 'syn Expr.type'...` chooses (as
  *   "Implement members" of Kotlin and Java) which of the nodes that do not implement it get an equation;
+ * - `unnecessary safe call`: `a?.b` -> `a.b`; `unnecessary '?:'`: `a ?: b` -> `a`, as in Kotlin;
  * - a `match` of an enum without a case for each item: `Add remaining cases` (computed by the analysis);
  * - `function 'f' not found`, `method 'R.f' not found`, `attribute 'R.x' not found`: creates the function, the
  *   extension function, the `val` (of a node: the `syn` attribute), with `TODO("not yet implemented")` as value.
@@ -50,6 +51,8 @@ object ForgeQuickFixes {
         if (problem.unimplemented.isNotEmpty()) return listOf(ImplementAttributesFix(problem.unimplemented))
         val text = problem.text ?: return emptyList()
         val range = problem.range?.textRange ?: return emptyList()
+        if (text.startsWith("unnecessary safe call")) return listOf(ReplaceSafeCallFix(range.startOffset))
+        if (text.startsWith("unnecessary '?:'")) return listOf(RemoveElvisFix(range.startOffset))
         val name = notFound.find(text)?.groupValues?.get(1) ?: return emptyList()
         // the name in the range of the error: the compiler reports some on a whole type, e.g. `List<Stmt>`
         val element = PsiTreeUtil.findChildrenOfType(file, ForgeNameElement::class.java)
@@ -122,6 +125,32 @@ object ForgeQuickFixes {
             while (start > 0 && (text[start - 1].isLetterOrDigit() || text[start - 1] == '_')) start--
             if (text.subSequence(start, (start + name.length).coerceAtMost(text.length)).toString() != name) return
             document(project, file).insertString(start, "this.")
+            commit(project, file)
+        }
+    }
+
+    /** `a?.b` -> `a.b`: [offset] is the one of `?.`. */
+    private class ReplaceSafeCallFix(private val offset: Int) : Fix() {
+        override fun getText(): String = "Replace '?.' with '.'"
+
+        override fun invoke(project: Project, editor: Editor?, file: PsiFile) {
+            val document = document(project, file)
+            if (document.charsSequence.subSequence(offset, (offset + 2).coerceAtMost(document.textLength)).toString() != "?.") return
+            document.replaceString(offset, offset + 2, ".")
+            commit(project, file)
+        }
+    }
+
+    /** `a ?: b` -> `a`: [offset] is the one of `?:`; what follows it in the elvis goes, with the space before it. */
+    private class RemoveElvisFix(private val offset: Int) : Fix() {
+        override fun getText(): String = "Remove the elvis operator"
+
+        override fun invoke(project: Project, editor: Editor?, file: PsiFile) {
+            val elvis = file.findElementAt(offset)?.parent?.takeIf { it.rule() == "Elvis" } ?: return
+            val text = document(project, file).charsSequence
+            var start = offset
+            while (start > elvis.textRange.startOffset && text[start - 1].isWhitespace()) start--
+            document(project, file).deleteString(start, elvis.textRange.endOffset)
             commit(project, file)
         }
     }

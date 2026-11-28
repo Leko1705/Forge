@@ -940,6 +940,10 @@ class Attr private constructor(context: Context) {
         override fun visitElvis(ctx: ForgeParser.ElvisContext): Type {
             var expr = ctx.expr.attribType()
             val alt = ctx.alt.attribType()
+            // a type parameter may stand for an optional type
+            if (expr !is OptionalType && expr !is TypeVar && expr != NullType && expr != ErrorType && expr != ArbitraryType && expr != NothingType) {
+                log.diag(unnecessaryElvis(ctx.ELVIS().span, expr.toString()))
+            }
             if (expr is OptionalType) expr = expr.elem
             val shared = chk.checkShareCommonSuperType(expr, alt, env.value.expected)
             return ctx.setType(shared)

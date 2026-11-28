@@ -647,7 +647,8 @@ the compiler itself, so the editor sees what `forge -f` sees:
 - **Quick fixes** (`Alt+Enter`) for errors of the compiler: `left` -> `this.left` for a child or an attribute, create
   a missing node, `Implement 'syn Expr.type'...` (a dialog, as "Implement members" in Kotlin and Java, to choose
   which of the nodes that do not implement the attribute get equations for it), `Add remaining cases` on a `match`
-  of an enum (a case for each item it misses, with its fields bound); create a function, an extension function or a
+  of an enum (a case for each item it misses, with its fields bound), `Replace '?.' with '.'` and `Remove the elvis
+  operator` where the compiler warns that the value is never null; create a function, an extension function or a
   `val` (of a node: a `syn` attribute) that is used but not declared, with the types of the arguments and what is
   expected where it is used. Their value is `TODO("not yet implemented")` until it is written.
 - **Structure view** (`Alt+7`) of the declarations, with the fields, children and enum constants of a type, the

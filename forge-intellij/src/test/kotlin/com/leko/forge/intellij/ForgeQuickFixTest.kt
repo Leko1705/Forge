@@ -40,6 +40,26 @@ class ForgeQuickFixTest : BasePlatformTestCase() {
         assertTrue(myFixture.filterAvailableIntentions("Replace").isEmpty())
     }
 
+    /** On values that are never null: the warnings of the compiler, and their fixes. */
+    fun testUnnecessarySafeCallAndElvis() {
+        myFixture.configureByText("a.forge", "record R { a: int }\nfun f(r: R): int = r?.a\nfun g(r: R): int = r.a ?: 0")
+        val warnings = myFixture.doHighlighting().filter { it.severity == com.intellij.lang.annotation.HighlightSeverity.WARNING }
+        assertEquals(listOf("?.", "?:"), warnings.map { it.text })
+        fix(
+            "record R { a: int }\nfun f(r: R): int = r<caret>?.a",
+            "Replace '?.' with '.'",
+            "record R { a: int }\nfun f(r: R): int = r.a",
+        )
+        fix(
+            "record R { a: int }\nfun g(r: R): int = r.a <caret>?: 0 + 1",
+            "Remove the elvis operator",
+            "record R { a: int }\nfun g(r: R): int = r.a",
+        )
+        // where it may be null: nothing
+        myFixture.configureByText("a.forge", "record R { a: int }\nfun f(r: R?): int = r?.a ?: 0")
+        assertEquals(emptyList<Any>(), myFixture.doHighlighting().filter { it.severity == com.intellij.lang.annotation.HighlightSeverity.WARNING }.map { it.description })
+    }
+
     fun testCreateNode() {
         fix("node Program(stmts: List<<caret>Stmt>)", "Create node 'Stmt'", "node Program(stmts: List<Stmt>)\nnode Stmt\n")
         fix("node A\nconst leaf = <caret>Leaf()", "Create node 'Leaf'", "node A\nconst leaf = Leaf()\nnode Leaf()\n")

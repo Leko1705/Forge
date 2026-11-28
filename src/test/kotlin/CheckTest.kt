@@ -53,6 +53,18 @@ class CheckTest {
         assertTrue(diagnostics.any { it.severity == Severity.WARNING && "unnecessary safe call" in it.message }, diagnostics.toString())
     }
 
+    private fun warnings(source: String): List<String> {
+        val context = Context()
+        Analyzer.instance(context).analyze(source.parseForge())
+        return Log.instance(context).diagnostics.filter { it.severity == Severity.WARNING }.map { it.message }
+    }
+
+    @Test
+    fun anElvisOnAValueThatIsNeverNullIsAWarning() {
+        assertEquals(listOf("unnecessary '?:': the left side is a 'int', which is never null"), warnings("fun f(x: int): int = x ?: 0"))
+        assertEquals(emptyList(), warnings("fun f(x: int?): int = x ?: 0\nfun <T> g(x: T, d: T): T = x ?: d\nfun h(): int = null ?: 1"))
+    }
+
     @Test
     fun namesInAListMustDiffer() {
         assertError("field 'rhs' already defined for node Sub", "node Expr\nnode Sub(rhs: Expr, rhs: Expr): Expr")
